@@ -5,6 +5,7 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 ## Files
 - `noaa-charts.sh`: downloads NOAA NCDS regional MBTiles (paper-chart style, depths in feet) from `https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_XX.mbtiles` and converts to OsmAnd `.sqlitedb`. `-M` merges multiple regions into one `ncds_XX_YY.sqlitedb` (`-S` = separate; asks if neither). **Working and confirmed on device.**
 - `noaa-ecdis-tiles.sh`: pulls 256px tiles for a bbox from NOAA's ECDIS Display Service (S-52 style, depths in meters) via the ArcGIS MCS `export` endpoint and packs them into `.sqlitedb`. Auto-refresh/resume logic. **Confirmed on device.**
+- `noaa-route.py`: route planner. NOAA ENC S-57 (state zip, updates applied by GDAL `UPDATES=APPLY`) -> per-cell GeoPackage cache -> rasterized Byte grid (gdal_rasterize, bands burned low to high detail, each cell resets its own M_COVR coverage) -> pure-Python A* (no numpy) -> GPX `<rte>`. Python because routing in bash is impractical. **Confirmed on device:** Middle River to Annapolis (3 ft draft, 26.3 nm) and Maryland Marina to Chesapeake City public dock (34.3 nm, via APG waters and C&D Canal) import and display correctly in OsmAnd (2026-10-11).
 - `README.md`: user guide. Keep it in sync with any script changes.
 
 ## Status
@@ -32,7 +33,12 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - Scripts use `set -euo pipefail`; watch for `grep` with no matches killing pipelines.
 - **Merge:** per-region `.sqlitedb` files are kept as merge sources. Overlapping tiles keep the larger image via `INSERT ... ON CONFLICT DO UPDATE` (needs SQLite 3.24+). Merged map is rebuilt only if a region changed, `-f`, or it is missing.
 
+- **Route planner rules:** US ENC depth areas step 0/1.8/3.6 m, so a 3 ft draft falls inside the 0-1.8 m band. That band is "marginal" (cost x4, flagged), not blocked, with soundings < draft as hazards. Bridges: decks without VERCLR block, spans with VERCLR re-open (most detailed cell wins, same reset as depths); without this the route went under the Bay Bridge's low Sandy Point approach spans. Restricted areas: only navigation RESTRN codes are flagged; Maryland's bay-wide no-discharge zone (RESTRN 16) otherwise drowns them out.
+- `noaa-route.py -l` starts from `termux-location` (GPS 90 s, then network 30 s). Needs Termux:API app + `pkg termux-api` + Location permission; verified a fix is returned (from inland, so no full route from a live fix yet).
+- GDAL on Termux needed `pkg install openexr` (missing `libOpenEXR` at first run).
+
 ## Known issues / ideas
+- ECDIS service: after ~32k tiles in one run, some new connections to NOAA hung until `--connect-timeout 20`, dropping throughput from ~17 to ~1.5 tiles/s. Possible fix: shorter connect timeout or reusing connections (several URLs per curl).
 - NCDS region latitude bounds (from each file's metadata): 02a 41.10-42.80, 03 39.73-41.10, 04 38.23-39.73, 05 35.50-38.23, 06 32.54-35.50. Region 04 ends near Toms River, NJ; northern NJ / NY Harbor needs 03.
 - Overlap is large (about 251k shared tiles between 04 and 05). If seams look wrong at 39.73N or 38.23N, revisit the larger-image rule.
 - NCDS region `ncds_04` last published May 2024 despite NOAA claiming weekly updates. ECDIS is the current-data option.

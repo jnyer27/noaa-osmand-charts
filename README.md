@@ -1,6 +1,6 @@
 # NOAA Charts for OsmAnd+ (Termux scripts)
 
-Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux.
+Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux, plus a route planner (`noaa-route.py`) that writes GPX routes from NOAA's vector chart data.
 
 | Script | Chart style | Source | Depths | Best for |
 |---|---|---|---|---|
@@ -150,6 +150,74 @@ Your existing map is protected: if a refresh ends with failed tiles, the old `.s
 
 ---
 
+## noaa-route.py (route planner, GPX output)
+
+Plans a route for your draft over NOAA ENC vector charts (the same data the ECDIS service draws, with all NOAA update files applied) and writes a GPX route for OsmAnd.
+
+> **Planning aid only.** Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before running it.
+
+### Setup
+```
+pkg install gdal
+```
+If GDAL then fails with `libOpenEXR... not found`, also run `pkg install openexr`.
+
+The first run downloads NOAA's ENC set for Maryland (about 32 MB) to `~/.noaa-enc/`. Add `-u` to check NOAA for newer data (they update weekly).
+
+### Usage
+```
+python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
+```
+
+| Flag | Meaning |
+|---|---|
+| `-f LAT,LON` | Start (decimal degrees, west negative) |
+| `-l` | Start from the phone's current location (see below) |
+| `-t LAT,LON` | End |
+| `-v LAT,LON` | Via point, repeatable, visited in order |
+| `-d FEET` | Safe operating draft (the minimum charted depth you need) |
+| `-a FEET` | Air draft; bridge spans and overhead cables with less charted clearance are avoided |
+| `-n NAME` | Route and file name (default `route`) |
+| `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts/routes`) |
+| `-s STATES` | ENC sets, comma separated (default `MD`; e.g. `MD,VA,DE`) |
+| `-r METERS` | Grid resolution (default 30) |
+| `-b METERS` | Buffer around hazards (default 60) |
+| `-u` | Check NOAA for newer ENC data first |
+
+### Starting from where you are (`-l`)
+Uses `termux-location`. One-time setup:
+1. Install the **Termux:API** app (same source as Termux) and run `pkg install termux-api`.
+2. Android **Settings > Apps > Termux:API > Permissions > Location > Allow**, with **Use precise location** on.
+
+It tries GPS for up to 90 s, then the network location, and prints the fix and its accuracy.
+
+### Example
+```
+# From here to Chesapeake City public dock
+python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
+
+# Middle River to Annapolis, 3 ft draft
+python3 noaa-route.py -f 39.32,-76.40 -t 38.975,-76.482 -d 3 -n middle_river_annapolis
+```
+Takes about a minute on the phone. It prints each leg's course and distance with notes, then writes the GPX. Import it like a chart: `termux-open --chooser <file>.gpx` and choose OsmAnd+.
+
+### How it decides where you can go
+| Charted | Treatment |
+|---|---|
+| Depth area at least your draft (usually the 6 ft+ areas) | Used freely |
+| Depth area spanning your draft (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your draft are hazards. Legs through it are flagged "check soundings" |
+| Land, drying, unsurveyed or uncharted water | Never used |
+| Rocks, wrecks, obstructions shallower than draft + 1 ft or of unknown depth; piles; pylons | Avoided with the hazard buffer |
+| Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough |
+| Entry prohibited / area to be avoided | Never used |
+| Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
+
+NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft draft most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
+
+A point on land or a dock is moved to the nearest usable water, and the output says how far.
+
+---
+
 ## Getting maps into OsmAnd+
 
 OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied.
@@ -194,10 +262,13 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 |---|---|
 | `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
 | `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
+| `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` |
+| `~/.noaa-enc/` | ENC chart data and converted cells for the route planner (safe to delete; re-downloads) |
 | `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
 
 ## Data sources
 - NOAA Chart Display Service MBTiles: https://distribution.charts.noaa.gov/ncds/
 - NOAA ECDIS Display Service: https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer
+- NOAA ENC downloads (route planner): https://charts.noaa.gov/ENCs/ENCs.shtml
 - OsmAnd `.sqlitedb` format follows https://github.com/tarwirdur/mbtiles2osmand
