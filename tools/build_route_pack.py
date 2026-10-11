@@ -294,10 +294,11 @@ def build(cells, grid, work):
                 span.append((geom, half_m(clr)))
             if kinds:
                 opening.append((geom, 1))
-            if clr is not None or kinds:
-                closed = fnum(f, "VERCCL") or clr
-                notes.append(note("bridge", band, geom, name=fstr(f, "OBJNAM") or "bridge",
-                                  clr=clr, opening=kinds[0] if kinds else None, closed=closed))
+            # Every bridge part is kept so the report can tell that a detailed
+            # chart has the bridge here (and ignore overview-chart outlines)
+            notes.append(note("bridge", band, geom, name=fstr(f, "OBJNAM") or "bridge", clr=clr,
+                              opening=kinds[0] if kinds else None,
+                              closed=(fnum(f, "VERCCL") or clr) if kinds else None))
         flags |= np.where(burn(grid, deck, all_touched=True) > 0, DECK, 0).astype(np.uint8)
         sp = burn(grid, span, all_touched=True, merge="min")
         flags |= np.where(sp > 0, SPAN, 0).astype(np.uint8)
@@ -329,8 +330,9 @@ def note(kind, band, geom, **attrs):
     def rnd(c):
         return [round(c[0], 6), round(c[1], 6)] if isinstance(c[0], (int, float)) else [rnd(x) for x in c]
 
+    coords = gj.get("coordinates")  # None for geometry collections: bbox only
     return {"kind": kind, "band": band, "bbox": [round(minx, 6), round(miny, 6), round(maxx, 6), round(maxy, 6)],
-            "type": gj["type"], "coords": rnd(gj["coordinates"]),
+            "type": gj["type"] if coords is not None else "Bbox", "coords": rnd(coords) if coords is not None else None,
             **{k: (round(v, 2) if isinstance(v, float) else v) for k, v in attrs.items() if v is not None}}
 
 
