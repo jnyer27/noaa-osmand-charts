@@ -43,6 +43,8 @@ Downloads one of NOAA's regional NCDS MBTiles files and converts it to OsmAnd fo
 | `-k` | Keep the original `.mbtiles` after conversion |
 | `-m` | MBTiles only, skip conversion (for OpenCPN or other apps) |
 | `-f` | Force re-download even if your copy is current |
+| `-M` | Merge all regions into one map named after them, e.g. `ncds_04_05.sqlitedb` |
+| `-S` | Keep regions as separate maps, do not merge |
 | `-i FILE` | Show info for a local `.mbtiles` or `.sqlitedb` |
 | `-l` | List known region codes |
 | `-h` | Help |
@@ -52,7 +54,17 @@ Downloads one of NOAA's regional NCDS MBTiles files and converts it to OsmAnd fo
 ./noaa-charts.sh 04            # region 04 (covers the upper Chesapeake)
 ./noaa-charts.sh 04 05         # two regions
 ./noaa-charts.sh -k 04         # also keep the .mbtiles
+./noaa-charts.sh -M 04 05      # two regions merged into ncds_04_05.sqlitedb
 ```
+
+### Merging regions
+With two or more regions and neither `-M` nor `-S`, the script asks before downloading (default: merge). When run without a terminal (cron, scripts) it does not ask and keeps the maps separate.
+
+- The merged file name lists every region, sorted: `04 05` and `05 04` both give `ncds_04_05.sqlitedb`.
+- The per-region `.sqlitedb` files are kept so a later update to one region can re-merge without downloading the others. Import only the merged file into OsmAnd.
+- The merged map is rebuilt only when a region changed (or with `-f`, or if it is missing).
+- Where regions overlap, the larger tile image wins (usually the one with more chart drawn, not a blank edge).
+- `-m` (MBTiles only) disables merging.
 
 ### Updates
 Re-run the same command. The script compares NOAA's file date with your copy and only downloads when NOAA has published something newer.
@@ -182,6 +194,7 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 |---|---|
 | `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
 | `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
+| `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
 
 ## Data sources

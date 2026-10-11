@@ -12,6 +12,9 @@
 #   -k        Keep the original .mbtiles after conversion
 #   -m        MBTiles only, skip conversion to .sqlitedb
 #   -f        Force re-download even if local copy is current
+#   -M        Merge all regions into one .sqlitedb (named after the regions)
+#   -S        Keep regions as separate maps, do not merge
+#             (with 2+ regions and neither flag, the script asks)
 #   -i FILE   Print info (bounds, zooms, tile count) for a local .mbtiles/.sqlitedb
 #   -l        List known region codes
 #   -h        Help
@@ -26,6 +29,7 @@ OUT_DIR="${HOME}/storage/downloads/noaa-charts"
 KEEP_MBTILES=0
 CONVERT=1
 FORCE=0
+MERGE=""   # 1 = merge, 0 = separate, empty = ask
 
 KNOWN=(01a 01b 02a 02b 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17a 17b 18
        19a 19b 19c 19d 20a 20b 20c 21 22a 22b 23a 23b 24a 24b 25a 25b 26a 26b
@@ -33,7 +37,7 @@ KNOWN=(01a 01b 02a 02b 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17a 17b 18
 
 log()  { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 
 need() {
   command -v "$1" >/dev/null 2>&1 && return
@@ -137,13 +141,47 @@ SQL
   [[ $KEEP_MBTILES -eq 1 ]] || rm -f "$src"
 }
 
+merge() {
+  # Combine per-region .sqlitedb files into one. Where regions overlap and
+  # both have a tile, keep the larger image (usually the one with more chart
+  # drawn on it rather than a mostly blank edge tile).
+  local dst="$1"; shift
+  local src total=0 free
+
+  for src in "$@"; do total=$(( total + $(stat -c %s "$src") )); done
+  free=$(free_bytes "$OUT_DIR")
+  [[ "$free" -gt "$total" ]] || die "Merge: need ~$(human "$total"), only $(human "$free") free"
+
+  log "$(basename "$dst"): merging $# regions"
+  rm -f "${dst}.tmp"
+  {
+    echo "PRAGMA journal_mode=OFF;"
+    echo "PRAGMA synchronous=OFF;"
+    echo "CREATE TABLE tiles (x int, y int, z int, s int, image blob, PRIMARY KEY (x,y,z,s));"
+    echo "CREATE TABLE info (maxzoom Int, minzoom Int);"
+    for src in "$@"; do
+      echo "ATTACH DATABASE '$src' AS src;"
+      echo "INSERT INTO tiles (x, y, z, s, image) SELECT x, y, z, s, image FROM src.tiles WHERE true"
+      echo "  ON CONFLICT (x, y, z, s) DO UPDATE SET image = excluded.image"
+      echo "  WHERE length(excluded.image) > length(tiles.image);"
+      echo "DETACH DATABASE src;"
+    done
+    echo "INSERT INTO info (maxzoom, minzoom) SELECT max(z), min(z) FROM tiles;"
+  } | sqlite3 "${dst}.tmp" >/dev/null || die "Merge failed"
+
+  mv -f "${dst}.tmp" "$dst"
+  log "$(basename "$dst"): ready ($(human "$(stat -c %s "$dst")"))"
+}
+
 # ---- argument parsing ----
-while getopts ":o:kmfi:lh" opt; do
+while getopts ":o:kmfMSi:lh" opt; do
   case $opt in
     o) OUT_DIR="$OPTARG" ;;
     k) KEEP_MBTILES=1 ;;
     m) CONVERT=0; KEEP_MBTILES=1 ;;
     f) FORCE=1 ;;
+    M) MERGE=1 ;;
+    S) MERGE=0 ;;
     i) need sqlite3 sqlite; info "$OPTARG"; exit 0 ;;
     l) printf '%s\n' "${KNOWN[@]/#/ncds_}" | column -c 80 2>/dev/null || printf '%s\n' "${KNOWN[@]/#/ncds_}"
        echo; echo "Map of regions: https://distribution.charts.noaa.gov/ncds/"; exit 0 ;;
@@ -154,6 +192,28 @@ while getopts ":o:kmfi:lh" opt; do
 done
 shift $((OPTIND - 1))
 [[ $# -gt 0 ]] || usage
+
+# Normalize region codes and drop duplicates, keeping the order given
+CODES=()
+for raw in "$@"; do
+  code="${raw#ncds_}"; code="${code%.mbtiles}"; code="${code%.sqlitedb}"; code="${code,,}"
+  [[ " ${CODES[*]} " == *" $code "* ]] || CODES+=("$code")
+done
+
+if [[ ${#CODES[@]} -lt 2 ]]; then
+  MERGE=0
+elif [[ $CONVERT -eq 0 ]]; then
+  [[ "$MERGE" == 1 ]] && log "Merge needs .sqlitedb output; ignoring -M because of -m"
+  MERGE=0
+elif [[ -z "$MERGE" ]]; then
+  if [[ -t 0 ]]; then
+    read -rp "Merge ${#CODES[@]} regions (${CODES[*]}) into one map? [Y/n] " ans
+    [[ "${ans,,}" == n* ]] && MERGE=0 || MERGE=1
+  else
+    log "Multiple regions and no -M/-S given, not interactive: keeping maps separate"
+    MERGE=0
+  fi
+fi
 
 need curl curl
 need sqlite3 sqlite
@@ -177,12 +237,36 @@ mkdir -p "$OUT_DIR" || die "Cannot create $OUT_DIR"
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 trap 'command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock' EXIT
 
-for raw in "$@"; do
-  code="${raw#ncds_}"; code="${code%.mbtiles}"; code="${code,,}"
+changed=0
+for code in "${CODES[@]}"; do
   if download "$code"; then
+    changed=1
     [[ $CONVERT -eq 1 ]] && convert "${OUT_DIR}/ncds_${code}.mbtiles"
   fi
 done
 
+if [[ $MERGE -eq 1 ]]; then
+  # Sorted so "04 05" and "05 04" produce the same file
+  mapfile -t sorted < <(printf '%s\n' "${CODES[@]}" | sort)
+  merged="${OUT_DIR}/ncds_$(IFS=_; echo "${sorted[*]}").sqlitedb"
+  parts=()
+  for code in "${sorted[@]}"; do
+    f="${OUT_DIR}/ncds_${code}.sqlitedb"
+    [[ -f "$f" ]] || die "Cannot merge: $(basename "$f") is missing. Re-run with -f to rebuild it."
+    parts+=("$f")
+  done
+  # The per-region files are kept so a later update to one region can re-merge
+  # without downloading the others again.
+  if [[ $changed -eq 1 || $FORCE -eq 1 || ! -f "$merged" ]]; then
+    merge "$merged" "${parts[@]}"
+  else
+    log "$(basename "$merged"): up to date"
+  fi
+fi
+
 log "Done. Files are in: $OUT_DIR"
-[[ $CONVERT -eq 1 ]] && log "In OsmAnd+: open each .sqlitedb from your file manager with OsmAnd to import it."
+if [[ $MERGE -eq 1 ]]; then
+  log "In OsmAnd+: import $(basename "$merged") (the per-region files are only needed for future merges)."
+elif [[ $CONVERT -eq 1 ]]; then
+  log "In OsmAnd+: open each .sqlitedb from your file manager with OsmAnd to import it."
+fi
