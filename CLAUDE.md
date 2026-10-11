@@ -30,7 +30,6 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - **ECDIS refresh safety:** a refresh that ends with failed tiles must never overwrite an existing complete `.sqlitedb`. The `.refreshing` marker in the tile cache tracks an unfinished refresh.
 - Shebang is `#!/data/data/com.termux/files/usr/bin/bash` (Termux path).
 - Scripts use `set -euo pipefail`; watch for `grep` with no matches killing pipelines.
-
 - **Merge:** per-region `.sqlitedb` files are kept as merge sources. Overlapping tiles keep the larger image via `INSERT ... ON CONFLICT DO UPDATE` (needs SQLite 3.24+). Merged map is rebuilt only if a region changed, `-f`, or it is missing.
 
 ## Known issues / ideas
