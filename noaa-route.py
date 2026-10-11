@@ -27,7 +27,8 @@ Options:
                  trips up to 60 m for long ones)
   -b METERS      Buffer around hazards in meters (default: 60)
   -u             Check NOAA for newer ENC data before planning
-  -O             Open the GPX in OsmAnd (Android chooser) when done
+  -O             Open the routes folder in the Files app when done; tap the
+                 GPX there and pick OsmAnd (termux-open crashes OsmAnd on GPX)
   -h             Help
 
 How depth is judged (charted depths are at MLLW, no tide added):
@@ -63,6 +64,7 @@ import sys
 import time
 import zipfile
 from array import array
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 HOME = os.path.expanduser("~")
@@ -196,7 +198,7 @@ def interview():
     args += ["-n", name]
     if ask("Check NOAA for chart updates first (needs internet)? y/n", "n").lower().startswith("y"):
         args += ["-u"]
-    if ask("Open in OsmAnd when done? y/n", "y").lower().startswith("y"):
+    if ask("Open the routes folder in Files when done (tap the GPX, pick OsmAnd)? y/n", "y").lower().startswith("y"):
         args += ["-O"]
     print()
 
@@ -785,6 +787,24 @@ def write_gpx(path, name, wps, draft_ft, legs):
         f.write("\n".join(out) + "\n")
 
 
+def open_folder(path):
+    """Show a shared-storage folder in Android's Files app. Returns True if launched.
+
+    GPX files sent from Termux (termux-open, view or send) crash OsmAnd, but the
+    same file opened from the Files app imports fine.
+    """
+    base = "/storage/emulated/0/"
+    real = os.path.realpath(path)
+    if not real.startswith(base) or not shutil.which("am"):
+        return False
+    uri = ("content://com.android.externalstorage.documents/document/primary%3A"
+           + quote(real[len(base):], safe=""))
+    p = subprocess.run(["am", "start", "-a", "android.intent.action.VIEW",
+                        "-t", "vnd.android.document/directory", "-d", uri],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return p.returncode == 0
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -916,11 +936,11 @@ def main():
         print(f"{k + 1:>3}  {l['brg']:>5.0f}T  {l['dist'] / NM:>7.2f}  {'; '.join(notes)}")
     print()
     log(f"GPX written: {gpx}")
-    if a.open and shutil.which("termux-open"):
-        subprocess.run(["termux-open", "--chooser", gpx])
-        log("Sent to the Android chooser: pick OsmAnd+")
+    shown = os.path.realpath(gpx).replace("/storage/emulated/0/", "")
+    if a.open and open_folder(a.out):
+        log(f"Opened {os.path.dirname(shown)} in Files: tap {os.path.basename(gpx)} and pick OsmAnd+")
     else:
-        log(f'Import: termux-open --chooser "{gpx}"  (choose OsmAnd+)')
+        log(f"Import: in a file manager open {shown} and pick OsmAnd+")
     log("Not for navigation. Verify every leg against a current chart.")
 
 

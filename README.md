@@ -191,7 +191,7 @@ Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 | `-r METERS` | Grid resolution (default auto: 10 m for short trips, up to 60 m for long ones) |
 | `-b METERS` | Buffer around hazards (default 60) |
 | `-u` | Check NOAA for newer ENC data first |
-| `-O` | Open the GPX in OsmAnd (Android chooser) when done |
+| `-O` | Open the routes folder in the Files app when done; tap the GPX and pick OsmAnd+ |
 
 ### Starting from where you are (`-l`)
 Uses `termux-location`. One-time setup:
@@ -208,7 +208,9 @@ python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
 # Middle River to Annapolis, 3 ft safe operating depth
 python3 noaa-route.py -f 39.32,-76.40 -t 38.975,-76.482 -d 3 -n middle_river_annapolis
 ```
-Takes about a minute on the phone. It prints each leg's course and distance with notes, then writes the GPX. Import it like a chart: `termux-open --chooser <file>.gpx` and choose OsmAnd+.
+Takes 15-30 seconds on the phone. It prints each leg's course and distance with notes, then writes the GPX to `Download/noaa-charts/routes/`.
+
+**Opening a route in OsmAnd:** use a file manager (Files app > Download > noaa-charts > routes), tap the `.gpx` and pick OsmAnd+. With `-O` (or answering yes in the interview) the planner opens that folder in Files for you. Do **not** use `termux-open` for GPX files: OsmAnd crashes on GPX shared from Termux (both view and send), though `.sqlitedb` maps import fine that way.
 
 ### How it decides where you can go
 | Charted | Treatment |
@@ -263,6 +265,7 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 | Chart imported but nothing shows | Check the Online maps plugin is on, the chart is selected, and transparency is not at the far left. |
 | Still blank after that | The area may not be covered. For NCDS, run `./noaa-charts.sh -i <file>` to check bounds, or try another region code. |
 | Changes not appearing after a refresh | Delete the old copy in OsmAnd's Local list and re-import. |
+| OsmAnd crashes when a GPX is opened from Termux | Known: open GPX routes from the Files app instead (`noaa-route.py -O` opens the folder). |
 | ECDIS run reports many failed tiles | NOAA's service may be updating (Friday afternoons) or down. Re-run later; it resumes. |
 | "No tiles downloaded" | Same as above, or no network. |
 | All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use the ECDIS map. |

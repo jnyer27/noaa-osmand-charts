@@ -39,6 +39,7 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - Route planner speed/debug (2026-10-11): rasterizing per cell (~20 gdal calls per cell, ~60 ms process overhead each) took ~55 s for 45 cells; now one OGR VRT union layer per usage band (`band{N}.vrt`), ~9 s. On failure, `enclosure()` checks whether each end's water reaches the grid edge; if not, it stops (no wasted widening, which cost ~4 min) and lists the walls. DEPARE too shallow is burned as SHALLOW (5) so diagnostics can tell it from land.
 - Single PILPNT/PYLONS points no longer block (one pile closed Ego Alley at 20 m grid); only area geometries do (`OGR_GEOMETRY IN ('POLYGON','MULTIPOLYGON')`).
 - `-d` is the safe operating depth, not boat draft (Jason: 1.8 ft draft, 3 ft safe depth). Depths compared with ROUNDING_M = 0.05 since NOAA stores 6 ft as 1.8 m.
+- **OsmAnd crashes on GPX opened via `termux-open`** (tried --view, --send, with --content-type application/gpx+xml), but the same file opens fine from the Files app. Cause is on Termux's content-provider side; OsmAnd's crash log is unreadable (scoped storage) and `/system/bin/content` cannot run from Termux. `-O` therefore opens the folder in Files via `am start -t vnd.android.document/directory -d content://com.android.externalstorage.documents/document/primary%3A<path>` (confirmed on device). `.sqlitedb` via termux-open works.
 - GDAL on Termux needed `pkg install openexr` (missing `libOpenEXR` at first run).
 
 ## Known issues / ideas
