@@ -43,7 +43,7 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - Overlap is large (about 251k shared tiles between 04 and 05). If seams look wrong at 39.73N or 38.23N, revisit the larger-image rule.
 - NCDS region `ncds_04` last published May 2024 despite NOAA claiming weekly updates. ECDIS is the current-data option.
 - `noaa-ecdis-tiles.sh -u feet` sends a guessed MCS `display_params` (`DisplayDepthUnits=2`); unverified against NOAA. If Jason reports depths still in meters, investigate the MCS `parameters` operation on the service.
-- ECDIS script's tile-size estimate (25 KB/tile) is rough.
+- ECDIS size estimate is a 3-8 KB/tile range, from measured maps: north bay 50 mi z10-15 = 139 MB / 38,700 tiles (3.7 KB), Middle River z10-16 = 12 MB / 1,700 tiles (7 KB). Old 25 KB/tile guess overstated ~7x.
 
 ## Abandoned approach (context only)
 Raw ENC S-57 to OSM (JOSM SeaChart `js57toosm`) to OsmAnd `.obf` via OsmAndMapCreator. It worked technically (needed an Android-native sqlite-jdbc swap), but `js57toosm` ignores ENC update files (.001+), so data lacks Notice to Mariners corrections. Dropped in favor of ECDIS tiles. Do not revive without solving update application (GDAL's S-57 reader applies updates).

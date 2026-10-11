@@ -142,7 +142,8 @@ awk -v W="$W" -v S="$S" -v E="$E" -v N="$N" -v zmin="$ZMIN" -v zmax="$ZMAX" '
 TOTAL=$(wc -l < "$TILELIST")
 HAVE=$(find "$WORK" -name '*.png' 2>/dev/null | wc -l)
 log "Area $BBOX, zoom $ZMIN-$ZMAX: $TOTAL tiles ($HAVE already cached), depths in $UNITS"
-log "Estimated size: ~$(( TOTAL * 25 / 1024 )) MB"
+# Measured 3.7 KB/tile (land-heavy north bay, z10-15) to 7 KB/tile (open water, z16)
+log "Estimated size: $(( TOTAL * 3 / 1024 ))-$(( TOTAL * 8 / 1024 )) MB (more open water = larger)"
 
 if [[ $ASSUME_YES -eq 0 ]]; then
   [[ $TOTAL -gt 20000 ]] && log "That is a lot of tiles. Consider a smaller box or lower max zoom."
