@@ -152,7 +152,7 @@ Your existing map is protected: if a refresh ends with failed tiles, the old `.s
 
 ## noaa-route.py (route planner, GPX output)
 
-Plans a route for your draft over NOAA ENC vector charts (the same data the ECDIS service draws, with all NOAA update files applied) and writes a GPX route for OsmAnd.
+Plans a route for your safe operating depth over NOAA ENC vector charts (the same data the ECDIS service draws, with all NOAA update files applied) and writes a GPX route for OsmAnd.
 
 > **Planning aid only.** Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before running it.
 
@@ -173,7 +173,7 @@ Your last draft and air draft become the defaults, and at the end it prints the 
 
 Or give everything on the command line:
 ```
-python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
+python3 noaa-route.py -f LAT,LON -t LAT,LON -d DEPTH_FT [options]
 ```
 Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 
@@ -183,7 +183,7 @@ Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 | `-l` | Start from the phone's current location (see below) |
 | `-t LAT,LON` | End |
 | `-v LAT,LON` | Via point, repeatable, visited in order |
-| `-d FEET` | Safe operating draft (the minimum charted depth you need) |
+| `-d FEET` | Safe operating depth: the minimum charted depth you need, i.e. your draft plus margin (1.8 ft draft: use 3) |
 | `-a FEET` | Air draft; bridge spans and overhead cables with less charted clearance are avoided |
 | `-n NAME` | Route and file name (default `route`) |
 | `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts/routes`) |
@@ -205,7 +205,7 @@ It tries GPS for up to 90 s, then the network location, and prints the fix and i
 # From here to Chesapeake City public dock
 python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
 
-# Middle River to Annapolis, 3 ft draft
+# Middle River to Annapolis, 3 ft safe operating depth
 python3 noaa-route.py -f 39.32,-76.40 -t 38.975,-76.482 -d 3 -n middle_river_annapolis
 ```
 Takes about a minute on the phone. It prints each leg's course and distance with notes, then writes the GPX. Import it like a chart: `termux-open --chooser <file>.gpx` and choose OsmAnd+.
@@ -213,20 +213,21 @@ Takes about a minute on the phone. It prints each leg's course and distance with
 ### How it decides where you can go
 | Charted | Treatment |
 |---|---|
-| Depth area at least your draft (usually the 6 ft+ areas) | Used freely |
-| Depth area spanning your draft (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your draft are hazards. Legs through it are flagged "check soundings" |
+| Depth area at least your depth (usually the 6 ft+ areas) | Used freely |
+| Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your depth are hazards. Legs through it are flagged "check soundings" |
 | Land, drying, unsurveyed or uncharted water | Never used |
-| Rocks, wrecks, obstructions shallower than draft + 1 ft or of unknown depth | Avoided with the hazard buffer |
-| Piles and bridge piers | Avoided, without the buffer (they are visible) |
+| Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth | Avoided with the hazard buffer |
+| Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |
+| Single charted piles | Not avoided: a grid cell is 10-60 m wide and would close narrow channels. Keep a lookout |
 | Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance; check the opening schedule |
 | Entry prohibited / area to be avoided | Never used |
 | Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
 
-NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft draft most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
+Depths are compared with 5 cm of slack because NOAA stores feet rounded to 0.1 m (the 6 ft line is 1.8 m = 5.9 ft). NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft depth most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
 
 A point on land or a dock is moved to the nearest usable water, and the output says how far.
 
-The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If it still finds nothing, try a smaller `-b`, a `-v` point along the way you expect, or more `-s` chart sets.
+The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If a point is boxed in (by shallow water, land, a hazard buffer, or a bridge or cable too low for `-a`), it stops right away and says which, with an example position.
 
 ---
 

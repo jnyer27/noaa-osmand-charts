@@ -5,8 +5,8 @@ Runs in Termux. Needs: pkg install gdal (plus openexr if gdal fails to load).
 
 Usage:
   python3 noaa-route.py                      (no options: asks step by step)
-  python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
-  python3 noaa-route.py -l -t LAT,LON -d DRAFT_FT [options]
+  python3 noaa-route.py -f LAT,LON -t LAT,LON -d DEPTH_FT [options]
+  python3 noaa-route.py -l -t LAT,LON -d DEPTH_FT [options]
 
 Points are decimal degrees: 39.2508,-76.4886 or 39.2508 N, 76.4886 W.
 
@@ -16,7 +16,8 @@ Options:
                  pkg termux-api, with Location permission granted)
   -t LAT,LON     End point
   -v LAT,LON     Via point, repeatable, visited in order
-  -d FEET        Safe operating draft in feet (minimum charted depth you need)
+  -d FEET        Safe operating depth in feet: the minimum charted depth you
+                 need (your draft plus your margin, e.g. 1.8 ft draft -> 3)
   -a FEET        Air draft in feet; bridge spans and overhead cables with less
                  charted clearance are avoided (default: not checked)
   -n NAME        Route name and file name (default: route)
@@ -30,14 +31,15 @@ Options:
   -h             Help
 
 How depth is judged (charted depths are at MLLW, no tide added):
-  - Depth areas whose shallowest value is >= your draft: safe.
+  - Depth areas whose shallowest value is >= your depth: safe.
   - Depth areas that start shallower but reach deeper (NOAA's usual 0-6 ft
-    band): usable but avoided; soundings shallower than your draft inside
+    band): usable but avoided; soundings shallower than your depth inside
     them are treated as hazards. Legs through this water are flagged.
   - Land, drying areas, unsurveyed or uncharted water: never used.
-  - Rocks, wrecks, obstructions shallower than draft + 1 ft (or of unknown
-    depth): avoided with the hazard buffer. Piles and bridge piers are
-    visible, so only the structure itself is avoided.
+  - Rocks, wrecks, obstructions shallower than depth + 1 ft (or of unknown
+    depth): avoided with the hazard buffer. Bridge piers and piers drawn
+    as areas are visible, so only the structure itself is avoided. Single
+    charted piles are not avoided (a grid cell is far wider than a pile).
   - Bridges are only passed under spans that have a charted vertical
     clearance (the navigation spans), and with -a only if it is enough.
     Opening bridges (swing, bascule, lift, draw) are passed and reported
@@ -77,7 +79,10 @@ M_PER_DEG = 111320.0
 NM = 1852.0
 
 # Grid values
-BLOCKED, SAFE, MARGINAL, HAZARD, STRUCT = 0, 1, 2, 3, 4  # STRUCT: visible, not buffered
+BLOCKED, SAFE, MARGINAL, HAZARD, STRUCT, SHALLOW = 0, 1, 2, 3, 4, 5  # STRUCT: visible, not buffered
+# NOAA converts feet to meters at 0.1 m, so the 6 ft line is stored as 1.8 m (5.9 ft).
+# Compare depths with this much slack so "6 ft" water counts for a 6 ft need.
+ROUNDING_M = 0.05
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
 NO_PASS, SPAN_OK = 4, 5
@@ -180,7 +185,7 @@ def interview():
         if not v:
             break
         args += ["-v", v]
-    draft = ask("Draft in feet (minimum charted depth you need)", last.get("draft"), num_check(0, 40))
+    draft = ask("Safe operating depth in feet (draft plus margin)", last.get("draft"), num_check(0, 40))
     args += ["-d", draft]
     air = ask("Air draft in feet (Enter to skip bridge clearance checks)", last.get("air", ""),
               num_check(0, 300, optional=True))
@@ -330,6 +335,26 @@ def cell_gpkg(name, path):
     return g, have
 
 
+def band_vrt(work, band, names, cells):
+    """OGR VRT that unions each layer across all cells of one usage band."""
+    layers = {}
+    for n in names:
+        g, have = cell_gpkg(n, cells[n])
+        for l in have:
+            layers.setdefault(l, []).append(g)
+    xml = ["<OGRVRTDataSource>"]
+    for l, gs in layers.items():
+        xml.append(f'<OGRVRTUnionLayer name="{l}">')
+        xml += [f'<OGRVRTLayer name="{l}"><SrcDataSource>{escape(g)}</SrcDataSource>'
+                f'<SrcLayer>{l}</SrcLayer></OGRVRTLayer>' for g in gs]
+        xml.append("</OGRVRTUnionLayer>")
+    xml.append("</OGRVRTDataSource>")
+    path = os.path.join(work, f"band{band}.vrt")
+    with open(path, "w") as f:
+        f.write("\n".join(xml))
+    return path, set(layers)
+
+
 # ---------------------------------------------------------------- grid
 
 class Grid:
@@ -368,10 +393,11 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
              "-bands", str(bands), "-ot", "Byte", "-burn", "0", "-a_srs", "EPSG:4326",
              "-a_ullr", repr(grid.west), repr(grid.north), repr(grid.east), repr(grid.south), f])
 
-    d = draft_m
-    hz = d + 1 * FT
+    d = draft_m - ROUNDING_M
+    hz = draft_m + 1 * FT
     steps = [  # layer, where, burn, all_touched
         ("M_COVR", "CATCOV = 1", BLOCKED, False),
+        ("DEPARE", f"DRVAL1 < 0 OR (DRVAL2 IS NOT NULL AND DRVAL2 <= {d})", SHALLOW, False),
         ("DEPARE", f"DRVAL1 IS NULL OR (DRVAL1 >= 0 AND DRVAL1 < {d} AND (DRVAL2 IS NULL OR DRVAL2 > {d}))", MARGINAL, False),
         ("DEPARE", f"DRVAL1 >= {d}", SAFE, False),
         ("DRGARE", f"DRVAL1 IS NULL OR DRVAL1 < {d}", MARGINAL, False),
@@ -382,8 +408,9 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         ("WRECKS", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("UWTROC", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("SOUNDG", f"DEPTH < {d}", HAZARD, False),
-        ("PILPNT", None, STRUCT, True),
-        ("PYLONS", None, STRUCT, True),
+        # Single piles are thin and visible; only piers/pylons drawn as areas block
+        ("PILPNT", "OGR_GEOMETRY IN ('POLYGON','MULTIPOLYGON')", STRUCT, True),
+        ("PYLONS", "OGR_GEOMETRY IN ('POLYGON','MULTIPOLYGON')", STRUCT, True),
     ]
 
     def inside(e):
@@ -393,36 +420,41 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
     if not use:
         die("No NOAA ENC cells cover this area. Try another -s set (e.g. VA, DE, NJ).")
     log(f"Rasterizing {len(use)} chart cells at {grid.res:.0f} m ({grid.w} x {grid.h} cells)")
-    # Lower detail bands first; each more detailed cell then overwrites its own coverage
-    for n in use:
-        g, have = cell_gpkg(n, cells[n])
+
+    def raster(src, layer, burn, where=None, at=False, bands=None, target=gt):
+        cmd = ["gdal_rasterize", "-q", "-l", layer]
+        for b in bands or []:
+            cmd += ["-b", str(b)]
+        for _ in (bands or [None]):
+            cmd += ["-burn", str(burn)]
+        if where:
+            cmd += ["-where", where]
+        if at:
+            cmd += ["-at"]
+        run(cmd + [src, target])
+
+    # One union layer per chart layer per usage band (a few dozen gdal calls
+    # instead of ~20 per cell). Lower detail bands go first; each band then
+    # resets its own coverage so the more detailed data replaces it.
+    air = air_m if air_m else 0
+    for band in sorted({n[2] for n in use}):
+        src, have = band_vrt(work, band, [n for n in use if n[2] == band], cells)
         for layer, where, burn, at in steps:
-            if layer not in have:
-                continue
-            cmd = ["gdal_rasterize", "-q", "-l", layer, "-burn", str(burn)]
-            if where:
-                cmd += ["-where", where]
-            if at:
-                cmd += ["-at"]
-            run(cmd + [g, gt])
-        if "M_COVR" in have:  # this cell's flags and bridge model replace less detailed ones
-            run(["gdal_rasterize", "-q", "-l", "M_COVR"] + [x for b in range(1, 6) for x in ("-b", str(b))]
-                + [x for _ in range(5) for x in ("-burn", "0")] + ["-where", "CATCOV = 1", g, ft])
-        for layer, band in FLAG_LAYERS.items():
             if layer in have:
-                where = ["-where", " OR ".join(f"RESTRN LIKE '%\"{c}\"%'" for c in RESTRN)] if layer == "RESARE" else []
-                run(["gdal_rasterize", "-q", "-at", "-l", layer, "-b", str(band), "-burn", "1"] + where + [g, ft])
+                raster(src, layer, burn, where, at)
+        if "M_COVR" in have:
+            raster(src, "M_COVR", 0, "CATCOV = 1", bands=range(1, 6), target=ft)
+        for layer, fb in FLAG_LAYERS.items():
+            if layer in have:
+                where = " OR ".join(f"RESTRN LIKE '%\"{c}\"%'" for c in RESTRN) if layer == "RESARE" else None
+                raster(src, layer, 1, where, True, [fb], ft)
         # Bridge decks without a charted clearance (approach spans) block passage;
-        # spans with enough clearance re-open it. Overhead cables only with -a.
-        air = air_m if air_m else 0
+        # spans with enough clearance, or that open, re-open it. Cables only with -a.
         if "BRIDGE" in have:
-            run(["gdal_rasterize", "-q", "-at", "-l", "BRIDGE", "-b", str(NO_PASS), "-burn", "1",
-                 "-where", f"VERCLR IS NULL OR VERCLR < {air}", g, ft])
-            run(["gdal_rasterize", "-q", "-at", "-l", "BRIDGE", "-b", str(SPAN_OK), "-burn", "1",
-                 "-where", f"VERCLR >= {air} OR {OPENING_SQL}", g, ft])
+            raster(src, "BRIDGE", 1, f"VERCLR IS NULL OR VERCLR < {air}", True, [NO_PASS], ft)
+            raster(src, "BRIDGE", 1, f"VERCLR >= {air} OR {OPENING_SQL}", True, [SPAN_OK], ft)
         if air_m and "CBLOHD" in have:
-            run(["gdal_rasterize", "-q", "-at", "-l", "CBLOHD", "-b", str(NO_PASS), "-burn", "1",
-                 "-where", f"VERCLR IS NULL OR VERCLR < {air_m}", g, ft])
+            raster(src, "CBLOHD", 1, f"VERCLR IS NULL OR VERCLR < {air_m}", True, [NO_PASS], ft)
 
     gb, fb = os.path.join(work, "grid.bin"), os.path.join(work, "flags.bin")
     run(["gdal_translate", "-q", "-of", "ENVI", gt, gb])
@@ -493,6 +525,41 @@ def prepare(grid, nav, flags, hazard_buf_m):
     return ok, cost, prox
 
 
+WALLS = {"shallow": "water shallower than your -d depth",
+         "land": "land or uncharted water",
+         "hazard": "the -b buffer around soundings shallower than -d, rocks, wrecks or obstructions",
+         "struct": "piles or bridge piers",
+         "nopass": "a bridge or overhead cable without enough charted clearance (-a)"}
+
+
+def enclosure(grid, ok, nav, flags, start):
+    """Water reachable from start: (cells, touches grid edge, {reason: (count, example cell)})."""
+    w, h = grid.w, grid.h
+    seen = bytearray(w * h)
+    seen[start] = 1
+    stack, n, edge, walls = [start], 0, False, {}
+    while stack:
+        k = stack.pop()
+        n += 1
+        r, c = divmod(k, w)
+        if r in (0, h - 1) or c in (0, w - 1):
+            edge = True
+        for j, valid in ((k - w, r > 0), (k + w, r < h - 1), (k - 1, c > 0), (k + 1, c < w - 1)):
+            if not valid or seen[j]:
+                continue
+            seen[j] = 1
+            if ok[j]:
+                stack.append(j)
+                continue
+            v = nav[j]
+            why = ("nopass" if v in (SAFE, MARGINAL) and flags[NO_PASS - 1][j] else
+                   "hazard" if v in (SAFE, MARGINAL, HAZARD) else
+                   "shallow" if v == SHALLOW else "struct" if v == STRUCT else "land")
+            cnt, ex = walls.get(why, (0, j))
+            walls[why] = (cnt + 1, ex)
+    return n, edge, walls
+
+
 def snap(grid, ok, lat, lon, max_m=3000):
     r0, c0 = grid.cell(lat, lon)
     if ok[r0 * grid.w + c0]:
@@ -509,7 +576,7 @@ def snap(grid, ok, lat, lon, max_m=3000):
                         best = (dd, r * grid.w + c)
         if best and best[0] <= rad:
             return best[1], best[0] * grid.res
-    die(f"No navigable water within {max_m} m of {lat},{lon} for this draft")
+    die(f"No navigable water within {max_m} m of {lat},{lon} for this depth")
 
 
 def astar(grid, cost, start, goal):
@@ -702,7 +769,7 @@ def write_gpx(path, name, wps, draft_ft, legs):
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<gpx version="1.1" creator="noaa-route.py" xmlns="http://www.topografix.com/GPX/1/1">',
            "<rte>", f"<name>{escape(name)}</name>",
-           f"<desc>{escape(f'{total:.1f} nm, planned for {draft_ft:g} ft draft at MLLW from NOAA ENC. Not for navigation.')}</desc>"]
+           f"<desc>{escape(f'{total:.1f} nm, planned for {draft_ft:g} ft depth at MLLW from NOAA ENC. Not for navigation.')}</desc>"]
     for k, (lat, lon) in enumerate(wps):
         label = "Start" if k == 0 else "End" if k == len(wps) - 1 else f"WP{k:02d}"
         desc = ""
@@ -750,7 +817,7 @@ def main():
         print(__doc__.strip())
         sys.exit(0 if a.help else 1)
     if not 0 < a.draft < 40:
-        die("Draft must be in feet, between 0 and 40")
+        die("Depth (-d) must be in feet, between 0 and 40")
     if not shutil.which("gdal_rasterize"):
         die("GDAL not found. Run: pkg install gdal")
 
@@ -805,12 +872,22 @@ def main():
             full += p if not full else p[1:]
         if failed is None:
             break
-        if attempt < len(widths) - 1:
-            log("No route inside this area, widening the search")
-    else:
-        die(f"No route found between point {failed + 1} and {failed + 2} for a {a.draft:g} ft draft"
-            + (f" and {a.air:g} ft air draft" if a.air else "")
-            + ". Try a smaller -b hazard buffer, a -v point, or more -s chart sets.")
+        # Widening only helps if both ends' water reaches the edge of the area
+        ends = [enclosure(grid, ok, nav, flags, idx[failed + e]) for e in (0, 1)]
+        closed = [e for e in (0, 1) if not ends[e][1]]
+        if closed or attempt == len(widths) - 1:
+            e = closed[0] if closed else min((0, 1), key=lambda e: ends[e][0])
+            n, _, walls = ends[e]
+            lat, lon = pts[failed + e]
+            lines = [f"No route found for {a.draft:g} ft depth" + (f" and {a.air:g} ft air draft." if a.air else "."),
+                     f"Point {failed + e + 1} ({lat:.5f},{lon:.5f}) is in a pocket of about "
+                     f"{n * grid.res * grid.res / 1e4:.1f} ha of usable water, closed off by:"]
+            for why, (cnt, ex) in sorted(walls.items(), key=lambda kv: -kv[1][0]):
+                la, lo = grid.latlon(ex)
+                lines.append(f"  - {WALLS[why]} ({cnt * grid.res:.0f} m of edge, e.g. near {la:.5f},{lo:.5f})")
+            lines.append("Move the point into open water, or relax -b, -d or -a as appropriate.")
+            die("\n".join(lines))
+        log("No route inside this area, widening the search")
 
     # Keep via points as fixed waypoints, simplify between them
     wps_idx, pos = [], 0
@@ -829,7 +906,7 @@ def main():
     total = sum(l["dist"] for l in legs)
     print()
     air = f", air draft {a.air:g} ft" if a.air else ", air draft not checked"
-    print(f"Route {a.name}: {total / NM:.1f} nm, {len(wps_ll)} points, draft {a.draft:g} ft (MLLW){air}")
+    print(f"Route {a.name}: {total / NM:.1f} nm, {len(wps_ll)} points, depth {a.draft:g} ft (MLLW){air}")
     print(f"{'Leg':>3}  {'Course':>6}  {'Dist nm':>7}  Notes")
     for k, l in enumerate(legs):
         notes = []
