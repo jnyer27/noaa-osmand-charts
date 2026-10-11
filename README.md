@@ -216,7 +216,7 @@ Takes 15-30 seconds on the phone. It prints each leg's course and distance with 
 | Charted | Treatment |
 |---|---|
 | Depth area at least your depth (usually the 6 ft+ areas) | Used freely |
-| Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your depth are hazards. Legs through it are flagged "check soundings" |
+| Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your depth are hazards. Legs through it are flagged with the length in that band and the shallowest charted sounding within 100 m |
 | Land, drying, unsurveyed or uncharted water | Never used |
 | Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth | Avoided with the hazard buffer |
 | Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |

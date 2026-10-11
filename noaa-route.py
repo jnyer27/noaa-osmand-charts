@@ -734,7 +734,39 @@ def feature_notes(grid, cells, ext, use, layer, lat, lon):
     return found
 
 
-def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use):
+def shallowest_near(work, use, a, b, within_m=100):
+    """Shallowest charted sounding (m) within within_m of the segment a-b, or None.
+    Uses the most detailed usage band that has soundings there."""
+    kx = M_PER_DEG * math.cos(math.radians((a[0] + b[0]) / 2))
+    ky = M_PER_DEG
+    e = within_m / ky
+    ax, ay, bx, by = a[1] * kx, a[0] * ky, b[1] * kx, b[0] * ky
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy or 1.0
+    for band in sorted({n[2] for n in use}, reverse=True):
+        vrt = os.path.join(work, f"band{band}.vrt")
+        if not os.path.isfile(vrt):
+            continue
+        txt = run(["ogr2ogr", "-f", "CSV", "/vsistdout/", vrt, "SOUNDG", "-select", "DEPTH",
+                   "-lco", "GEOMETRY=AS_XY", "-spat", repr(min(a[1], b[1]) - e * ky / kx),
+                   repr(min(a[0], b[0]) - e), repr(max(a[1], b[1]) + e * ky / kx),
+                   repr(max(a[0], b[0]) + e)], capture=True)
+        best = None
+        for line in txt.splitlines()[1:]:
+            try:
+                x, y, dep = (float(v) for v in line.split(",")[:3])
+            except ValueError:
+                continue
+            px, py = x * kx, y * ky
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+            if math.hypot(px - ax - t * dx, py - ay - t * dy) <= within_m:
+                best = dep if best is None else min(best, dep)
+        if best is not None:
+            return best
+    return None
+
+
+def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work):
     legs = []
     for k in range(len(wps_idx) - 1):
         a, b = wps_idx[k], wps_idx[k + 1]
@@ -761,8 +793,9 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use):
             seen = {n for l in legs for n in l["notes"]}  # report each area once, where first entered
             notes += [s for s in names if s not in seen]
         d = distance_m(wps_ll[k], wps_ll[k + 1])
+        low = shallowest_near(work, use, wps_ll[k], wps_ll[k + 1]) if marg else None
         legs.append({"dist": d, "brg": bearing(wps_ll[k], wps_ll[k + 1]),
-                     "shoal_m": marg * d / max(len(lc), 1), "notes": notes})
+                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes})
     return legs
 
 
@@ -780,6 +813,8 @@ def write_gpx(path, name, wps, draft_ft, legs):
             desc = f"Next: {l['brg']:03.0f} T, {l['dist'] / NM:.2f} nm"
             if l["shoal_m"] > 0:
                 desc += f", {l['shoal_m']:.0f} m in 0-6 ft charted water"
+                if l["low"] is not None:
+                    desc += f" (shallowest sounding nearby {l['low'] / FT:.1f} ft)"
         out.append(f'<rtept lat="{lat:.6f}" lon="{lon:.6f}"><name>{label}</name>'
                    + (f"<desc>{escape(desc)}</desc>" if desc else "") + "</rtept>")
     out += ["</rte>", "</gpx>"]
@@ -919,7 +954,7 @@ def main():
     wps_ll = [grid.latlon(i) for i in wps_idx]
     wps_ll[0], wps_ll[-1] = pts[0], pts[-1]  # exact user endpoints (snapped cell is used for checks)
 
-    legs = report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use)
+    legs = report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work)
     gpx = os.path.join(a.out, f"{a.name}.gpx")
     write_gpx(gpx, a.name, wps_ll, a.draft, legs)
 
@@ -931,7 +966,8 @@ def main():
     for k, l in enumerate(legs):
         notes = []
         if l["shoal_m"] > 0:
-            notes.append(f"{l['shoal_m']:.0f} m in 0-6 ft charted water, check soundings")
+            low = f", shallowest sounding within 100 m {l['low'] / FT:.1f} ft" if l["low"] is not None else ", no soundings within 100 m"
+            notes.append(f"{l['shoal_m']:.0f} m in 0-6 ft charted water{low}")
         notes += l["notes"]
         print(f"{k + 1:>3}  {l['brg']:>5.0f}T  {l['dist'] / NM:>7.2f}  {'; '.join(notes)}")
     print()
