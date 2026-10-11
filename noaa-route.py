@@ -4,8 +4,11 @@ Plan a boat route over NOAA ENC vector charts and write it as a GPX route.
 Runs in Termux. Needs: pkg install gdal (plus openexr if gdal fails to load).
 
 Usage:
+  python3 noaa-route.py                      (no options: asks step by step)
   python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
   python3 noaa-route.py -l -t LAT,LON -d DRAFT_FT [options]
+
+Points are decimal degrees: 39.2508,-76.4886 or 39.2508 N, 76.4886 W.
 
 Options:
   -f LAT,LON     Start point (decimal degrees, west is negative)
@@ -19,9 +22,11 @@ Options:
   -n NAME        Route name and file name (default: route)
   -o DIR         Output folder (default: ~/storage/downloads/noaa-charts/routes)
   -s STATES      NOAA ENC sets to use, comma separated (default: MD)
-  -r METERS      Grid resolution in meters (default: 30)
+  -r METERS      Grid resolution in meters (default: auto, 10 m for short
+                 trips up to 60 m for long ones)
   -b METERS      Buffer around hazards in meters (default: 60)
   -u             Check NOAA for newer ENC data before planning
+  -O             Open the GPX in OsmAnd (Android chooser) when done
   -h             Help
 
 How depth is judged (charted depths are at MLLW, no tide added):
@@ -31,9 +36,12 @@ How depth is judged (charted depths are at MLLW, no tide added):
     them are treated as hazards. Legs through this water are flagged.
   - Land, drying areas, unsurveyed or uncharted water: never used.
   - Rocks, wrecks, obstructions shallower than draft + 1 ft (or of unknown
-    depth), piles and pylons: avoided with the hazard buffer.
+    depth): avoided with the hazard buffer. Piles and bridge piers are
+    visible, so only the structure itself is avoided.
   - Bridges are only passed under spans that have a charted vertical
     clearance (the navigation spans), and with -a only if it is enough.
+    Opening bridges (swing, bascule, lift, draw) are passed and reported
+    with their closed clearance; check opening schedules.
   - Areas charted "entry prohibited" or "area to be avoided" are never used.
     Other restricted areas and overhead cables are not avoided (cables are
     with -a), but every crossing is reported with its rule and clearance.
@@ -69,10 +77,13 @@ M_PER_DEG = 111320.0
 NM = 1852.0
 
 # Grid values
-BLOCKED, SAFE, MARGINAL, HAZARD = 0, 1, 2, 3
+BLOCKED, SAFE, MARGINAL, HAZARD, STRUCT = 0, 1, 2, 3, 4  # STRUCT: visible, not buffered
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
 NO_PASS, SPAN_OK = 4, 5
+# S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
+OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
+OPENING_SQL = " OR ".join(f"CATBRG LIKE '%\"{c}\"%'" for c in OPENING)
 
 
 def log(msg):
@@ -93,14 +104,105 @@ def run(cmd, capture=False):
     return p.stdout if capture else ""
 
 
-def parse_point(s):
-    try:
-        lat, lon = (float(v) for v in s.split(","))
-    except ValueError:
-        die(f"Point must be LAT,LON: {s}")
+def point_or_none(s):
+    """'39.25,-76.48', '39.25 -76.48' or '39.25084° N, 76.48861° W' -> (lat, lon)."""
+    t = s.strip().upper().replace("\u00b0", " ").replace(",", " ")
+    m = re.fullmatch(r"\s*([-+]?\d+(?:\.\d+)?)\s*([NS])?\s+([-+]?\d+(?:\.\d+)?)\s*([EW])?\s*", t)
+    if not m:
+        return None
+    lat, lon = float(m.group(1)), float(m.group(3))
+    if m.group(2) == "S":
+        lat = -abs(lat)
+    if m.group(4) == "W":
+        lon = -abs(lon)
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        die(f"Point out of range: {s}")
+        return None
     return lat, lon
+
+
+def parse_point(s):
+    p = point_or_none(s)
+    if p is None:
+        die(f"Point must be LAT,LON in decimal degrees (e.g. 39.2508,-76.4886): {s}")
+    return p
+
+
+# ---------------------------------------------------------------- interview
+
+DEFAULTS_F = os.path.join(ENC_DIR, "route-defaults.json")
+
+
+def interview():
+    """Ask for each setting; return the equivalent command-line arguments."""
+    try:
+        last = json.load(open(DEFAULTS_F))
+    except (OSError, ValueError):
+        last = {}
+
+    def ask(prompt, default=None, check=None):
+        while True:
+            hint = f" [{default}]" if default not in (None, "") else ""
+            try:
+                v = input(f"{prompt}{hint}: ").strip()
+            except EOFError:
+                print()
+                sys.exit(1)
+            if not v and default is not None:
+                v = str(default)
+            err = check(v) if check else None
+            if not err:
+                return v
+            print(f"  {err}")
+
+    def point_check(v):
+        return None if point_or_none(v) else "Use decimal degrees, e.g. 39.2508,-76.4886 or 39.2508 N, 76.4886 W"
+
+    def num_check(lo, hi, optional=False):
+        def f(v):
+            if optional and not v:
+                return None
+            try:
+                return None if lo < float(v) < hi else f"Enter a number between {lo} and {hi}"
+            except ValueError:
+                return "Enter a number in feet"
+        return f
+
+    print("NOAA route planner. Press Enter to accept the [default]. Ctrl-C to quit.")
+    print("Tip: in OsmAnd, long-press a spot and tap the coordinates to copy them.\n")
+    args = []
+    start = ask("Start: l = current location, or LAT,LON", "l",
+                lambda v: None if v.lower() == "l" else point_check(v))
+    args += ["-l"] if start.lower() == "l" else ["-f", start]
+    args += ["-t", ask("Destination LAT,LON", None, point_check)]
+    while True:
+        v = ask("Via point LAT,LON (Enter for none)", "",
+                lambda v: None if not v else point_check(v))
+        if not v:
+            break
+        args += ["-v", v]
+    draft = ask("Draft in feet (minimum charted depth you need)", last.get("draft"), num_check(0, 40))
+    args += ["-d", draft]
+    air = ask("Air draft in feet (Enter to skip bridge clearance checks)", last.get("air", ""),
+              num_check(0, 300, optional=True))
+    if air:
+        args += ["-a", air]
+    name = ask("Route name", time.strftime("route_%Y%m%d_%H%M"),
+               lambda v: None if re.fullmatch(r"[\w.-]+", v) else "Letters, numbers, - _ . only")
+    args += ["-n", name]
+    if ask("Check NOAA for chart updates first (needs internet)? y/n", "n").lower().startswith("y"):
+        args += ["-u"]
+    if ask("Open in OsmAnd when done? y/n", "y").lower().startswith("y"):
+        args += ["-O"]
+    print()
+
+    try:
+        os.makedirs(ENC_DIR, exist_ok=True)
+        json.dump({"draft": draft, "air": air}, open(DEFAULTS_F, "w"))
+    except OSError:
+        pass
+    print("Same route next time without questions:")
+    print("  python3 noaa-route.py " + " ".join(f'"{x}"' if " " in x else x for x in args) + "\n")
+    return args
 
 
 def current_location():
@@ -231,11 +333,11 @@ def cell_gpkg(name, path):
 # ---------------------------------------------------------------- grid
 
 class Grid:
-    def __init__(self, pts, res):
+    def __init__(self, pts, res, widen=1.0):
         lats = [p[0] for p in pts]
         lons = [p[1] for p in pts]
         span = max(max(lats) - min(lats), max(lons) - min(lons))
-        pad = max(0.04, span * 0.2)
+        pad = max(0.06, span * 0.25) * widen
         self.south, self.north = min(lats) - pad, max(lats) + pad
         latmid = (self.south + self.north) / 2
         self.dlat = res / M_PER_DEG
@@ -280,8 +382,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         ("WRECKS", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("UWTROC", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("SOUNDG", f"DEPTH < {d}", HAZARD, False),
-        ("PILPNT", None, HAZARD, True),
-        ("PYLONS", None, HAZARD, True),
+        ("PILPNT", None, STRUCT, True),
+        ("PYLONS", None, STRUCT, True),
     ]
 
     def inside(e):
@@ -303,6 +405,9 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
             if at:
                 cmd += ["-at"]
             run(cmd + [g, gt])
+        if "M_COVR" in have:  # this cell's flags and bridge model replace less detailed ones
+            run(["gdal_rasterize", "-q", "-l", "M_COVR"] + [x for b in range(1, 6) for x in ("-b", str(b))]
+                + [x for _ in range(5) for x in ("-burn", "0")] + ["-where", "CATCOV = 1", g, ft])
         for layer, band in FLAG_LAYERS.items():
             if layer in have:
                 where = ["-where", " OR ".join(f"RESTRN LIKE '%\"{c}\"%'" for c in RESTRN)] if layer == "RESARE" else []
@@ -310,14 +415,11 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # Bridge decks without a charted clearance (approach spans) block passage;
         # spans with enough clearance re-open it. Overhead cables only with -a.
         air = air_m if air_m else 0
-        if "M_COVR" in have:  # this cell's bridge model replaces less detailed ones
-            run(["gdal_rasterize", "-q", "-l", "M_COVR", "-b", str(NO_PASS), "-b", str(SPAN_OK),
-                 "-burn", "0", "-burn", "0", "-where", "CATCOV = 1", g, ft])
         if "BRIDGE" in have:
             run(["gdal_rasterize", "-q", "-at", "-l", "BRIDGE", "-b", str(NO_PASS), "-burn", "1",
                  "-where", f"VERCLR IS NULL OR VERCLR < {air}", g, ft])
             run(["gdal_rasterize", "-q", "-at", "-l", "BRIDGE", "-b", str(SPAN_OK), "-burn", "1",
-                 "-where", f"VERCLR >= {air}", g, ft])
+                 "-where", f"VERCLR >= {air} OR {OPENING_SQL}", g, ft])
         if air_m and "CBLOHD" in have:
             run(["gdal_rasterize", "-q", "-at", "-l", "CBLOHD", "-b", str(NO_PASS), "-burn", "1",
                  "-where", f"VERCLR IS NULL OR VERCLR < {air_m}", g, ft])
@@ -337,7 +439,14 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
 
 def prepare(grid, nav, flags, hazard_buf_m):
     w, h, n = grid.w, grid.h, grid.w * grid.h
-    nopass, spanok = flags[NO_PASS - 1], flags[SPAN_OK - 1]
+    # Widen passable bridge spans by a cell so they cut through the whole
+    # (all-touched, so often two cells thick) bridge deck
+    nopass, spanok = flags[NO_PASS - 1], bytearray(flags[SPAN_OK - 1])
+    for i in [i for i, v in enumerate(flags[SPAN_OK - 1]) if v]:
+        r, c = divmod(i, w)
+        for rr in range(max(r - 1, 0), min(r + 2, h)):
+            for cc in range(max(c - 1, 0), min(c + 2, w)):
+                spanok[rr * w + cc] = 1
     ok = bytearray(1 if v in (SAFE, MARGINAL) and not (nopass[i] and not spanok[i]) else 0
                    for i, v in enumerate(nav))
 
@@ -468,7 +577,7 @@ def simplify(grid, path, ok, nav, prox):
     def fits(a, b, maxp, nmarg):
         m = 0
         for i in line_cells(grid, path[a], path[b]):
-            if not ok[i] or prox[i] > maxp:
+            if not ok[i] or prox[i] > maxp + 1:  # +1: grid staircase tolerance
                 return False
             if nav[i] == MARGINAL:
                 m += 1
@@ -540,13 +649,19 @@ def feature_notes(grid, cells, ext, use, layer, lat, lon):
                 name = p.get("OBJNAM") or "restricted area"
                 found.append(f"{name}: {', '.join(rules)}" + (f" ({cfr.group(0)})" if cfr else ""))
             elif layer == "BRIDGE":
-                if clr:
-                    found.append(f"{p.get('OBJNAM') or 'bridge'} span (clearance {clr / FT:.0f} ft)")
+                kinds = [OPENING[c] for c in (p.get("CATBRG") or []) if c in OPENING]
+                name = p.get("OBJNAM") or "bridge"
+                if kinds:
+                    closed = p.get("VERCCL") or p.get("VERCLR")
+                    found.append(f"{name}: {kinds[0]} bridge, may need an opening"
+                                 + (f" (closed clearance {closed / FT:.0f} ft)" if closed else ""))
+                elif clr:
+                    found.append(f"{name} span (clearance {clr / FT:.0f} ft)")
             else:
                 found.append(f"{p.get('OBJNAM') or 'overhead cable'}"
                              + (f" (clearance {clr / FT:.0f} ft)" if clr else " (clearance not charted)"))
-        if found:
-            break  # most detailed cell that has it wins
+        if feats:
+            break  # the most detailed cell with features here is authoritative
     return found
 
 
@@ -556,6 +671,8 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use):
         a, b = wps_idx[k], wps_idx[k + 1]
         lc = line_cells(grid, a, b)
         marg = sum(1 for i in lc if nav[i] == MARGINAL)
+        if marg < 2:
+            marg = 0  # a single edge cell is rasterization noise, not a shoal crossing
         notes = []
         for layer, band in FLAG_LAYERS.items():
             # Sample where a flagged stretch starts, then every ~500 m along it
@@ -614,11 +731,19 @@ def main():
     ap.add_argument("-n", dest="name", default="route")
     ap.add_argument("-o", dest="out", default=os.path.join(HOME, "storage/downloads/noaa-charts/routes"))
     ap.add_argument("-s", dest="states", default="MD")
-    ap.add_argument("-r", dest="res", type=float, default=30.0)
+    ap.add_argument("-r", dest="res", type=float)
     ap.add_argument("-b", dest="buf", type=float, default=60.0)
     ap.add_argument("-u", dest="update", action="store_true")
+    ap.add_argument("-O", dest="open", action="store_true")
     ap.add_argument("-h", dest="help", action="store_true")
-    a = ap.parse_args()
+    argv = sys.argv[1:]
+    if not argv and sys.stdin.isatty():
+        try:
+            argv = interview()
+        except KeyboardInterrupt:
+            print()
+            sys.exit(1)
+    a = ap.parse_args(argv)
     if a.start and a.here:
         die("Use either -f or -l, not both")
     if a.help or not ((a.start or a.here) and a.end and a.draft):
@@ -642,31 +767,50 @@ def main():
     cells = find_cells(states)
     ext = cell_extents(cells)
 
-    grid = Grid(pts, a.res)
-    if grid.w * grid.h > 8_000_000:
-        die(f"Area too large at {a.res:.0f} m ({grid.w} x {grid.h}). Use a coarser -r or add -v points closer together.")
     work = os.path.join(ENC_DIR, "work")
     os.makedirs(work, exist_ok=True)
 
-    nav, flags, use = build_rasters(grid, cells, ext, draft_m, a.air * FT if a.air else None, work)
-    log("Preparing cost grid")
-    ok, cost, prox = prepare(grid, nav, flags, a.buf)
+    # The search area is a box around the points. If the way around a point
+    # of land runs outside it, widen the box and try again.
+    widths = (1.0, 2.5, 5.0)
+    for attempt, widen in enumerate(widths):
+        if a.res:
+            grid = Grid(pts, a.res, widen)
+        else:  # finest grid that keeps routing time reasonable on a phone
+            for res in (10, 15, 20, 30, 45, 60):
+                grid = Grid(pts, res, widen)
+                if grid.w * grid.h <= 5_000_000:
+                    break
+        if grid.w * grid.h > 8_000_000:
+            die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Use a coarser -r or add -v points closer together.")
 
-    idx = []
-    for k, (lat, lon) in enumerate(pts):
-        i, moved = snap(grid, ok, lat, lon)
-        if moved > grid.res:
-            log(f"Point {k + 1} ({lat},{lon}) moved {moved:.0f} m to the nearest usable water")
-        idx.append(i)
+        nav, flags, use = build_rasters(grid, cells, ext, draft_m, a.air * FT if a.air else None, work)
+        log("Preparing cost grid")
+        ok, cost, prox = prepare(grid, nav, flags, a.buf)
 
-    full = []
-    for k in range(len(idx) - 1):
-        log(f"Routing leg {k + 1} of {len(idx) - 1}")
-        p = astar(grid, cost, idx[k], idx[k + 1])
-        if p is None:
-            die(f"No route found between point {k + 1} and {k + 2} for a {a.draft:g} ft draft"
-                + (f" and {a.air:g} ft air draft." if a.air else "."))
-        full += p if not full else p[1:]
+        idx = []
+        for k, (lat, lon) in enumerate(pts):
+            i, moved = snap(grid, ok, lat, lon)
+            if moved > grid.res and attempt == 0:
+                log(f"Point {k + 1} ({lat},{lon}) moved {moved:.0f} m to the nearest usable water")
+            idx.append(i)
+
+        full, failed = [], None
+        for k in range(len(idx) - 1):
+            log(f"Routing leg {k + 1} of {len(idx) - 1}")
+            p = astar(grid, cost, idx[k], idx[k + 1])
+            if p is None:
+                failed = k
+                break
+            full += p if not full else p[1:]
+        if failed is None:
+            break
+        if attempt < len(widths) - 1:
+            log("No route inside this area, widening the search")
+    else:
+        die(f"No route found between point {failed + 1} and {failed + 2} for a {a.draft:g} ft draft"
+            + (f" and {a.air:g} ft air draft" if a.air else "")
+            + ". Try a smaller -b hazard buffer, a -v point, or more -s chart sets.")
 
     # Keep via points as fixed waypoints, simplify between them
     wps_idx, pos = [], 0
@@ -695,7 +839,11 @@ def main():
         print(f"{k + 1:>3}  {l['brg']:>5.0f}T  {l['dist'] / NM:>7.2f}  {'; '.join(notes)}")
     print()
     log(f"GPX written: {gpx}")
-    log(f'Import: termux-open --chooser "{gpx}"  (choose OsmAnd+)')
+    if a.open and shutil.which("termux-open"):
+        subprocess.run(["termux-open", "--chooser", gpx])
+        log("Sent to the Android chooser: pick OsmAnd+")
+    else:
+        log(f'Import: termux-open --chooser "{gpx}"  (choose OsmAnd+)')
     log("Not for navigation. Verify every leg against a current chart.")
 
 

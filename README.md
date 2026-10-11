@@ -165,9 +165,17 @@ If GDAL then fails with `libOpenEXR... not found`, also run `pkg install openexr
 The first run downloads NOAA's ENC set for Maryland (about 32 MB) to `~/.noaa-enc/`. Add `-u` to check NOAA for newer data (they update weekly).
 
 ### Usage
+Easiest: run it with no options and answer the questions (start, destination, via points, draft, air draft, name, update check, open in OsmAnd):
+```
+python3 noaa-route.py
+```
+Your last draft and air draft become the defaults, and at the end it prints the full command so you can repeat the same route without questions.
+
+Or give everything on the command line:
 ```
 python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
 ```
+Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 
 | Flag | Meaning |
 |---|---|
@@ -180,9 +188,10 @@ python3 noaa-route.py -f LAT,LON -t LAT,LON -d DRAFT_FT [options]
 | `-n NAME` | Route and file name (default `route`) |
 | `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts/routes`) |
 | `-s STATES` | ENC sets, comma separated (default `MD`; e.g. `MD,VA,DE`) |
-| `-r METERS` | Grid resolution (default 30) |
+| `-r METERS` | Grid resolution (default auto: 10 m for short trips, up to 60 m for long ones) |
 | `-b METERS` | Buffer around hazards (default 60) |
 | `-u` | Check NOAA for newer ENC data first |
+| `-O` | Open the GPX in OsmAnd (Android chooser) when done |
 
 ### Starting from where you are (`-l`)
 Uses `termux-location`. One-time setup:
@@ -207,14 +216,17 @@ Takes about a minute on the phone. It prints each leg's course and distance with
 | Depth area at least your draft (usually the 6 ft+ areas) | Used freely |
 | Depth area spanning your draft (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your draft are hazards. Legs through it are flagged "check soundings" |
 | Land, drying, unsurveyed or uncharted water | Never used |
-| Rocks, wrecks, obstructions shallower than draft + 1 ft or of unknown depth; piles; pylons | Avoided with the hazard buffer |
-| Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough |
+| Rocks, wrecks, obstructions shallower than draft + 1 ft or of unknown depth | Avoided with the hazard buffer |
+| Piles and bridge piers | Avoided, without the buffer (they are visible) |
+| Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance; check the opening schedule |
 | Entry prohibited / area to be avoided | Never used |
 | Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
 
 NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft draft most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
 
 A point on land or a dock is moved to the nearest usable water, and the output says how far.
+
+The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If it still finds nothing, try a smaller `-b`, a `-v` point along the way you expect, or more `-s` chart sets.
 
 ---
 
@@ -263,7 +275,8 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 | `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
 | `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
 | `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` |
-| `~/.noaa-enc/` | ENC chart data and converted cells for the route planner (safe to delete; re-downloads) |
+| `~/.noaa-enc/` | ENC chart data and converted cells for the route planner (safe to delete; re-downloads). Works offline once downloaded |
+| `~/.noaa-enc/route-defaults.json` | Last draft and air draft, used as interview defaults |
 | `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
 
