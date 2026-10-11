@@ -3,7 +3,7 @@
 Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for OsmAnd+ on Android, run in Termux. Owner: Jason, Chesapeake Bay boater (home waters: Middle River, MD). Read `README.md` for user-facing usage.
 
 ## Files
-- `noaa-charts.sh`: downloads NOAA NCDS regional MBTiles (paper-chart style, depths in feet) from `https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_XX.mbtiles` and converts to OsmAnd `.sqlitedb`. **Working and confirmed on device.**
+- `noaa-charts.sh`: downloads NOAA NCDS regional MBTiles (paper-chart style, depths in feet) from `https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_XX.mbtiles` and converts to OsmAnd `.sqlitedb`. `-M` merges multiple regions into one `ncds_XX_YY.sqlitedb` (`-S` = separate; asks if neither). **Working and confirmed on device.**
 - `noaa-ecdis-tiles.sh`: pulls 256px tiles for a bbox from NOAA's ECDIS Display Service (S-52 style, depths in meters) via the ArcGIS MCS `export` endpoint and packs them into `.sqlitedb`. Auto-refresh/resume logic. **Confirmed on device.**
 - `README.md`: user guide. Keep it in sync with any script changes.
 
@@ -11,6 +11,7 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - [x] Both scripts working on Jason's phone (Termux, aarch64)
 - [x] README written
 - [x] Private GitHub repo created and pushed: https://github.com/jnyer27/noaa-osmand-charts
+- [x] Region merge (`-M`) confirmed on device: `ncds_03_04_05.sqlitedb` (1.7 GB, 1,185,109 tiles) imports and renders in OsmAnd (2026-10-11)
 
 ## First task: push to GitHub
 1. `git init -b main && git add . && git commit -m "NOAA NCDS and ECDIS chart scripts for OsmAnd+"`
@@ -30,7 +31,11 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - Shebang is `#!/data/data/com.termux/files/usr/bin/bash` (Termux path).
 - Scripts use `set -euo pipefail`; watch for `grep` with no matches killing pipelines.
 
+- **Merge:** per-region `.sqlitedb` files are kept as merge sources. Overlapping tiles keep the larger image via `INSERT ... ON CONFLICT DO UPDATE` (needs SQLite 3.24+). Merged map is rebuilt only if a region changed, `-f`, or it is missing.
+
 ## Known issues / ideas
+- NCDS region latitude bounds (from each file's metadata): 02a 41.10-42.80, 03 39.73-41.10, 04 38.23-39.73, 05 35.50-38.23, 06 32.54-35.50. Region 04 ends near Toms River, NJ; northern NJ / NY Harbor needs 03.
+- Overlap is large (about 251k shared tiles between 04 and 05). If seams look wrong at 39.73N or 38.23N, revisit the larger-image rule.
 - NCDS region `ncds_04` last published May 2024 despite NOAA claiming weekly updates. ECDIS is the current-data option.
 - `noaa-ecdis-tiles.sh -u feet` sends a guessed MCS `display_params` (`DisplayDepthUnits=2`); unverified against NOAA. If Jason reports depths still in meters, investigate the MCS `parameters` operation on the service.
 - ECDIS script's tile-size estimate (25 KB/tile) is rough.
