@@ -1,0 +1,50 @@
+name: Route pack
+
+# Weekly NOAA ENC -> route pack for the NOAA Route app. NOAA publishes ENC
+# updates Friday afternoon (US Eastern), so build Saturday morning.
+on:
+  schedule:
+    - cron: "0 12 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
+
+      - name: Build Maryland pack
+        run: python3 tools/build_route_pack.py -s MD -r 20 -o md-route-pack.bin
+
+      - name: Describe pack
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, struct
+          p = "md-route-pack.bin"
+          with open(p, "rb") as f:
+              assert f.read(6) == b"NRPK1\n"
+              h = json.loads(f.read(struct.unpack("<I", f.read(4))[0]))
+          meta = {"file": p, "created": h["created"], "states": h["states"], "size": os.path.getsize(p),
+                  "sha256": hashlib.sha256(open(p, "rb").read()).hexdigest(),
+                  "bbox": [h["west"], h["north"] - h["height"] * h["dlat"], h["west"] + h["width"] * h["dlon"], h["north"]]}
+          json.dump(meta, open("md-route-pack.json", "w"), indent=1)
+          print(json.dumps(meta, indent=1))
+          PY
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view route-pack >/dev/null 2>&1 || \
+            gh release create route-pack --title "Route pack (weekly)" \
+              --notes "NOAA ENC route pack for the NOAA Route app, rebuilt every Saturday. Not for navigation."
+          gh release upload route-pack md-route-pack.bin md-route-pack.json --clobber
