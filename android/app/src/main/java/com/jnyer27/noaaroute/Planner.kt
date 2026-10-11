@@ -31,7 +31,7 @@ class Route(val name: String, val points: List<LatLon>, val legs: List<Leg>, val
  * with clearance (or that open), A* on an 8-connected grid without corner
  * cutting, then line-of-sight simplification.
  */
-class Planner(private val pack: Pack) {
+class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
     companion object {
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
@@ -91,7 +91,7 @@ class Planner(private val pack: Pack) {
         val c0 = max(0, floor((lons.min() - padx - pack.west) / pack.dlon).toInt())
         val c1 = min(pack.width, ceil((lons.max() + padx - pack.west) / pack.dlon).toInt())
         var f = 1
-        while (((r1 - r0) / f) * ((c1 - c0) / f) > MAX_CELLS) f++
+        while (((r1 - r0) / f).toLong() * ((c1 - c0) / f) > maxCells) f++
         return Area(r0, c0, (r1 - r0) / f, (c1 - c0) / f, f)
     }
 
@@ -158,7 +158,9 @@ class Planner(private val pack: Pack) {
         }
 
         // Hazard buffer
-        val rad = max(1, (bufM / a.res).roundToInt())
+        // Round down so a coarser grid never inflates the buffer (60 m on a 40 m grid
+        // is 1 cell, not 2: rounding up closed the C&D Canal)
+        val rad = max(1, floor(bufM / a.res + 0.25).toInt())
         val disc = ArrayList<IntArray>()
         for (dr in -rad..rad) for (dc in -rad..rad) if (dr * dr + dc * dc <= rad * rad) disc.add(intArrayOf(dr, dc))
         for (i in 0 until n) if (nav[i].toInt() == HAZARD) {
