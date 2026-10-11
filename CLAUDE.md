@@ -10,7 +10,7 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 ## Status
 - [x] Both scripts working on Jason's phone (Termux, aarch64)
 - [x] README written
-- [ ] **Create a private GitHub repo `noaa-osmand-charts` and push** (first task, see below)
+- [x] Private GitHub repo created and pushed: https://github.com/jnyer27/noaa-osmand-charts
 
 ## First task: push to GitHub
 1. `git init -b main && git add . && git commit -m "NOAA NCDS and ECDIS chart scripts for OsmAnd+"`
