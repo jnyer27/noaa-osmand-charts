@@ -1,0 +1,190 @@
+# NOAA Charts for OsmAnd+ (Termux scripts)
+
+Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux.
+
+| Script | Chart style | Source | Depths | Best for |
+|---|---|---|---|---|
+| `noaa-charts.sh` | Traditional paper chart (NCDS) | NOAA pre-built MBTiles regions | Feet | Familiar paper-chart look, whole regions in one download |
+| `noaa-ecdis-tiles.sh` | ECDIS / S-52 (same look as SiiTech) | NOAA ECDIS Display Service, tile by tile | Meters | Most current data, true buoy colors, custom areas |
+
+Both produce an OsmAnd `.sqlitedb` raster map in `Download/noaa-charts/`.
+
+> **Not a certified navigation system.** These are raster renderings of NOAA ENC data for situational awareness. Keep official charts and your eyes on the water.
+
+---
+
+## One-time setup
+
+1. Install Termux (from F-Droid or GitHub, not the Play Store version).
+2. Copy the scripts into a Termux folder, for example `~/downloads`, then:
+   ```
+   chmod +x noaa-charts.sh noaa-ecdis-tiles.sh
+   ```
+3. Run either script once. It installs `curl` and `sqlite` if needed and asks for storage permission. Accept the Android prompt.
+4. Optional: install **Termux:API** so the scripts can hold a wake lock and keep the phone from sleeping during long downloads.
+5. In OsmAnd+, enable **Menu > Plugins > Online maps**. Overlays and underlays will not draw without it.
+
+---
+
+## noaa-charts.sh (paper chart style)
+
+Downloads one of NOAA's regional NCDS MBTiles files and converts it to OsmAnd format.
+
+### Usage
+```
+./noaa-charts.sh [options] REGION [REGION ...]
+```
+`REGION` is the NCDS code, such as `04`, `ncds_04`, or `19a`. Find your code by tapping your area on the NOAA map: https://distribution.charts.noaa.gov/ncds/
+
+### Options
+| Flag | Meaning |
+|---|---|
+| `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts`) |
+| `-k` | Keep the original `.mbtiles` after conversion |
+| `-m` | MBTiles only, skip conversion (for OpenCPN or other apps) |
+| `-f` | Force re-download even if your copy is current |
+| `-i FILE` | Show info for a local `.mbtiles` or `.sqlitedb` |
+| `-l` | List known region codes |
+| `-h` | Help |
+
+### Examples
+```
+./noaa-charts.sh 04            # region 04 (covers the upper Chesapeake)
+./noaa-charts.sh 04 05         # two regions
+./noaa-charts.sh -k 04         # also keep the .mbtiles
+```
+
+### Updates
+Re-run the same command. The script compares NOAA's file date with your copy and only downloads when NOAA has published something newer.
+
+**Caveat:** NOAA says these files update weekly, but region 04 was last published in May 2024. If the script keeps reporting "up to date", the region itself is stale. Use the ECDIS script when currency matters.
+
+### Reading this chart style
+- **Depths are in feet.**
+- **Magenta teardrop = a light**, whatever its color. Read the color from the label: `Fl G 4s` is green, `Fl R 4s` is red.
+- **Black dot with a height (e.g. "15ft") = a fixed beacon on a pile**, not a buoy.
+- Even numbers are red, odd numbers are green ("red right returning").
+
+---
+
+## noaa-ecdis-tiles.sh (ECDIS / SiiTech style)
+
+Requests tiles for a bounding box from NOAA's live ECDIS Display Service and packages them for OsmAnd. NOAA updates the underlying ENC data **every Friday afternoon**, including Notice to Mariners corrections.
+
+### Usage
+```
+./noaa-ecdis-tiles.sh [options]
+```
+With no options it builds the Middle River / Hart-Miller Island area at zoom 10 to 16.
+
+### Options
+| Flag | Meaning |
+|---|---|
+| `-b W,S,E,N` | Bounding box in decimal degrees: West, South, East, North |
+| `-z MIN-MAX` | Zoom range (default `10-16`, max 17) |
+| `-n NAME` | Map name, also the file name (default `noaa_ecdis_middle_river`) |
+| `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts`) |
+| `-j N` | Parallel downloads (default 4; please keep it modest) |
+| `-u UNITS` | `meters` (default) or `feet` (experimental, may be ignored by NOAA) |
+| `-r` | Force a refresh: discard cached tiles and pull everything fresh |
+| `-k` | Keep cache: resume or retry only, never refresh |
+| `-y` | Skip the confirmation prompt |
+| `-h` | Help |
+
+### Examples
+```
+# Home waters at full detail (the default box)
+./noaa-ecdis-tiles.sh
+
+# Northern Chesapeake: Susquehanna Flats to below the Bay Bridge
+./noaa-ecdis-tiles.sh -b -76.65,38.85,-75.95,39.62 -z 10-15 -n north_bay
+
+# A small, sharp map of one harbor
+./noaa-ecdis-tiles.sh -b -76.50,38.95,-76.45,38.99 -z 12-16 -n annapolis
+```
+
+### Choosing area and zoom
+Each zoom level roughly **quadruples** the tile count.
+
+| Area | Zoom | Tiles | Rough time on Wi-Fi |
+|---|---|---|---|
+| Middle River (default box) | 10-16 | a few thousand | 10-20 min |
+| Northern Bay | 10-15 | ~7,900 | 30-60 min |
+| Northern Bay | 10-16 | ~31,000 | several hours |
+
+Recommended approach: a large area at zoom 15, plus small zoom-16 maps for the creeks and harbors you actually use. The script shows the tile count and asks before downloading, and warns above 20,000 tiles.
+
+### Refresh and resume (automatic)
+Each run prints the mode it chose:
+
+| Situation | What it does |
+|---|---|
+| The `.sqlitedb` already exists | **Refresh**: pulls every tile fresh from NOAA |
+| Last run was interrupted, or a refresh did not finish | **Resume**: fetches only missing tiles |
+| Last run had failed tiles | **Resume**: retries only those |
+| No map yet | First build |
+
+Your existing map is protected: if a refresh ends with failed tiles, the old `.sqlitedb` is left untouched. Re-run the same command to finish, and the new map replaces the old one only when complete.
+
+**Weekly routine:** run on a Saturday to catch Friday's NOAA update, then re-import into OsmAnd (see below).
+```
+./noaa-ecdis-tiles.sh -y
+./noaa-ecdis-tiles.sh -y -b -76.65,38.85,-75.95,39.62 -z 10-15 -n north_bay
+```
+
+### Reading this chart style
+- **Depths are in meters.** The small subscript digit is the decimal: `3₃` = 3.3 m (about 10.8 ft), `0₉` = 0.9 m.
+- Buoys and beacons show their **actual colors and daymark shapes** (red triangle, green square). Light rings are colored by light color.
+
+---
+
+## Getting maps into OsmAnd+
+
+OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied.
+
+1. Import from Termux:
+   ```
+   termux-open --chooser ~/storage/downloads/noaa-charts/<name>.sqlitedb
+   ```
+   and choose **OsmAnd+**. Or tap the file in a file manager (Download > noaa-charts) and use **Open with / Share > OsmAnd+**.
+2. Go to **Configure map > Overlay map** (or **Underlay map**) and select the chart.
+3. Slide the **transparency** control all the way right for a fully visible chart.
+
+### Replacing a map after an update
+OsmAnd reads the **copy it made at import**, not the file in Download. After any refresh:
+1. **Maps & Resources > Local**, find the old chart, delete it.
+2. Import the new file as above.
+
+### Stacking maps
+Use the large-area map as the **underlay** and a detailed home-waters map as the **overlay**. The sharper map shows on top wherever they overlap. You can also put an NCDS map and an ECDIS map in the two slots and flip between styles.
+
+**Watch the units when switching:** NCDS shows feet, ECDIS shows meters. A "9" means 9 ft on one and 9 m on the other.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Download finishes, then "file missing" or "not a valid MBTiles" | Storage permission was granted mid-run. Run the command again. |
+| Chart imported but nothing shows | Check the Online maps plugin is on, the chart is selected, and transparency is not at the far left. |
+| Still blank after that | The area may not be covered. For NCDS, run `./noaa-charts.sh -i <file>` to check bounds, or try another region code. |
+| Changes not appearing after a refresh | Delete the old copy in OsmAnd's Local list and re-import. |
+| ECDIS run reports many failed tiles | NOAA's service may be updating (Friday afternoons) or down. Re-run later; it resumes. |
+| "No tiles downloaded" | Same as above, or no network. |
+| All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use the ECDIS map. |
+
+---
+
+## Files and folders
+
+| Location | Contents |
+|---|---|
+| `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
+| `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
+| `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
+
+## Data sources
+- NOAA Chart Display Service MBTiles: https://distribution.charts.noaa.gov/ncds/
+- NOAA ECDIS Display Service: https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer
+- OsmAnd `.sqlitedb` format follows https://github.com/tarwirdur/mbtiles2osmand

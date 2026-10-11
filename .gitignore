@@ -1,0 +1,4 @@
+*.sqlitedb
+*.mbtiles
+*.part
+*.tmp
