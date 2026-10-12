@@ -423,12 +423,13 @@ class MainActivity : Activity() {
             val t0 = System.currentTimeMillis()
             try {
                 val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt) { msg -> ui.post { status.text = msg } }
-                val uri = saveGpx(r)
+                val (uri, savedAs) = saveGpx(r)
                 ui.post {
                     route = r
                     gpxUri = uri
                     result.text = Gpx.report(r)
-                    status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/${r.name}.gpx".format((System.currentTimeMillis() - t0) / 1000.0)
+                    status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format((System.currentTimeMillis() - t0) / 1000.0) +
+                        if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
                 }
@@ -442,27 +443,48 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Write the GPX into Download/noaa-charts/routes via MediaStore (replacing our own older copy). */
-    private fun saveGpx(r: Route): Uri {
-        val fileName = "${r.name}.gpx"
+    /**
+     * Write the GPX into Download/noaa-charts/routes via MediaStore and return
+     * (uri, file name). Re-saving a route updates this app's own copy. If the
+     * name is taken by a file the app does not own (e.g. from Termux or an
+     * earlier install), MediaStore would rename ours to "name.gpx (1)", which
+     * no longer ends in .gpx; instead pick name-2.gpx, name-3.gpx, ... and
+     * confirm MediaStore kept the name.
+     */
+    private fun saveGpx(r: Route): Pair<Uri, String> {
         val rel = Environment.DIRECTORY_DOWNLOADS + "/" + ROUTES_DIR + "/"
         val coll = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        var uri: Uri? = null
-        contentResolver.query(coll, arrayOf(MediaStore.MediaColumns._ID),
-            "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
-            arrayOf(fileName, rel), null)?.use { c ->
-            if (c.moveToFirst()) uri = Uri.withAppendedPath(coll, c.getLong(0).toString())
-        }
-        if (uri == null) {
-            val v = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, rel)
+        val ours = Regex(Regex.escape(r.name) + "(-\\d+)?\\.gpx")
+        var target: Pair<Uri, String>? = null
+        // Our own earlier copy of this route (only files this app created are visible)
+        contentResolver.query(coll, arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+            arrayOf(rel, r.name + "%"), "${MediaStore.MediaColumns.DISPLAY_NAME} ASC")?.use { c ->
+            while (target == null && c.moveToNext()) {
+                val n = c.getString(1)
+                if (ours.matches(n)) target = Uri.withAppendedPath(coll, c.getLong(0).toString()) to n
             }
-            uri = contentResolver.insert(coll, v) ?: throw Exception("Could not create $fileName in Download")
         }
-        contentResolver.openOutputStream(uri!!, "wt")!!.use { it.write(Gpx.write(r).toByteArray()) }
-        return uri!!
+        if (target == null) {
+            for (k in 1..50) {
+                val fileName = if (k == 1) "${r.name}.gpx" else "${r.name}-$k.gpx"
+                val v = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, rel)
+                }
+                val uri = contentResolver.insert(coll, v) ?: continue
+                var actual: String? = null
+                contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) actual = c.getString(0)
+                }
+                if (actual == fileName) { target = uri to fileName; break }
+                contentResolver.delete(uri, null, null) // MediaStore renamed it: name taken, try the next
+            }
+        }
+        val (uri, name) = target ?: throw Exception("Could not create ${r.name}.gpx in Download")
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r).toByteArray()) }
+        return uri to name
     }
 
     private fun osmandPackage(): String? = listOf("net.osmand.plus", "net.osmand").firstOrNull {
