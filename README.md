@@ -158,7 +158,7 @@ Plans a route for your safe operating depth over NOAA ENC vector charts (the sam
 
 ### Setup
 ```
-pkg install gdal
+pkg install gdal python-numpy
 ```
 If GDAL then fails with `libOpenEXR... not found`, also run `pkg install openexr`.
 
@@ -208,7 +208,7 @@ python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
 # Middle River to Annapolis, 3 ft safe operating depth
 python3 noaa-route.py -f 39.32,-76.40 -t 38.975,-76.482 -d 3 -n middle_river_annapolis
 ```
-Takes 15-30 seconds on the phone. It prints each leg's course and distance with notes, then writes the GPX to `Download/noaa-charts/routes/`.
+Takes 15-60 seconds on the phone for a trip within a bay region; long trips (over roughly 40 nm) take several minutes because each 18 km stretch is rasterized separately. The Android app plans the same routes in seconds. It prints each leg's course and distance with notes, then writes the GPX to `Download/noaa-charts/routes/`.
 
 **Opening a route in OsmAnd:** use a file manager (Files app > Download > noaa-charts > routes), tap the `.gpx` and pick OsmAnd+. With `-O` (or answering yes in the interview) the planner opens that folder in Files for you. Do **not** use `termux-open` for GPX files: OsmAnd crashes on GPX shared from Termux (both view and send), though `.sqlitedb` maps import fine that way.
 
@@ -227,9 +227,11 @@ Takes 15-30 seconds on the phone. It prints each leg's course and distance with 
 
 Depths are compared with 5 cm of slack because NOAA stores feet rounded to 0.1 m (the 6 ft line is 1.8 m = 5.9 ft). NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft depth most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
 
-A point on land or a dock is moved to the nearest usable water, and the output says how far.
+A point on land or a dock is moved to the nearest usable water, and the output says how far. If that water is a pocket walled in only by land or structures (a marina basin behind a pier too thin for the grid), the end moves up to 250 m to the nearest water that connects to the rest of the route, and the output says so.
 
-The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If a point is boxed in (by shallow water, land, a hazard buffer, or a bridge or cable too low for `-a`), it stops right away and says which, with an example position.
+The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If a point is boxed in (by shallow water, land, a hazard buffer, or a bridge or cable too low for `-a`), it stops right away and says which, naming the shallowest sounding or obstruction responsible with its position, and, when depth is the limit, the deepest `-d` that gets out (e.g. Maryland Marina at `-d 6`: soundings as shallow as 3.9 ft, `-d 5` works).
+
+Long trips (too large for a 20 m grid in one piece) are sketched on a coarse overview first, with the water around each end worked out at full detail so a creek cannot vanish, then routed at 20 m stretch by stretch between open-water guide points about every 18 km. Same method as the app.
 
 ---
 

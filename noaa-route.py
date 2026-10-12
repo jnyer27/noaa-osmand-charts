@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """noaa-route.py
 Plan a boat route over NOAA ENC vector charts and write it as a GPX route.
-Runs in Termux. Needs: pkg install gdal (plus openexr if gdal fails to load).
+Runs in Termux. Needs: pkg install gdal python-numpy (plus openexr if gdal fails to load).
 
 Usage:
   python3 noaa-route.py                      (no options: asks step by step)
@@ -64,6 +64,12 @@ import sys
 import time
 import zipfile
 from array import array
+
+try:
+    import numpy as np
+except ImportError:
+    print("ERROR: numpy not found. Run: pkg install python-numpy", file=sys.stderr)
+    sys.exit(1)
 from urllib.parse import quote
 from xml.sax.saxutils import escape
 
@@ -365,14 +371,35 @@ class Grid:
         lons = [p[1] for p in pts]
         span = max(max(lats) - min(lats), max(lons) - min(lons))
         pad = max(0.06, span * 0.25) * widen
-        self.south, self.north = min(lats) - pad, max(lats) + pad
-        latmid = (self.south + self.north) / 2
+        latmid = (min(lats) + max(lats)) / 2
+        padx = pad / math.cos(math.radians(latmid))
+        self._box(min(lats) - pad, max(lats) + pad, min(lons) - padx, max(lons) + padx, res)
+
+    @classmethod
+    def around(cls, lat, lon, half_m, res, align=None):
+        """Box of +/- half_m meters around a point; with align, on that grid's cell lattice."""
+        g = cls.__new__(cls)
+        dy = half_m / M_PER_DEG
+        dx = half_m / (M_PER_DEG * math.cos(math.radians(lat)))
+        if align is None:
+            g._box(lat - dy, lat + dy, lon - dx, lon + dx, res)
+            return g
+        g.res, g.dlat, g.dlon = align.res, align.dlat, align.dlon
+        g.north = align.north - math.floor((align.north - (lat + dy)) / align.dlat) * align.dlat
+        g.west = align.west + math.floor((lon - dx - align.west) / align.dlon) * align.dlon
+        g.h = int(math.ceil(2 * dy / align.dlat)) + 1
+        g.w = int(math.ceil(2 * dx / align.dlon)) + 1
+        g.south = g.north - g.h * g.dlat
+        g.east = g.west + g.w * g.dlon
+        return g
+
+    def _box(self, south, north, west, east, res):
+        self.south, self.north, self.west = south, north, west
+        latmid = (south + north) / 2
         self.dlat = res / M_PER_DEG
         self.dlon = res / (M_PER_DEG * math.cos(math.radians(latmid)))
-        padx = pad / math.cos(math.radians(latmid))
-        self.west, self.east = min(lons) - padx, max(lons) + padx
-        self.w = int(math.ceil((self.east - self.west) / self.dlon))
-        self.h = int(math.ceil((self.north - self.south) / self.dlat))
+        self.w = int(math.ceil((east - west) / self.dlon))
+        self.h = int(math.ceil((north - south) / self.dlat))
         self.east = self.west + self.w * self.dlon
         self.south = self.north - self.h * self.dlat
         self.res = res
@@ -471,60 +498,56 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
 
 # ---------------------------------------------------------------- costs
 
+def buffer_cells(buf_m, res):
+    """Hazard buffer in cells, rounded down so a coarse grid never inflates it."""
+    return max(1, int(math.floor(buf_m / res + 0.25)))
+
+
+def _grow(mask, offsets):
+    """OR of mask shifted by each (dr, dc): a dilation with that structuring element."""
+    h, w = mask.shape
+    out = mask.copy()
+    for dr, dc in offsets:
+        if dr == 0 and dc == 0:
+            continue
+        out[max(dr, 0):h + min(dr, 0), max(dc, 0):w + min(dc, 0)] |= \
+            mask[max(-dr, 0):h + min(-dr, 0), max(-dc, 0):w + min(-dc, 0)]
+    return out
+
+
 def prepare(grid, nav, flags, hazard_buf_m):
-    w, h, n = grid.w, grid.h, grid.w * grid.h
+    """Usable cells, step costs and danger proximity, as whole-array numpy operations.
+    Returns (ok bytearray, cost array('f'), prox bytearray) for the search code."""
+    h, w = grid.h, grid.w
+    navA = np.frombuffer(bytes(nav), np.uint8).reshape(h, w)
+    nopass = np.frombuffer(flags[NO_PASS - 1], np.uint8).reshape(h, w) > 0
+    spanok = np.frombuffer(flags[SPAN_OK - 1], np.uint8).reshape(h, w) > 0
     # Widen passable bridge spans by a cell so they cut through the whole
     # (all-touched, so often two cells thick) bridge deck
-    nopass, spanok = flags[NO_PASS - 1], bytearray(flags[SPAN_OK - 1])
-    for i in [i for i, v in enumerate(flags[SPAN_OK - 1]) if v]:
-        r, c = divmod(i, w)
-        for rr in range(max(r - 1, 0), min(r + 2, h)):
-            for cc in range(max(c - 1, 0), min(c + 2, w)):
-                spanok[rr * w + cc] = 1
-    ok = bytearray(1 if v in (SAFE, MARGINAL) and not (nopass[i] and not spanok[i]) else 0
-                   for i, v in enumerate(nav))
+    spanok = _grow(spanok, [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)])
+    ok = ((navA == SAFE) | (navA == MARGINAL)) & ~(nopass & ~spanok)
 
     # Hazard buffer
-    rad = max(1, int(round(hazard_buf_m / grid.res)))
-    disc = [(dr, dc) for dr in range(-rad, rad + 1) for dc in range(-rad, rad + 1)
-            if dr * dr + dc * dc <= rad * rad]
-    for i in (i for i, v in enumerate(nav) if v == HAZARD):
-        r, c = divmod(i, w)
-        for dr, dc in disc:
-            rr, cc = r + dr, c + dc
-            if 0 <= rr < h and 0 <= cc < w:
-                ok[rr * w + cc] = 0
+    rad = buffer_cells(hazard_buf_m, grid.res)
+    disc = [(dr, dc) for dr in range(-rad, rad + 1) for dc in range(-rad, rad + 1) if dr * dr + dc * dc <= rad * rad]
+    ok &= ~_grow(navA == HAZARD, disc)
 
-    # Distance (cells) to the nearest unusable cell, capped at K
+    # Distance (4-connected steps, capped at K) to the nearest unusable cell
     K = 5
-    dist = bytearray([K]) * n
-    frontier = []
-    for i in range(n):
-        if not ok[i]:
-            dist[i] = 0
-            frontier.append(i)
+    cross = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    dist = np.full((h, w), K, np.uint8)
+    reach = ~ok
+    dist[reach] = 0
     for d in range(1, K):
-        nxt = []
-        for i in frontier:
-            r, c = divmod(i, w)
-            for j, valid in ((i - w, r > 0), (i + w, r < h - 1), (i - 1, c > 0), (i + 1, c < w - 1)):
-                if valid and dist[j] > d:
-                    dist[j] = d
-                    nxt.append(j)
-        frontier = nxt
+        reach = _grow(reach, cross)
+        dist[reach & (dist > d)] = d
 
-    INF = float("inf")
-    cost = array("f", [INF]) * n
-    prox = bytearray(n)
-    for i in range(n):
-        if ok[i]:
-            p = K - dist[i]          # 0 in open water, up to K-1 next to danger
-            prox[i] = p
-            c = 1.0 + 0.6 * p
-            if nav[i] == MARGINAL:
-                c *= 4.0
-            cost[i] = c
-    return ok, cost, prox
+    prox = np.where(ok, K - dist, 0).astype(np.uint8)           # 0 in open water, up to K-1 next to danger
+    c = (1.0 + 0.6 * prox) * np.where(navA == MARGINAL, 4.0, 1.0)
+    cost = np.where(ok, c, np.inf).astype(np.float32)
+    cost_arr = array("f")
+    cost_arr.frombytes(cost.tobytes())
+    return bytearray(ok.astype(np.uint8).tobytes()), cost_arr, bytearray(prox.tobytes())
 
 
 WALLS = {"shallow": "water shallower than your -d depth",
@@ -535,11 +558,12 @@ WALLS = {"shallow": "water shallower than your -d depth",
 
 
 def enclosure(grid, ok, nav, flags, start):
-    """Water reachable from start: (cells, touches grid edge, {reason: (count, example cell)})."""
+    """Water reachable from start: (cells, touches grid edge, {reason: (count, example cell)},
+    hazard-buffer wall cells)."""
     w, h = grid.w, grid.h
     seen = bytearray(w * h)
     seen[start] = 1
-    stack, n, edge, walls = [start], 0, False, {}
+    stack, n, edge, walls, hz = [start], 0, False, {}, []
     while stack:
         k = stack.pop()
         n += 1
@@ -559,10 +583,50 @@ def enclosure(grid, ok, nav, flags, start):
                    "shallow" if v == SHALLOW else "struct" if v == STRUCT else "land")
             cnt, ex = walls.get(why, (0, j))
             walls[why] = (cnt + 1, ex)
-    return n, edge, walls
+            if why == "hazard":
+                hz.append(j)
+    return n, edge, walls, hz
 
 
-def snap(grid, ok, lat, lon, max_m=3000):
+def region(grid, ok, starts):
+    """Usable water reachable from any of starts (4-connected)."""
+    w, h = grid.w, grid.h
+    seen = bytearray(w * h)
+    stack = []
+    for s0 in starts:
+        if not seen[s0]:
+            seen[s0] = 1
+            stack.append(s0)
+    while stack:
+        k = stack.pop()
+        r, c = divmod(k, w)
+        for j, valid in ((k - w, r > 0), (k + w, r < h - 1), (k - 1, c > 0), (k + 1, c < w - 1)):
+            if valid and not seen[j] and ok[j]:
+                seen[j] = 1
+                stack.append(j)
+    return seen
+
+
+def nearest_in(grid, mask, lat, lon, max_m):
+    """Nearest cell of mask to the point within max_m: (cell, meters) or None."""
+    r0, c0 = grid.cell(lat, lon)
+    best = None
+    for rad in range(0, int(max_m / grid.res) + 1):
+        for dr in range(-rad, rad + 1):
+            for dc in (range(-rad, rad + 1) if abs(dr) == rad else (-rad, rad)):
+                r, c = r0 + dr, c0 + dc
+                if 0 <= r < grid.h and 0 <= c < grid.w and mask[r * grid.w + c]:
+                    dd = math.hypot(dr, dc)
+                    if best is None or dd < best[0]:
+                        best = (dd, r * grid.w + c)
+        if best and best[0] <= rad:
+            break
+    if best and best[0] * grid.res <= max_m:
+        return best[1], best[0] * grid.res
+    return None
+
+
+def snap(grid, ok, lat, lon, max_m=3000, quiet=False):
     r0, c0 = grid.cell(lat, lon)
     if ok[r0 * grid.w + c0]:
         return r0 * grid.w + c0, 0.0
@@ -578,6 +642,8 @@ def snap(grid, ok, lat, lon, max_m=3000):
                         best = (dd, r * grid.w + c)
         if best and best[0] <= rad:
             return best[1], best[0] * grid.res
+    if quiet:
+        return None
     die(f"No navigable water within {max_m} m of {lat},{lon} for this depth")
 
 
@@ -766,8 +832,9 @@ def shallowest_near(work, use, a, b, within_m=100):
     return None
 
 
-def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work):
+def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_before=None):
     legs = []
+    seen_before = seen_before if seen_before is not None else set()
     for k in range(len(wps_idx) - 1):
         a, b = wps_idx[k], wps_idx[k + 1]
         lc = line_cells(grid, a, b)
@@ -790,7 +857,7 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work):
                 for s in feature_notes(grid, cells, ext, use, layer, *grid.latlon(i)):
                     if s not in names:
                         names.append(s)
-            seen = {n for l in legs for n in l["notes"]}  # report each area once, where first entered
+            seen = seen_before | {n for l in legs for n in l["notes"]}  # report each area once, where first entered
             notes += [s for s in names if s not in seen]
         d = distance_m(wps_ll[k], wps_ll[k + 1])
         low = shallowest_near(work, use, wps_ll[k], wps_ll[k + 1]) if marg else None
@@ -838,6 +905,291 @@ def open_folder(path):
                         "-t", "vnd.android.document/directory", "-d", uri],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return p.returncode == 0
+
+
+# ---------------------------------------------------------------- planning
+# Same structure as the Android app's Planner.kt: each leg is routed on one
+# full-detail window, or for long legs, sketched on a coarse overview and then
+# routed at 20 m between open-water guide points about every 18 km.
+
+CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
+GUIDE_SPACING_M = 18000.0
+PIECE_RES = 20.0
+
+
+class Ctx:
+    def __init__(self, a, cells, ext, work):
+        self.a, self.cells, self.ext, self.work = a, cells, ext, work
+        self.draft_m = a.draft * FT
+        self.air_m = a.air * FT if a.air else None
+        self.messages, self.moved, self.seen = [], set(), set()
+
+
+def auto_grid(pts, widen, res=None, max_cells=5_000_000):
+    if res:
+        return Grid(pts, res, widen)
+    for res in (10, 15, 20, 30, 45, 60, 90, 120):
+        g = Grid(pts, res, widen)
+        if g.w * g.h <= max_cells:
+            return g
+    return g
+
+
+def build(grid, ctx, draft_m=None):
+    """Rasterize and prepare a grid; returns a dict with everything planning needs."""
+    if grid.w * grid.h > 8_000_000:
+        die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Add -v points closer together.")
+    nav, flags, use = build_rasters(grid, ctx.cells, ctx.ext, draft_m if draft_m is not None else ctx.draft_m,
+                                    ctx.air_m, ctx.work)
+    ok, cost, prox = prepare(grid, nav, flags, ctx.a.buf)
+    return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox,
+            "rad": buffer_cells(ctx.a.buf, grid.res)}
+
+
+def label(n, pt):
+    return f"Point {n} ({pt[0]:.5f},{pt[1]:.5f})" if n else f"A guide point the planner placed at {pt[0]:.5f},{pt[1]:.5f}"
+
+
+def hazard_sources(grid, G, wall_cells, work):
+    """Shallowest sounding and rock/wreck/obstruction behind the hazard-buffer walls:
+    ((depth m, (lat, lon)) or None, (valsou m or None for unknown, (lat, lon)) or None)."""
+    w, rad = grid.w, G["rad"]
+    hz = set()
+    for j in wall_cells:
+        r0, c0 = divmod(j, w)
+        for dr in range(-rad, rad + 1):
+            for dc in range(-rad, rad + 1):
+                rr, cc = r0 + dr, c0 + dc
+                if dr * dr + dc * dc <= rad * rad and 0 <= rr < grid.h and 0 <= cc < w and G["nav"][rr * w + cc] == HAZARD:
+                    hz.add(rr * w + cc)
+    if not hz:
+        return None, None
+    lls = [grid.latlon(i) for i in hz]
+    e = grid.res / M_PER_DEG
+    spat = [repr(min(x[1] for x in lls) - 2 * e), repr(min(x[0] for x in lls) - e),
+            repr(max(x[1] for x in lls) + 2 * e), repr(max(x[0] for x in lls) + e)]
+    snd = obs = None
+    for band in sorted({n[2] for n in G["use"]}, reverse=True):
+        vrt = os.path.join(work, f"band{band}.vrt")
+        if not os.path.isfile(vrt):
+            continue
+        for layer, field in (("SOUNDG", "DEPTH"), ("OBSTRN", "VALSOU"), ("WRECKS", "VALSOU"), ("UWTROC", "VALSOU")):
+            p = subprocess.run(["ogr2ogr", "-f", "GeoJSON", "/vsistdout/", vrt, layer, "-spat", *spat],
+                               env=dict(os.environ, OGR_S57_OPTIONS=S57_OPTS), capture_output=True, text=True)
+            try:
+                feats = json.loads(p.stdout).get("features", []) if p.returncode == 0 else []
+            except ValueError:
+                feats = []
+            for f in feats:
+                g = f.get("geometry") or {}
+                c = g.get("coordinates")
+                while isinstance(c, list) and c and isinstance(c[0], list):
+                    c = c[0]
+                if not c:
+                    continue
+                lat, lon = c[1], c[0]
+                rr, cc = grid.cell(lat, lon)
+                if rr * w + cc not in hz:
+                    continue
+                v = (f.get("properties") or {}).get(field)
+                if layer == "SOUNDG":
+                    if v is not None and (snd is None or v < snd[0]):
+                        snd = (v, (lat, lon))
+                elif obs is None or (obs[0] is not None and (v is None or v < obs[0])):
+                    obs = (v, (lat, lon))
+        if snd or obs:
+            break  # most detailed band with something here wins
+    return snd, obs
+
+
+def deepest_escape(pt, ctx, like):
+    """Deepest -d (0.5 ft steps, below the one that failed) at which the water around
+    pt leads out of a 4 km box on the same cell lattice as grid `like`, or None."""
+    def escapes(ft):
+        g = Grid.around(pt[0], pt[1], 4000, like.res, align=like)
+        G = build(g, ctx, ft * FT)
+        hit = snap(g, G["ok"], *pt, quiet=True)
+        return hit is not None and enclosure(g, G["ok"], G["nav"], G["flags"], hit[0])[1]
+    log("Looking for the deepest setting that gets out from there")
+    lo, hi = 1, int(math.ceil(ctx.a.draft * 2)) - 1   # half-feet
+    if hi < lo or not escapes(lo / 2):
+        return None
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if escapes(mid / 2):
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo / 2
+
+
+def no_route(ctx, grid, G, who, pt, enc):
+    n, _, walls, hz = enc
+    a = ctx.a
+    lines = [f"No route found for {a.draft:g} ft depth" + (f" and {a.air:g} ft air draft." if a.air else "."),
+             f"{who} is in a pocket of about {n * grid.res * grid.res / 1e4:.1f} ha of usable water, closed off by:"]
+    for why, (cnt, ex) in sorted(walls.items(), key=lambda kv: -kv[1][0]):
+        la, lo = grid.latlon(ex)
+        edge = f"{cnt * grid.res:.0f} m of edge"
+        if why == "hazard":
+            snd, obs = hazard_sources(grid, G, hz, ctx.work)
+            if snd:
+                lines.append(f"  - soundings as shallow as {snd[0] / FT:.1f} ft (near {snd[1][0]:.5f},{snd[1][1]:.5f}), "
+                             f"with their -b safety buffer ({edge})")
+            if obs:
+                what = ("a rock, wreck or obstruction of unknown depth" if obs[0] is None
+                        else f"rocks, wrecks or obstructions as shallow as {obs[0] / FT:.1f} ft")
+                lines.append(f"  - {what} (near {obs[1][0]:.5f},{obs[1][1]:.5f}), with its -b safety buffer")
+            if not snd and not obs:
+                lines.append(f"  - {WALLS[why]} ({edge}, e.g. near {la:.5f},{lo:.5f})")
+        else:
+            lines.append(f"  - {WALLS[why]} ({edge}, e.g. near {la:.5f},{lo:.5f})")
+    if any(k in walls for k in ("hazard", "shallow")):
+        best = deepest_escape(pt, ctx, grid)
+        lines.append(f"With -d {best:g} or less the water here leads out of this area; try that "
+                     "(the rest of the trip may still have shallower spots)." if best is not None
+                     else "Even -d 0.5 does not lead out from here.")
+    lines.append("Move the point into open water, or relax -b, -d or -a as appropriate.")
+    die("\n".join(lines))
+
+
+def plan_piece(p, q, np_, nq, ctx, res=None):
+    """Route p to q on one full-detail window: (waypoints, legs)."""
+    widths = (1.0, 2.5, 5.0)
+    for attempt, widen in enumerate(widths):
+        grid = auto_grid([p, q], widen, res)
+        G = build(grid, ctx)
+        ok = G["ok"]
+        sp, mp = snap(grid, ok, *p)
+        sq, mq = snap(grid, ok, *q)
+        for n, m in ((np_, mp), (nq, mq)):
+            if n and m > grid.res and n not in ctx.moved:
+                ctx.moved.add(n)
+                ctx.messages.append(f"Point {n} moved {m:.0f} m to the nearest usable water")
+                log(ctx.messages[-1])
+        path = astar(grid, G["cost"], sp, sq)
+        if path is None:
+            # An end in a pocket walled in only by land or structures (a marina basin behind
+            # a pier too thin for the grid): move it to the nearest connected water.
+            ends = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in (sp, sq)]
+            for e in sorted((0, 1), key=lambda e: ends[e][0]):
+                if ends[e][1] or any(k not in ("land", "struct") for k in ends[e][2]):
+                    continue
+                other = region(grid, ok, [sq if e == 0 else sp])
+                hit = nearest_in(grid, other, *(p if e == 0 else q), CUT_OFF_M)
+                if not hit:
+                    continue
+                retry = astar(grid, G["cost"], hit[0], sq) if e == 0 else astar(grid, G["cost"], sp, hit[0])
+                if retry:
+                    path = retry
+                    n = np_ if e == 0 else nq
+                    walls = " and ".join(WALLS[k] for k in sorted(ends[e][2], key=lambda k: -ends[e][2][k][0]))
+                    msg = (f"Point {n}" if n else "A guide point") + f": the water there is cut off by {walls}; the route " + \
+                          ("starts" if e == 0 else "ends") + f" {hit[1]:.0f} m away at the nearest connected water."
+                    ctx.messages.append(msg)
+                    log(msg)
+                    if n:
+                        ctx.moved.add(n)
+                    break
+        if path:
+            idx = simplify(grid, path, ok, G["nav"], G["prox"])
+            wps = [grid.latlon(i) for i in idx]
+            wps[0], wps[-1] = p, q
+            legs = report_legs(grid, wps, idx, G["nav"], G["flags"], ctx.cells, ctx.ext, G["use"], ctx.work, ctx.seen)
+            for l in legs:
+                ctx.seen.update(l["notes"])
+            return wps, legs, grid.res
+        ends = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in (sp, sq)]
+        closed = [e for e in (0, 1) if not ends[e][1]]
+        if closed or attempt == len(widths) - 1:
+            e = closed[0] if closed else min((0, 1), key=lambda e: ends[e][0])
+            no_route(ctx, grid, G, label(np_ if e == 0 else nq, p if e == 0 else q), p if e == 0 else q, ends[e])
+        log("No route inside this area, widening the search")
+
+
+def guide_points(p, q, np_, nq, ctx):
+    """Long legs: open-water guide points about every GUIDE_SPACING_M along a coarse
+    overview route, with each end's full-detail reachable water stamped in first."""
+    widths = (1.0, 2.5, 5.0)
+    for attempt, widen in enumerate(widths):
+        grid = auto_grid([p, q], widen)
+        log(f"Long trip: overview at {grid.res:.0f} m")
+        G = build(grid, ctx)
+        ok, cost = G["ok"], G["cost"]
+        ends = []
+        for pt in (p, q):
+            fg = Grid.around(pt[0], pt[1], 4000, PIECE_RES)
+            F = build(fg, ctx)
+            s0, _ = snap(fg, F["ok"], *pt)
+            enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+            if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
+                border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
+                          (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
+                hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
+                if hit:
+                    s0 = hit[0]
+            reach = np.flatnonzero(np.frombuffer(bytes(region(fg, F["ok"], [s0])), np.uint8))
+            lat = fg.north - (reach // fg.w + 0.5) * fg.dlat
+            lon = fg.west + (reach % fg.w + 0.5) * fg.dlon
+            rr = np.clip(((grid.north - lat) / grid.dlat).astype(np.int64), 0, grid.h - 1)
+            cc = np.clip(((lon - grid.west) / grid.dlon).astype(np.int64), 0, grid.w - 1)
+            ci = rr * grid.w + cc
+            okv = np.frombuffer(ok, np.uint8)
+            costv = np.frombuffer(cost, np.float32)
+            okv[ci] = 1
+            costv[ci[np.isinf(costv[ci])]] = 2.0
+            r0, c0 = grid.cell(*fg.latlon(s0))
+            ends.append(r0 * grid.w + c0)
+        path = astar(grid, cost, ends[0], ends[1])
+        if path:
+            cum = [0.0]
+            for k in range(1, len(path)):
+                cum.append(cum[-1] + distance_m(grid.latlon(path[k - 1]), grid.latlon(path[k])))
+            total = cum[-1]
+            n = max(1, int(math.ceil(total / GUIDE_SPACING_M)))
+            out, frm = [], 0
+            reach_cells = max(1, int(2000 / grid.res))
+            for k in range(1, n):
+                target = total * k / n
+                j = frm
+                while j < len(path) - 1 and cum[j] < target:
+                    j += 1
+                best = j
+                for d in range(reach_cells + 1):
+                    cand = [x for x in (j + d, j - d) if frm < x < len(path) - 1 and
+                            G["nav"][path[x]] == SAFE and G["prox"][path[x]] == 0]
+                    if cand:
+                        best = cand[0]
+                        break
+                if cum[best] < 4000 or total - cum[best] < 4000:
+                    continue
+                out.append(grid.latlon(path[best]))
+                frm = best
+            return out
+        encs = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in ends]
+        closed = [e for e in (0, 1) if not encs[e][1]]
+        if closed or attempt == len(widths) - 1:
+            e = closed[0] if closed else min((0, 1), key=lambda e: encs[e][0])
+            pt = p if e == 0 else q
+            no_route(ctx, grid, G, label(np_ if e == 0 else nq, pt) + f" (overview at {grid.res:.0f} m)", pt, encs[e])
+        log("No route inside this area, widening the search")
+
+
+def plan(pts, ctx):
+    """Waypoints and legs for the whole trip through pts."""
+    wps, legs = [], []
+    for k in range(len(pts) - 1):
+        p, q = pts[k], pts[k + 1]
+        long_leg = not ctx.a.res and auto_grid([p, q], 1.0).res > PIECE_RES
+        chain = [p] + (guide_points(p, q, k + 1, k + 2, ctx) if long_leg else []) + [q]
+        for j in range(len(chain) - 1):
+            log(f"Routing leg {k + 1} of {len(pts) - 1}" + (f", stretch {j + 1} of {len(chain) - 1}" if len(chain) > 2 else ""))
+            w, l, _ = plan_piece(chain[j], chain[j + 1], k + 1 if j == 0 else None,
+                                 k + 2 if j == len(chain) - 2 else None, ctx,
+                                 PIECE_RES if long_leg else ctx.a.res)
+            wps += w if not wps else w[1:]
+            legs += l
+    return wps, legs
 
 
 # ---------------------------------------------------------------- main
@@ -892,69 +1244,8 @@ def main():
     work = os.path.join(ENC_DIR, "work")
     os.makedirs(work, exist_ok=True)
 
-    # The search area is a box around the points. If the way around a point
-    # of land runs outside it, widen the box and try again.
-    widths = (1.0, 2.5, 5.0)
-    for attempt, widen in enumerate(widths):
-        if a.res:
-            grid = Grid(pts, a.res, widen)
-        else:  # finest grid that keeps routing time reasonable on a phone
-            for res in (10, 15, 20, 30, 45, 60):
-                grid = Grid(pts, res, widen)
-                if grid.w * grid.h <= 5_000_000:
-                    break
-        if grid.w * grid.h > 8_000_000:
-            die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Use a coarser -r or add -v points closer together.")
-
-        nav, flags, use = build_rasters(grid, cells, ext, draft_m, a.air * FT if a.air else None, work)
-        log("Preparing cost grid")
-        ok, cost, prox = prepare(grid, nav, flags, a.buf)
-
-        idx = []
-        for k, (lat, lon) in enumerate(pts):
-            i, moved = snap(grid, ok, lat, lon)
-            if moved > grid.res and attempt == 0:
-                log(f"Point {k + 1} ({lat},{lon}) moved {moved:.0f} m to the nearest usable water")
-            idx.append(i)
-
-        full, failed = [], None
-        for k in range(len(idx) - 1):
-            log(f"Routing leg {k + 1} of {len(idx) - 1}")
-            p = astar(grid, cost, idx[k], idx[k + 1])
-            if p is None:
-                failed = k
-                break
-            full += p if not full else p[1:]
-        if failed is None:
-            break
-        # Widening only helps if both ends' water reaches the edge of the area
-        ends = [enclosure(grid, ok, nav, flags, idx[failed + e]) for e in (0, 1)]
-        closed = [e for e in (0, 1) if not ends[e][1]]
-        if closed or attempt == len(widths) - 1:
-            e = closed[0] if closed else min((0, 1), key=lambda e: ends[e][0])
-            n, _, walls = ends[e]
-            lat, lon = pts[failed + e]
-            lines = [f"No route found for {a.draft:g} ft depth" + (f" and {a.air:g} ft air draft." if a.air else "."),
-                     f"Point {failed + e + 1} ({lat:.5f},{lon:.5f}) is in a pocket of about "
-                     f"{n * grid.res * grid.res / 1e4:.1f} ha of usable water, closed off by:"]
-            for why, (cnt, ex) in sorted(walls.items(), key=lambda kv: -kv[1][0]):
-                la, lo = grid.latlon(ex)
-                lines.append(f"  - {WALLS[why]} ({cnt * grid.res:.0f} m of edge, e.g. near {la:.5f},{lo:.5f})")
-            lines.append("Move the point into open water, or relax -b, -d or -a as appropriate.")
-            die("\n".join(lines))
-        log("No route inside this area, widening the search")
-
-    # Keep via points as fixed waypoints, simplify between them
-    wps_idx, pos = [], 0
-    for k in range(1, len(idx)):
-        end = full.index(idx[k], pos)
-        seg = simplify(grid, full[pos:end + 1], ok, nav, prox)
-        wps_idx += seg if not wps_idx else seg[1:]
-        pos = end
-    wps_ll = [grid.latlon(i) for i in wps_idx]
-    wps_ll[0], wps_ll[-1] = pts[0], pts[-1]  # exact user endpoints (snapped cell is used for checks)
-
-    legs = report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work)
+    ctx = Ctx(a, cells, ext, work)
+    wps_ll, legs = plan(pts, ctx)
     gpx = os.path.join(a.out, f"{a.name}.gpx")
     write_gpx(gpx, a.name, wps_ll, a.draft, legs)
 
@@ -962,6 +1253,8 @@ def main():
     print()
     air = f", air draft {a.air:g} ft" if a.air else ", air draft not checked"
     print(f"Route {a.name}: {total / NM:.1f} nm, {len(wps_ll)} points, depth {a.draft:g} ft (MLLW){air}")
+    for m in ctx.messages:
+        print(m)
     print(f"{'Leg':>3}  {'Course':>6}  {'Dist nm':>7}  Notes")
     for k, l in enumerate(legs):
         notes = []
