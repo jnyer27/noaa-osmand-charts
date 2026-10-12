@@ -162,6 +162,96 @@ class MainActivity : Activity() {
         File(filesDir, "md-route-pack.bin").delete() // single-pack format from the first build
         openCharts()
         refreshCatalog(quiet = true)
+        if (savedInstanceState == null) handleShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShared(intent)
+    }
+
+    // ------------------------------------------------------------ shared positions
+
+    /** Positions shared or opened from other apps: ask where each one goes. */
+    private fun handleShared(i: Intent?) {
+        if (i == null) return
+        val action = i.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_VIEW) return
+        worker.execute {
+            val found: Pair<List<SharedPoint>, SharedGpx?> = try {
+                val uri: Uri? = if (action == Intent.ACTION_SEND) {
+                    @Suppress("DEPRECATION") (i.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+                } else i.data
+                val text = i.getStringExtra(Intent.EXTRA_TEXT).orEmpty() + " " + i.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+                when {
+                    uri != null && uri.scheme == "geo" -> Shared.parseText(uri.toString()) to null
+                    uri != null -> {
+                        val body = contentResolver.openInputStream(uri)?.use { s ->
+                            val out = java.io.ByteArrayOutputStream()
+                            val buf = ByteArray(1 shl 16)
+                            while (out.size() < 20_000_000) {
+                                val n = s.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                            }
+                            out.toString("UTF-8")
+                        }.orEmpty()
+                        val gpx = Shared.parseGpx(body)
+                        if (gpx != null) emptyList<SharedPoint>() to gpx else Shared.parseText(body) to null
+                    }
+                    else -> Shared.parseText(text) to null
+                }
+            } catch (e: Exception) {
+                ui.post { toast("Could not read what was shared: ${e.message}") }
+                return@execute
+            }
+            ui.post { offerShared(found.first, found.second) }
+        }
+    }
+
+    private fun offerShared(points: List<SharedPoint>, gpx: SharedGpx?) {
+        if (gpx != null) {
+            if (gpx.isEmpty) { toast("No waypoints, routes or tracks in that GPX file."); return }
+            val items = ArrayList<String>()
+            val actions = ArrayList<() -> Unit>()
+            val line = gpx.route.ifEmpty { gpx.trackEnds }
+            if (line.size >= 2) {
+                items.add("Use as trip: ${line.first().name} \u2192 ${line.last().name}")
+                actions.add {
+                    start.setText(Coords.format(line.first().pos))
+                    dest.setText(Coords.format(line.last().pos))
+                    status.text = "Start and destination set from the GPX file."
+                }
+            }
+            for (p in (gpx.waypoints + gpx.route + gpx.trackEnds).take(300)) {
+                items.add("${p.name}\n${Coords.format(p.pos)}")
+                actions.add { assignPoint(p) }
+            }
+            AlertDialog.Builder(this).setTitle("Points in the GPX file")
+                .setItems(items.toTypedArray()) { _, k -> actions[k]() }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
+        when (points.size) {
+            0 -> toast("No coordinates found in what was shared.")
+            1 -> assignPoint(points[0])
+            else -> AlertDialog.Builder(this).setTitle("Which position?")
+                .setItems(points.map { "${it.name}\n${Coords.format(it.pos)}" }.toTypedArray()) { _, k -> assignPoint(points[k]) }
+                .setNegativeButton("Cancel", null).show()
+        }
+    }
+
+    private fun assignPoint(p: SharedPoint) {
+        val pos = Coords.format(p.pos)
+        val title = if (p.name == pos) pos else "${p.name}\n$pos"
+        AlertDialog.Builder(this).setTitle("Use this position as").setMessage(title)
+            .setPositiveButton("Destination") { _, _ -> dest.setText(pos); status.text = "Destination set: $title" }
+            .setNegativeButton("Start") { _, _ -> start.setText(pos); status.text = "Start set: $title" }
+            .setNeutralButton("Via point") { _, _ ->
+                via.setText(if (via.text.isBlank()) pos else "${via.text}; $pos")
+                status.text = "Via point added: $title"
+            }.show()
     }
 
     override fun onDestroy() {
