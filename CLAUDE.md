@@ -1,27 +1,30 @@
-# Project: NOAA charts for OsmAnd+ (Termux scripts)
+# Project: NOAA charts and route planning for OsmAnd+ (Termux scripts + Android app)
 
-Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for OsmAnd+ on Android, run in Termux. Owner: Jason, Chesapeake Bay boater (home waters: Middle River, MD). Read `README.md` for user-facing usage.
+Termux scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for OsmAnd+ on Android, a Termux route planner (`noaa-route.py`, GPX output) and the same planner as a standalone Android app (NOAA Route, `android/`). Owner: Jason, Chesapeake Bay boater (home waters: Middle River, MD; keeps the boat at Maryland Marina, 39.32371,-76.39998). Boat: **1.8 ft draft, uses 3 ft safe operating depth (`-d 3`), 10 ft air draft**. Read `README.md` for user-facing usage.
 
 ## Files
 - `noaa-charts.sh`: downloads NOAA NCDS regional MBTiles (paper-chart style, depths in feet) from `https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_XX.mbtiles` and converts to OsmAnd `.sqlitedb`. `-M` merges multiple regions into one `ncds_XX_YY.sqlitedb` (`-S` = separate; asks if neither). **Working and confirmed on device.**
 - `noaa-ecdis-tiles.sh`: pulls 256px tiles for a bbox from NOAA's ECDIS Display Service (S-52 style, depths in meters) via the ArcGIS MCS `export` endpoint and packs them into `.sqlitedb`. Auto-refresh/resume logic. **Confirmed on device.**
-- `noaa-route.py`: route planner. NOAA ENC S-57 (state zip, updates applied by GDAL `UPDATES=APPLY`) -> per-cell GeoPackage cache -> rasterized Byte grid (gdal_rasterize, bands burned low to high detail, each cell resets its own M_COVR coverage) -> pure-Python A* (no numpy) -> GPX `<rte>`. Python because routing in bash is impractical. **Confirmed on device:** Middle River to Annapolis (3 ft draft, 26.3 nm) and Maryland Marina to Chesapeake City public dock (34.3 nm, via APG waters and C&D Canal) import and display correctly in OsmAnd (2026-10-11).
-- `android/`: NOAA Route app, Kotlin, no AndroidX. Core (`MiniJson`, `Pack`, `Planner`, `Gpx`, `Coords`) is Android-free so it compiles and tests on a plain JVM in Termux (`kotlinc` + junit jars, see below). `MainActivity` is programmatic UI. minSdk 29, largeHeap.
+- `noaa-route.py`: route planner. NOAA ENC S-57 (state zip, updates applied by GDAL `UPDATES=APPLY`) -> per-cell GeoPackage cache -> rasterized Byte grid (gdal_rasterize, bands burned low to high detail, each cell resets its own M_COVR coverage) -> numpy grid preparation (`prepare()`, needs `pkg install python-numpy`) -> Python A* -> GPX `<rte>`. Same planning structure as the app (`plan()` / `plan_piece()` / `guide_points()`). Python because routing in bash is impractical. **Confirmed on device:** Middle River to Annapolis (3 ft draft, 26.3 nm) and Maryland Marina to Chesapeake City public dock (34.3 nm, via APG waters and C&D Canal) import and display correctly in OsmAnd (2026-10-11).
+- `android/`: NOAA Route app, Kotlin, no AndroidX. Core (`MiniJson`, `Pack`, `ChartSet`, `Planner`, `Gpx`, `Coords`, `Shared`) is Android-free so it compiles and tests on a plain JVM (`kotlinc` + junit jars, see below). Tests: `PlannerTest` (synthetic packs incl. joining two areas), `SharedTest` (share text/GPX parsing), `AreaRoutesTest` (reference routes, only with PACK_DIR/AREAS_JSON). `MainActivity` is programmatic UI. minSdk 29, largeHeap.
 - `tools/build_route_pack.py` + `tools/areas.json`: builds NRPK2 area packs (format in the docstring) with python3-gdal + numpy on a **global grid** (dlat = 20 m, dlon = 20 m at 38 N, tiles numbered from 90 N/180 W) so areas join in the app (`ChartSet`). Checks DSPM_DUNI == 1 (meters) per cell, records DSPM_SDAT (12 = MLLW). Weekly `route-pack.yml` builds all areas, runs `AreaRoutesTest` (reference routes from areas.json via the Kotlin planner, env PACK_DIR/AREAS_JSON) and only then publishes `packs/*.bin` + `catalog.json` to release `route-pack`. Areas so far: chesapeake (MD+VA). The first single-pack build (NRPK1, `md-route-pack.bin`, 3.1 MB) is obsolete; the app deletes it.
 - `.github/workflows/android.yml`: unit tests + signed release APK on pushes to `android/`, published as release `app` (`noaa-route.apk`). Signing key: secrets `NOAAROUTE_KEYSTORE_B64`, `NOAAROUTE_KEYSTORE_PASSWORD`, `NOAAROUTE_KEY_ALIAS`, `NOAAROUTE_KEY_PASSWORD`; local copy in `~/.noaa-route-signing/` (never commit it).
 - `README.md`: user guide. Keep it in sync with any script changes.
 
 ## Status
-- [x] Both scripts working on Jason's phone (Termux, aarch64)
+- [x] Both chart scripts working on Jason's phone (Termux, aarch64)
 - [x] README written
+- [x] noaa-route.py: long trips, cut-off basins, named limiting soundings, deepest -d suggestion, interview mode, -l current location, -O opens routes folder in Files; results match the app exactly
+- [x] NOAA Route app installed and used on device (2026-10-12): chart areas (Chesapeake Bay), planning, GPX save/open, share a position from OsmAnd into the app (confirmed); sharing GPX files and 'Save as place' are built and unit-tested but not yet confirmed on device; single instance (singleTask) fix delivered
 - [x] GitHub repo https://github.com/jnyer27/noaa-osmand-charts, **public since 2026-10-11** (history rewritten to noreply email 22139984+jnyer27@users.noreply.github.com; repo-local git user.email set to it)
 - [x] Region merge (`-M`) confirmed on device: `ncds_03_04_05.sqlitedb` (1.7 GB, 1,185,109 tiles) imports and renders in OsmAnd (2026-10-11)
 
-## First task: push to GitHub
-1. `git init -b main && git add . && git commit -m "NOAA NCDS and ECDIS chart scripts for OsmAnd+"`
-2. Check `gh auth status`; if not logged in, ask Jason to run `gh auth login` himself (web browser flow). Never ask for or handle tokens.
-3. `gh repo create noaa-osmand-charts --private --source . --push`
-4. Confirm with `gh repo view --web` or by printing the repo URL.
+## GitHub and the phone
+- Check `gh auth status`; if not logged in or missing a scope, ask Jason to run `gh auth login` / `gh auth refresh -s <scope>` himself (web browser flow). Never ask for or handle tokens. The token has `repo` and `workflow` scopes.
+- `~/downloads/` holds executable copies of the three scripts (shared storage cannot be chmod +x). After script changes, refresh with `cp noaa-charts.sh noaa-ecdis-tiles.sh noaa-route.py ~/downloads/ && chmod +x ...` and confirm with `cmp`. App-only changes do not touch it.
+- Delivering an APK: take it from the workflow run artifact (`gh run download <id> -n noaa-route-apk`), not the release URL; right after a build the release download can serve the previous APK for a while (seen 2026-10-12). Copy to `Download/noaa-charts/noaa-route.apk` and open the folder in Files (`am start -a android.intent.action.VIEW -t vnd.android.document/directory -d content://com.android.externalstorage.documents/document/primary%3ADownload%2Fnoaa-charts`).
+- Local tools (2026-10-12): Java, Kotlin, apksigner and ca-certificates-java were **uninstalled to save ~580 MB**. GitHub Actions still runs all tests and builds/signs the APK. To test the Kotlin core locally again: `pkg install openjdk-17 kotlin apksigner` (and fetch the junit jars). `aapt2` (native) is still installed for reading APK manifests.
+- Cleanup (2026-10-12): removed the abandoned-approach leftovers (`~/.noaa-enc/OsmAndMapCreator`, `obf-work`, `tools`, `sqlite-native`, sqlite-jdbc jar, `Download/noaa-charts/enc-osm`, `enc-obf`, `~/downloads/noaa-enc-*.sh`). Jason deleted the per-region `ncds_03/04/05.sqlitedb`; their `.stamp` files remain, so refreshing the merged NCDS map needs `noaa-charts.sh -f -M 03 04 05`. Project footprint now ~2.7 GB (merged NCDS 1.7 GB, ECDIS maps 151 MB, `~/.noaa-enc` 576 MB, `~/.noaa-ecdis` 261 MB).
 
 ## Hard-won technical decisions (do not regress)
 - **OsmAnd `.sqlitedb` format must match tarwirdur/mbtiles2osmand exactly:**

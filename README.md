@@ -296,14 +296,23 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 |---|---|
 | `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
 | `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
-| `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` |
-| `~/.noaa-enc/` | ENC chart data and converted cells for the route planner (safe to delete; re-downloads). Works offline once downloaded |
+| `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` and the NOAA Route app |
+| `Download/noaa-charts/noaa-route.apk` | Latest app build copied here for installing (also on the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)) |
+| `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; re-downloads. Works offline once downloaded |
 | `~/.noaa-enc/route-defaults.json` | Last draft and air draft, used as interview defaults |
 | `android/` | Android app source (Kotlin) |
 | `tools/build_route_pack.py`, `tools/areas.json` | Area pack builder and area definitions for the app (run on GitHub Actions) |
 | `~/.noaa-route-signing/` | App signing key and password (also stored as GitHub secrets). Back it up: without it, new builds cannot update the installed app |
-| `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources |
+| `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources. If you delete the per-region files to save space, refresh later with `-f` (e.g. `noaa-charts.sh -f -M 03 04 05`), since their `.stamp` files say they are current |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
+
+### Storage
+
+Typical sizes on the phone: merged NCDS map for regions 03-05 about 1.8 GB (each single region about 600 MB), an ECDIS map 10-150 MB plus its tile cache in `~/.noaa-ecdis`, `noaa-route.py` data in `~/.noaa-enc` about 600 MB for Maryland and Virginia, the app's chart area 5 MB. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
+
+## Building the app
+
+The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`); the phone needs no Android tools. The Kotlin planner core has no Android dependencies, so it can also be tested on the phone with `pkg install openjdk-17 kotlin` plus the junit 4.13.2 and hamcrest-core 1.3 jars (see CLAUDE.md). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
 
 ## Data sources
 - NOAA Chart Display Service MBTiles: https://distribution.charts.noaa.gov/ncds/
