@@ -114,7 +114,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     // ------------------------------------------------------------ grid
 
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
-                       val planes: Array<ByteArray>, val nopass: BooleanArray)
+                       val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int)
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM)
@@ -210,7 +210,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (nav[i].toInt() == MARGINAL) c *= 4f
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad)
     }
 
     // ------------------------------------------------------------ search
@@ -374,7 +374,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     )
 
     /** Water reachable from start: cells, touches window edge, reason -> (edge cells, example). */
-    private fun enclosure(a: Area, g: Grid, start: Int): Triple<Int, Boolean, Map<String, Pair<Int, Int>>> {
+    /** Water reachable from a point: cell count, whether it reaches the window edge, and what walls it in. */
+    private class Enc(val cells: Int, val edge: Boolean, val walls: Map<String, Pair<Int, Int>>, val hazardWalls: List<Int>)
+
+    private fun enclosure(a: Area, g: Grid, start: Int): Enc {
         val w = a.w
         val h = a.h
         val seen = BooleanArray(a.n)
@@ -385,6 +388,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         var cnt = 0
         var edge = false
         val walls = HashMap<String, Pair<Int, Int>>()
+        val hazardWalls = ArrayList<Int>()
         while (sp > 0) {
             val k = stack[--sp]
             cnt++
@@ -406,9 +410,61 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
                 val cur = walls[why]
                 walls[why] = if (cur == null) 1 to j else cur.first + 1 to cur.second
+                if (why == "hazard") hazardWalls.add(j)
             }
         }
-        return Triple(cnt, edge, walls)
+        return Enc(cnt, edge, walls, hazardWalls)
+    }
+
+    /**
+     * What causes the hazard-buffer walls: the shallowest sounding and the
+     * shallowest charted rock/wreck/obstruction within the buffer radius of
+     * those wall cells. Returns (depth m, cell) for each, if any.
+     */
+    private fun hazardSources(a: Area, g: Grid, cells: List<Int>): Pair<Pair<Double, Int>?, Pair<Double, Int>?> {
+        var snd = 0
+        var sndAt = -1
+        var obs = 0
+        var obsAt = -1
+        val seen = HashSet<Int>()
+        for (j in cells) {
+            val r = j / a.w
+            val c = j % a.w
+            for (dr in -g.rad..g.rad) for (dc in -g.rad..g.rad) {
+                if (dr * dr + dc * dc > g.rad * g.rad) continue
+                val rr = r + dr
+                val cc = c + dc
+                if (rr !in 0 until a.h || cc !in 0 until a.w) continue
+                val i = rr * a.w + cc
+                if (g.nav[i].toInt() != HAZARD || !seen.add(i)) continue
+                val sv = g.planes[Pack.P_SOUND][i].toInt() and 0xff
+                val hv = g.planes[Pack.P_HAZARD][i].toInt() and 0xff
+                if (sv != 0 && (snd == 0 || sv < snd)) { snd = sv; sndAt = i }
+                if (hv != 0 && (obs == 0 || hv < obs)) { obs = hv; obsAt = i }
+            }
+        }
+        return (if (sndAt >= 0) (snd - 1) / 10.0 to sndAt else null) to (if (obsAt >= 0) (obs - 1) / 10.0 to obsAt else null)
+    }
+
+    /**
+     * Deepest safe-depth setting (0.5 ft steps, below the one asked for) at
+     * which the water around p leads out of a 4 km detail window, or null.
+     */
+    private fun deepestThatGetsOut(p: LatLon, c: Ctx): Double? {
+        fun escapes(ft: Double): Boolean {
+            val fa = areaAround(p, 4000.0)
+            val fg = buildGrid(fa, ft * Pack.FT, c.airM, c.bufM)
+            val s = try { snap(fa, fg, p).first } catch (_: PlanException) { return false }
+            return enclosure(fa, fg, s).edge
+        }
+        var lo = 1                                   // half-feet
+        var hi = (ceil(c.depthFt * 2) - 1).toInt()   // just below what failed
+        if (hi < lo || !escapes(lo / 2.0)) return null
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (escapes(mid / 2.0)) lo = mid else hi = mid - 1
+        }
+        return lo / 2.0
     }
 
     private fun lineCells(a: Area, p: Int, q: Int): IntArray {
@@ -542,16 +598,28 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun label(n: Int?, p: LatLon) =
         if (n != null) "Point $n (%.5f, %.5f)".format(p.lat, p.lon) else "A guide point the planner placed at %.5f, %.5f".format(p.lat, p.lon)
 
-    private fun noRoute(c: Ctx, a: Area, who: String, enc: Triple<Int, Boolean, Map<String, Pair<Int, Int>>>): PlanException {
-        val (cnt, _, walls) = enc
+    private fun noRoute(c: Ctx, a: Area, g: Grid, who: String, pt: LatLon, enc: Enc): PlanException {
+        val cnt = enc.cells
+        val walls = enc.walls
         val sb = StringBuilder()
         sb.append("No route found for ${fmt(c.depthFt)} ft depth")
         sb.append(if (c.airFt != null) " and ${fmt(c.airFt)} ft air draft.\n" else ".\n")
         sb.append("$who is in a pocket of about %.1f ha of usable water, closed off by:\n".format(cnt * a.res * a.res / 1e4))
+        fun at(i: Int) = a.latlon(i).let { "%.5f, %.5f".format(it.lat, it.lon) }
         for ((why, v) in walls.entries.sortedByDescending { it.value.first }) {
-            val ll = a.latlon(v.second)
-            sb.append("  - ${wallText[why]} (${(v.first * a.res).roundToInt()} m of edge, near %.5f, %.5f)\n".format(ll.lat, ll.lon))
+            val edge = "${(v.first * a.res).roundToInt()} m of edge"
+            if (why == "hazard") {
+                val (snd, obs) = hazardSources(a, g, enc.hazardWalls)
+                if (snd != null) sb.append("  - soundings as shallow as %.1f ft (near %s), with their safety buffer ($edge)\n".format(snd.first / Pack.FT, at(snd.second)))
+                if (obs != null) sb.append(if (obs.first == 0.0) "  - a rock, wreck or obstruction of unknown or near-zero depth (near ${at(obs.second)}), with its safety buffer\n"
+                                           else "  - rocks, wrecks or obstructions as shallow as %.1f ft (near %s), with their safety buffer\n".format(obs.first / Pack.FT, at(obs.second)))
+                if (snd == null && obs == null) sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
+            } else sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
         }
+        val limitedByDepth = walls.keys.any { it == "hazard" || it == "shallow" }
+        val best = if (limitedByDepth) deepestThatGetsOut(pt, c) else null
+        if (best != null) sb.append("With a safe depth of ${fmt(best)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
+        else if (limitedByDepth) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
         sb.append("Move the point into open water, or adjust depth or air draft.")
         return PlanException(sb.toString())
     }
@@ -574,16 +642,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // connected water within CUT_OFF_M. Pockets closed by shallow water, hazards
                 // or low clearance are real limits and keep the "no route" explanation.
                 val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
-                for (e in (0..1).sortedBy { ends[it].first }) {
-                    if (ends[e].second) continue // reaches the window edge: not a pocket
-                    if (ends[e].third.keys.any { it != "land" && it != "struct" }) continue
+                for (e in (0..1).sortedBy { ends[it].cells }) {
+                    if (ends[e].edge) continue // reaches the window edge: not a pocket
+                    if (ends[e].walls.keys.any { it != "land" && it != "struct" }) continue
                     val other = region(a, g.ok, if (e == 0) sq else sp)
                     val pt = if (e == 0) p else q
                     val (cell, dist) = nearestIn(a, other, pt, CUT_OFF_M) ?: continue
                     val retry = if (e == 0) astar(a, g.cost, cell, sq) else astar(a, g.cost, sp, cell)
                     if (retry != null) {
                         path = retry
-                        val walls = ends[e].third.entries.sortedByDescending { it.value.first }.joinToString(" and ") { wallText[it.key]!! }
+                        val walls = ends[e].walls.entries.sortedByDescending { it.value.first }.joinToString(" and ") { wallText[it.key]!! }
                         val n = if (e == 0) np else nq
                         c.messages.add((if (n != null) "Point $n" else "A guide point") +
                             ": the water there is cut off by $walls; the route " + (if (e == 0) "starts" else "ends") +
@@ -601,10 +669,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 return Piece(wps, legs(a, g, wps, idx, c.seen), a.res)
             }
             val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
-            val closed = (0..1).filter { !ends[it].second }
+            val closed = (0..1).filter { !ends[it].edge }
             if (closed.isNotEmpty() || attempt == widths.size - 1) {
-                val e = closed.firstOrNull() ?: (0..1).minBy { ends[it].first }
-                throw noRoute(c, a, if (e == 0) label(np, p) else label(nq, q), ends[e])
+                val e = closed.firstOrNull() ?: (0..1).minBy { ends[it].cells }
+                throw noRoute(c, a, g, if (e == 0) label(np, p) else label(nq, q), if (e == 0) p else q, ends[e])
             }
             c.progress("No route inside this area, widening the search")
         }
@@ -640,7 +708,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
                 var (s, _) = snap(fa, fg, pt)
                 val enc0 = enclosure(fa, fg, s)
-                if (!enc0.second && enc0.third.keys.all { it == "land" || it == "struct" }) {
+                if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
                     // Cut off within the detail window: use the nearest water that leads out of it
                     val border = (0 until fa.n).filter { i ->
                         val r = i / fa.w
@@ -698,10 +766,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 return out to a.res
             }
             val enc = listOf(enclosure(a, g, ends[0]), enclosure(a, g, ends[1]))
-            val closed = (0..1).filter { !enc[it].second }
+            val closed = (0..1).filter { !enc[it].edge }
             if (closed.isNotEmpty() || attempt == widths.size - 1) {
-                val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].first }
-                throw noRoute(c, a, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", enc[e])
+                val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].cells }
+                throw noRoute(c, a, g, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", if (e == 0) p else q, enc[e])
             }
             c.progress("No route inside this area, widening the search")
         }
