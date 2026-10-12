@@ -17,7 +17,8 @@
         {"name": "Solomons to off Stingray Point (Deltaville)", "points": ["38.3240,-76.4560", "37.5600,-76.2750"], "depth": 4, "nm": [46, 56]},
         {"name": "Potomac: Point Lookout to Colonial Beach", "points": ["38.0480,-76.3300", "38.2560,-76.9600"], "depth": 4, "nm": [29, 37]},
         {"name": "Annapolis to Norfolk (MD to VA)", "points": ["38.9600,-76.4300", "36.9600,-76.3300"], "depth": 4, "nm": [120, 150]},
-        {"name": "Maryland Marina to Mobjack Bay (long trip from a creek)", "points": ["39.32337,-76.40191", "37.42198,-76.40197"], "depth": 3, "air": 10, "nm": [128, 145]}
+        {"name": "Maryland Marina to Mobjack Bay (long trip from a creek)", "points": ["39.32337,-76.40191", "37.42198,-76.40197"], "depth": 3, "air": 10, "nm": [128, 145]},
+        {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150]}
       ]
     }
   ]

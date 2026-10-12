@@ -36,6 +36,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
+        const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
@@ -237,6 +238,48 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (best >= 0 && bestD <= rad) return best to bestD * a.res
         }
         throw PlanException("No navigable water within ${maxM.toInt()} m of %.5f, %.5f for this depth".format(p.lat, p.lon))
+    }
+
+    /** Usable water reachable from start (4-connected). */
+    private fun region(a: Area, ok: BooleanArray, start: Int) = region(a, ok, intArrayOf(start))
+
+    /** Usable water reachable from any of [starts]. */
+    private fun region(a: Area, ok: BooleanArray, starts: IntArray): BooleanArray {
+        val seen = BooleanArray(a.n)
+        val stack = IntArray(a.n)
+        var sp = 0
+        for (s0 in starts) if (!seen[s0]) { seen[s0] = true; stack[sp++] = s0 }
+        while (sp > 0) {
+            val i = stack[--sp]
+            val r = i / a.w
+            val c = i % a.w
+            for (j in intArrayOf(if (r > 0) i - a.w else -1, if (r < a.h - 1) i + a.w else -1,
+                                 if (c > 0) i - 1 else -1, if (c < a.w - 1) i + 1 else -1)) {
+                if (j >= 0 && !seen[j] && ok[j]) { seen[j] = true; stack[sp++] = j }
+            }
+        }
+        return seen
+    }
+
+    /** Nearest cell of [mask] to p within maxM, with its distance, or null. */
+    private fun nearestIn(a: Area, mask: BooleanArray, p: LatLon, maxM: Double): Pair<Int, Double>? {
+        val start = a.cell(p)
+        val r0 = start / a.w
+        val c0 = start % a.w
+        var best = -1
+        var bestD = Double.MAX_VALUE
+        for (rad in 0..(maxM / a.res).toInt()) {
+            for (dr in -rad..rad) for (dc in (if (abs(dr) == rad) (-rad..rad).toList() else listOf(-rad, rad))) {
+                val r = r0 + dr
+                val c = c0 + dc
+                if (r in 0 until a.h && c in 0 until a.w && mask[r * a.w + c]) {
+                    val dd = hypot(dr.toDouble(), dc.toDouble())
+                    if (dd < bestD) { bestD = dd; best = r * a.w + c }
+                }
+            }
+            if (best >= 0 && bestD <= rad) break
+        }
+        return if (best >= 0 && bestD * a.res <= maxM) best to bestD * a.res else null
     }
 
     private class Heap(cap: Int) {
@@ -524,7 +567,32 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 c.moved.add(n)
                 c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
             }
-            val path = astar(a, g.cost, sp, sq)
+            var path = astar(a, g.cost, sp, sq)
+            if (path == null) {
+                // An end in a small pocket walled off only by land or structures (a marina
+                // basin behind a charted pier, too thin for the grid): move it to the nearest
+                // connected water within CUT_OFF_M. Pockets closed by shallow water, hazards
+                // or low clearance are real limits and keep the "no route" explanation.
+                val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
+                for (e in (0..1).sortedBy { ends[it].first }) {
+                    if (ends[e].second) continue // reaches the window edge: not a pocket
+                    if (ends[e].third.keys.any { it != "land" && it != "struct" }) continue
+                    val other = region(a, g.ok, if (e == 0) sq else sp)
+                    val pt = if (e == 0) p else q
+                    val (cell, dist) = nearestIn(a, other, pt, CUT_OFF_M) ?: continue
+                    val retry = if (e == 0) astar(a, g.cost, cell, sq) else astar(a, g.cost, sp, cell)
+                    if (retry != null) {
+                        path = retry
+                        val walls = ends[e].third.entries.sortedByDescending { it.value.first }.joinToString(" and ") { wallText[it.key]!! }
+                        val n = if (e == 0) np else nq
+                        c.messages.add((if (n != null) "Point $n" else "A guide point") +
+                            ": the water there is cut off by $walls; the route " + (if (e == 0) "starts" else "ends") +
+                            " ${dist.roundToInt()} m away at the nearest connected water.")
+                        if (n != null) c.moved.add(n)
+                        break
+                    }
+                }
+            }
             if (path != null) {
                 val idx = simplify(a, g, path)
                 val wps = idx.map { a.latlon(it) }.toMutableList()
@@ -570,7 +638,18 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             for ((k, pt) in listOf(p, q).withIndex()) {
                 val fa = areaAround(pt, 4000.0)
                 val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
-                val (s, _) = snap(fa, fg, pt)
+                var (s, _) = snap(fa, fg, pt)
+                val enc0 = enclosure(fa, fg, s)
+                if (!enc0.second && enc0.third.keys.all { it == "land" || it == "struct" }) {
+                    // Cut off within the detail window: use the nearest water that leads out of it
+                    val border = (0 until fa.n).filter { i ->
+                        val r = i / fa.w
+                        val col = i % fa.w
+                        fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
+                    }.toIntArray()
+                    val out = region(fa, fg.ok, border)
+                    nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
+                }
                 // Everything reachable from the point within the detail window is usable on the overview
                 val seen = BooleanArray(fa.n)
                 val stack = IntArray(fa.n)
