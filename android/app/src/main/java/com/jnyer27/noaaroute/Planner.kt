@@ -31,7 +31,7 @@ class Route(val name: String, val points: List<LatLon>, val legs: List<Leg>, val
  * with clearance (or that open), A* on an 8-connected grid without corner
  * cutting, then line-of-sight simplification.
  */
-class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
+class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS) {
     companion object {
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
@@ -43,6 +43,21 @@ class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
         const val STRUCT = 4
         const val SHALLOW = 5
         private const val K = 5 // proximity reach in cells
+
+        /** Class of a depth range for depth d (meters, rounding slack already taken off). */
+        fun classify(r: DepthRange?, d: Double): Int {
+            if (r == null) return BLOCKED
+            val d1 = r.d1
+            val d2 = r.d2
+            if (r.dredged) return if (d1 == null || d1 < d) MARGINAL else SAFE
+            return when {
+                d1 == null -> MARGINAL
+                d1 < 0 -> SHALLOW
+                d2 != null && d2 <= d -> SHALLOW
+                d1 >= d -> SAFE
+                else -> MARGINAL
+            }
+        }
 
         fun distanceM(a: LatLon, b: LatLon): Double {
             val la1 = Math.toRadians(a.lat)
@@ -100,22 +115,8 @@ class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray)
 
-    private fun classify(depthIdx: Int, d: Double): Int {
-        val r = pack.depthTable.getOrNull(depthIdx) ?: return BLOCKED
-        val d1 = r.d1
-        val d2 = r.d2
-        if (r.dredged) return if (d1 == null || d1 < d) MARGINAL else SAFE
-        return when {
-            d1 == null -> MARGINAL
-            d1 < 0 -> SHALLOW
-            d2 != null && d2 <= d -> SHALLOW
-            d1 >= d -> SAFE
-            else -> MARGINAL
-        }
-    }
-
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double): Grid {
-        val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f)
+        val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM)
         val n = a.n
         val w = a.w
         val h = a.h
@@ -134,7 +135,7 @@ class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
                 hzv != 0 && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
-                else -> classify(planes[Pack.P_DEPTH][i].toInt() and 0xff, d)
+                else -> planes[Pack.P_DEPTH][i].toInt()
             }.toByte()
             val span = fl and Pack.F_SPAN != 0
             val clr = (planes[Pack.P_SPANCLR][i].toInt() and 0xff) / 2.0
@@ -488,7 +489,7 @@ class Planner(private val pack: Pack, private val maxCells: Int = MAX_CELLS) {
              progress: (String) -> Unit = {}): Route {
         require(pts.size >= 2)
         for (p in pts) if (!pack.covers(p.lat, p.lon))
-            throw PlanException("%.5f, %.5f is outside the route pack (%s)".format(p.lat, p.lon, pack.states.joinToString()))
+            throw PlanException("%.5f, %.5f is outside your downloaded chart areas (%s). Download the area that covers it.".format(p.lat, p.lon, pack.names))
         val depthM = depthFt * Pack.FT
         val airM = airFt?.let { it * Pack.FT }
         val widths = doubleArrayOf(1.0, 2.5, 5.0)

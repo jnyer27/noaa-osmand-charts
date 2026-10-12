@@ -40,7 +40,6 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
     companion object {
         const val PACK_BASE = "https://github.com/jnyer27/noaa-osmand-charts/releases/download/route-pack/"
-        const val PACK_NAME = "md-route-pack"
         const val ROUTES_DIR = "noaa-charts/routes"
         val DEFAULT_PLACES = listOf(
             "Maryland Marina" to "39.32371, -76.39998",
@@ -55,7 +54,8 @@ class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
-    private var pack: Pack? = null
+    private var charts: ChartSet? = null
+    private var catalog: List<JSONObject> = emptyList()
     private var route: Route? = null
     private var gpxUri: Uri? = null
 
@@ -109,7 +109,7 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(8), dp(16), dp(24))
         }
         packStatus = TextView(this)
-        packButton = button("Download charts") { updatePack() }
+        packButton = button("Chart areas") { showAreas() }
         col.addView(label("Charts"))
         col.addView(packStatus)
         col.addView(packButton)
@@ -159,41 +159,44 @@ class MainActivity : Activity() {
         air.setText(prefs.getString("air", ""))
         start.setText(prefs.getString("start", ""))
         dest.setText(prefs.getString("dest", ""))
-        openPack()
-        checkForUpdate()
+        File(filesDir, "md-route-pack.bin").delete() // single-pack format from the first build
+        openCharts()
+        refreshCatalog(quiet = true)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         worker.shutdownNow()
-        pack?.close()
+        charts?.packs?.forEach { it.close() }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
-    // ------------------------------------------------------------ route pack
+    // ------------------------------------------------------------ chart areas
 
-    private fun packFile() = File(filesDir, "$PACK_NAME.bin")
+    private fun areaDir() = File(filesDir, "areas").apply { mkdirs() }
 
-    private fun openPack() {
-        pack?.close()
-        pack = null
-        val f = packFile()
-        if (!f.exists()) {
-            packStatus.text = "No charts yet. Download them once on Wi-Fi (about 20-60 MB); planning then works offline."
-            packButton.text = "Download charts"
-            return
+    private fun openCharts() {
+        charts?.packs?.forEach { it.close() }
+        charts = null
+        val packs = ArrayList<Pack>()
+        val bad = ArrayList<String>()
+        for (f in areaDir().listFiles { f -> f.name.endsWith(".bin") }.orEmpty().sortedBy { it.name }) {
+            try { packs.add(Pack(f)) } catch (e: Exception) { bad.add(f.name); f.delete() }
         }
-        try {
-            val p = Pack(f)
-            pack = p
-            packStatus.text = "NOAA ENC ${p.states.joinToString()} built ${p.created.take(10)}, %.0f MB, %.0f m grid"
-                .format(f.length() / 1e6, p.res)
-            packButton.text = "Check for chart update"
-        } catch (e: Exception) {
-            packStatus.text = "Chart file is damaged: ${e.message}. Download again."
-            packButton.text = "Download charts"
-        }
+        charts = if (packs.isEmpty()) null else ChartSet(packs)
+        packStatus.text = when {
+            packs.isEmpty() -> "No chart areas yet. Tap Chart areas and download one (a few MB, once, on Wi-Fi); planning then works offline."
+            else -> packs.joinToString("\n") { p -> "${p.areaName}: NOAA ENC built ${p.created.take(10)}" }
+        } + (if (bad.isNotEmpty()) "\nRemoved damaged file(s): ${bad.joinToString()}" else "")
+        updateBadge()
+    }
+
+    private fun installed(id: String) = charts?.packs?.firstOrNull { it.areaId == id }
+
+    private fun updateBadge() {
+        val updates = catalog.count { a -> installed(a.getString("id"))?.let { a.getString("created") > it.created } == true }
+        packButton.text = if (updates > 0) "Chart areas ($updates update${if (updates > 1) "s" else ""})" else "Chart areas"
     }
 
     private fun httpGet(url: String): HttpURLConnection {
@@ -205,40 +208,74 @@ class MainActivity : Activity() {
         return c
     }
 
-    private fun fetchMeta(): JSONObject =
-        JSONObject(httpGet(PACK_BASE + "$PACK_NAME.json").inputStream.bufferedReader().readText())
-
-    private fun checkForUpdate() {
-        if (pack == null) return
+    /** Fetch catalog.json (list of published areas); quiet = no messages when offline. */
+    private fun refreshCatalog(quiet: Boolean, then: (() -> Unit)? = null) {
         worker.execute {
             try {
-                val meta = fetchMeta()
-                val created = meta.getString("created")
+                val j = JSONObject(httpGet(PACK_BASE + "catalog.json").inputStream.bufferedReader().readText())
+                val a = j.getJSONArray("areas")
+                val list = (0 until a.length()).map { a.getJSONObject(it) }
+                ui.post { catalog = list; updateBadge(); then?.invoke() }
+            } catch (e: Exception) {
                 ui.post {
-                    if (pack != null && created > pack!!.created) {
-                        packStatus.append("\nNewer charts available (${created.take(10)}).")
-                        packButton.text = "Download chart update"
-                    }
+                    if (!quiet) status.text = "Could not reach the chart catalog: ${e.message}"
+                    then?.invoke()
                 }
-            } catch (_: Exception) { /* offline: keep what we have */ }
+            }
         }
     }
 
-    private fun updatePack() {
+    private fun showAreas() {
+        status.text = "Checking chart areas..."
+        refreshCatalog(quiet = false) {
+            status.text = ""
+            val ids = (catalog.map { it.getString("id") } + charts?.packs.orEmpty().map { it.areaId }).distinct()
+            if (ids.isEmpty()) { toast("No chart areas available (offline?)"); return@refreshCatalog }
+            val labels = ids.map { id ->
+                val c = catalog.firstOrNull { it.getString("id") == id }
+                val have = installed(id)
+                val name = c?.getString("name") ?: have?.areaName ?: id
+                val state = when {
+                    have == null -> "not downloaded, %.1f MB".format((c?.getLong("size") ?: 0) / 1e6)
+                    c != null && c.getString("created") > have.created -> "UPDATE available (${c.getString("created").take(10)})"
+                    else -> "downloaded, built ${have.created.take(10)}"
+                }
+                "$name\n$state" + (c?.optString("description")?.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: "")
+            }
+            AlertDialog.Builder(this).setTitle("Chart areas")
+                .setItems(labels.toTypedArray()) { _, k -> areaAction(ids[k]) }
+                .setNegativeButton("Close", null).show()
+        }
+    }
+
+    private fun areaAction(id: String) {
+        val c = catalog.firstOrNull { it.getString("id") == id }
+        val have = installed(id)
+        val b = AlertDialog.Builder(this).setTitle(c?.getString("name") ?: have?.areaName ?: id)
+        if (c != null && (have == null || c.getString("created") > have.created))
+            b.setPositiveButton(if (have == null) "Download" else "Update") { _, _ -> downloadArea(c) }
+        if (have != null) b.setNeutralButton("Delete") { _, _ ->
+            charts?.packs?.forEach { it.close() }
+            charts = null
+            File(areaDir(), "$id.bin").delete()
+            openCharts()
+        }
+        b.setMessage(when {
+            have != null && (c == null || c.getString("created") <= have.created) -> "Up to date (built ${have.created.take(10)})."
+            have != null -> "Installed: ${have.created.take(10)}. New: ${c!!.getString("created").take(10)}."
+            else -> "%.1f MB download. Covers: %s".format(c!!.getLong("size") / 1e6, c.optString("description"))
+        }).setNegativeButton("Cancel", null).show()
+    }
+
+    private fun downloadArea(meta: JSONObject) {
+        val id = meta.getString("id")
         packButton.isEnabled = false
-        status.text = "Checking for charts..."
         worker.execute {
             try {
-                val meta = fetchMeta()
-                val created = meta.getString("created")
-                if (pack != null && created <= pack!!.created) {
-                    ui.post { status.text = "Charts are up to date (${created.take(10)})."; packButton.isEnabled = true }
-                    return@execute
-                }
                 val size = meta.getLong("size")
-                val part = File(filesDir, "$PACK_NAME.part")
+                val part = File(areaDir(), "$id.part")
                 val md = MessageDigest.getInstance("SHA-256")
-                httpGet(PACK_BASE + "$PACK_NAME.bin").inputStream.use { inp ->
+                httpGet(PACK_BASE + meta.getString("file")).inputStream.use { inp ->
                     part.outputStream().use { out ->
                         val buf = ByteArray(1 shl 16)
                         var got = 0L
@@ -249,21 +286,21 @@ class MainActivity : Activity() {
                             out.write(buf, 0, r)
                             md.update(buf, 0, r)
                             got += r
-                            if (got - last > 1_000_000) {
+                            if (got - last > 500_000) {
                                 last = got
-                                ui.post { status.text = "Downloading charts: %.0f of %.0f MB".format(got / 1e6, size / 1e6) }
+                                ui.post { status.text = "Downloading ${meta.getString("name")}: %.1f of %.1f MB".format(got / 1e6, size / 1e6) }
                             }
                         }
                     }
                 }
                 val sha = md.digest().joinToString("") { "%02x".format(it) }
-                if (sha != meta.getString("sha256")) throw Exception("download check failed, try again")
+                if (sha != meta.getString("sha256")) { part.delete(); throw Exception("download check failed, try again") }
                 ui.post {
-                    pack?.close()
-                    pack = null
-                    part.renameTo(packFile())
-                    openPack()
-                    status.text = "Charts updated (${created.take(10)})."
+                    charts?.packs?.forEach { it.close() }
+                    charts = null
+                    part.renameTo(File(areaDir(), "$id.bin"))
+                    openCharts()
+                    status.text = "${meta.getString("name")} ready (built ${meta.getString("created").take(10)})."
                     packButton.isEnabled = true
                 }
             } catch (e: Exception) {
@@ -361,7 +398,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ planning
 
     private fun plan() {
-        val p = pack ?: run { toast("Download the charts first."); return }
+        val p = charts ?: run { toast("Download a chart area first (Chart areas)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
         val b = Coords.parse(dest.text.toString()) ?: run { toast("Destination must be LAT, LON"); return }
         val vias = via.text.toString().split(";").filter { it.isNotBlank() }.map {
@@ -377,6 +414,7 @@ class MainActivity : Activity() {
         prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString())
             .putString("start", start.text.toString()).putString("dest", dest.text.toString()).apply()
         planButton.isEnabled = false
+        packButton.isEnabled = false // no area changes while planning
         actions.visibility = View.GONE
         result.text = ""
         route = null
@@ -392,14 +430,14 @@ class MainActivity : Activity() {
                     result.text = Gpx.report(r)
                     status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/${r.name}.gpx".format((System.currentTimeMillis() - t0) / 1000.0)
                     actions.visibility = View.VISIBLE
-                    planButton.isEnabled = true
+                    planButton.isEnabled = true; packButton.isEnabled = true
                 }
             } catch (e: PlanException) {
-                ui.post { status.text = ""; result.text = e.message; planButton.isEnabled = true }
+                ui.post { status.text = ""; result.text = e.message; planButton.isEnabled = true; packButton.isEnabled = true }
             } catch (e: OutOfMemoryError) {
-                ui.post { status.text = "Out of memory: try closer points or add via points."; planButton.isEnabled = true }
+                ui.post { status.text = "Out of memory: try closer points or add via points."; planButton.isEnabled = true; packButton.isEnabled = true }
             } catch (e: Exception) {
-                ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true }
+                ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true }
             }
         }
     }

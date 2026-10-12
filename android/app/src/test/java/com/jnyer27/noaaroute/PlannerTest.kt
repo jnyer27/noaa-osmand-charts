@@ -14,10 +14,12 @@ import java.util.zip.Deflater
 
 class PlannerTest {
     private val res = 20.0
-    private val north = 39.3
-    private val west = -76.5
     private val dlat = res / Pack.M_PER_DEG
-    private val dlon = res / (Pack.M_PER_DEG * Math.cos(Math.toRadians(39.29)))
+    private val dlon = res / (Pack.M_PER_DEG * Math.cos(Math.toRadians(38.0))) // global grid
+    private val gtx0 = Math.floor((-76.5 + 180) / (256 * dlon)).toInt()
+    private val gty0 = Math.floor((90 - 39.3) / (256 * dlat)).toInt()
+    private val west = -180 + gtx0 * 256 * dlon
+    private val north = 90 - gty0 * 256 * dlat
     private val size = 512
 
     /**
@@ -26,7 +28,8 @@ class PlannerTest {
      * row 256 with a 2-cell span (cols 255-256, 10 m clearance). A rock (0.5 m)
      * sits in the channel at row 180, col 252.
      */
-    private fun syntheticPack(): File {
+    /** The synthetic area as one pack, or only tile row [onlyTileRow] of it (to test joining). */
+    private fun syntheticPack(onlyTileRow: Int? = null): File {
         val n = size * size
         val planes = Array(Pack.NPLANES) { ByteArray(n) }
         for (r in 100..411) for (c in 250..261) planes[Pack.P_DEPTH][r * size + c] = 1
@@ -38,14 +41,18 @@ class PlannerTest {
         }
         planes[Pack.P_HAZARD][180 * size + 252] = 6 // 0.5 m
         val bridgeLat = north - 256.5 * dlat
-        val header = """{"format":"NRPK","version":1,"created":"2026-01-01T00:00:00Z","states":["TEST"],
-            "west":$west,"north":$north,"dlat":$dlat,"dlon":$dlon,"res":$res,"width":$size,"height":$size,
+        val rows = if (onlyTileRow == null) 0 until 2 else onlyTileRow..onlyTileRow
+        val pNorth = north - rows.first * 256 * dlat
+        val header = """{"format":"NRPK","version":2,"created":"2026-01-01T00:00:00Z","states":["TEST"],
+            "area":{"id":"t${onlyTileRow ?: ""}","name":"Test ${onlyTileRow ?: ""}","bbox":[$west,${north - size * dlat},${west + size * dlon},$north]},
+            "tx0":$gtx0,"ty0":${gty0 + rows.first},
+            "west":$west,"north":$pNorth,"dlat":$dlat,"dlon":$dlon,"res":$res,"width":$size,"height":${rows.count() * 256},
             "tile":256,"planes":6,"depth_table":[null,[2.0,3.6,0]],
             "notes":[{"kind":"bridge","band":5,"bbox":[${west + 255 * dlon},${bridgeLat - dlat},${west + 257 * dlon},${bridgeLat + dlat}],
             "type":"Bbox","coords":null,"name":"Test Bridge","clr":10.0}]}""".trimIndent().replace("\n", "")
         val hb = header.toByteArray()
         val tiles = ArrayList<ByteArray?>()
-        for (ty in 0 until 2) for (tx in 0 until 2) {
+        for (ty in rows) for (tx in 0 until 2) {
             val raw = ByteArray(Pack.NPLANES * 256 * 256)
             var any = false
             for (p in 0 until Pack.NPLANES) for (r in 0 until 256) for (c in 0 until 256) {
@@ -56,7 +63,7 @@ class PlannerTest {
             tiles.add(if (any) deflate(raw) else null)
         }
         val out = ByteArrayOutputStream()
-        out.write("NRPK1\n".toByteArray())
+        out.write("NRPK2\n".toByteArray())
         out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(hb.size).array())
         out.write(hb)
         var pos = 6L + 4 + hb.size + tiles.size * 12
@@ -87,7 +94,8 @@ class PlannerTest {
     @Test
     fun routesThroughSpanAndAroundRock() {
         Pack(syntheticPack()).use { pack ->
-            val r = Planner(pack).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, null, bufM = 40.0)
+            val charts = ChartSet(listOf(pack))
+            val r = Planner(charts).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, null, bufM = 40.0)
             assertTrue("route length plausible", r.totalNm * Planner.NM in 5000.0..7000.0)
             // Every waypoint stays in the channel
             for (p in r.points) {
@@ -103,11 +111,29 @@ class PlannerTest {
     @Test
     fun airDraftTooTallIsExplained() {
         Pack(syntheticPack()).use { pack ->
+            val charts = ChartSet(listOf(pack))
             try {
-                Planner(pack).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, 40.0, bufM = 40.0)
+                Planner(charts).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, 40.0, bufM = 40.0)
                 fail("expected no route")
             } catch (e: PlanException) {
                 assertTrue(e.message, e.message!!.contains("bridge or overhead cable"))
+            }
+        }
+    }
+
+    @Test
+    fun joinsTwoAreas() {
+        Pack(syntheticPack(0)).use { top ->
+            Pack(syntheticPack(1)).use { bottom ->
+                val r = Planner(ChartSet(listOf(top, bottom))).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, null, bufM = 40.0)
+                assertTrue("joined route length plausible", r.totalNm * Planner.NM in 5000.0..7000.0)
+                // With only the top area the destination is outside the downloaded charts
+                try {
+                    Planner(ChartSet(listOf(top))).plan("t", listOf(cellCenter(120, 255), cellCenter(390, 255)), 3.0, null, bufM = 40.0)
+                    fail("expected no route without the second area")
+                } catch (e: PlanException) {
+                    assertNotNull(e.message)
+                }
             }
         }
     }

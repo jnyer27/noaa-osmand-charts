@@ -4,10 +4,15 @@ Build a draft-independent "route pack" for the NOAA Route Android app from
 NOAA ENC (S-57) data. Runs on GitHub Actions (Ubuntu with python3-gdal and
 python3-numpy); see .github/workflows/route-pack.yml.
 
-  python3 tools/build_route_pack.py -s MD -r 20 -o md-route-pack.bin
+  python3 tools/build_route_pack.py                 (all areas in tools/areas.json)
+  python3 tools/build_route_pack.py -a chesapeake   (one area)
 
-The pack is a 20 m grid (constant degree spacing, like noaa-route.py) cut into
-256 x 256 tiles. Each tile holds 6 byte planes; the app applies the boat's
+Writes packs/<area>.bin per area plus packs/catalog.json.
+
+All areas share one global grid so the app can join neighboring areas: rows of
+GRID_DLAT degrees from 90 N, columns of GRID_DLON degrees from 180 W (20 m at
+38 N; about 18 m wide at 45 N and 23 m at 25 N), cut into 256 x 256 tiles
+numbered from that origin. Each area pack holds the tiles covering its bbox. Each tile holds 6 byte planes; the app applies the boat's
 safe operating depth and air draft at planning time. Lower detail chart bands
 are burned first and every band resets its own coverage, so the most detailed
 chart wins (same rule as noaa-route.py).
@@ -30,12 +35,13 @@ Planes (0 always means "nothing here"):
   5 CABLECLR shortest cable clearance, 0.5 m units (1-255), 0 unknown
 
 File layout:
-  "NRPK1\\n", u32 header length, header JSON (UTF-8), then for each tile in
+  "NRPK2\\n", u32 header length, header JSON (UTF-8), then for each tile in
   row-major order u64 offset + u32 length (length 0 = empty tile), then the
   zlib-compressed tiles (6 planes of 256*256 bytes each, plane-major).
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -61,6 +67,8 @@ LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "RESARE", "BRIDGE", "CBLOHD"]
 M_PER_DEG = 111320.0
 TILE = 256
+GRID_DLAT = 20.0 / M_PER_DEG
+GRID_DLON = 20.0 / (M_PER_DEG * math.cos(math.radians(38.0)))
 NPLANES = 6
 DEPTH, HAZARD, SOUND, FLAGS, SPANCLR, CABLECLR = range(NPLANES)
 STRUCT, PROHIB, DECK, SPAN, OPENING, CABLE, RESNOTE, BRIDGE = (1 << b for b in range(8))
@@ -106,26 +114,44 @@ def fstr(f, name):
 # ---------------------------------------------------------------- ENC data
 
 def fetch(states, work):
+    """Download and unpack NOAA ENC state sets (once per run); cells deduplicated."""
     cells = {}
     for st in states:
         z = os.path.join(work, f"{st}_ENCs.zip")
-        log(f"Downloading {ENC_URL.format(st)}")
-        subprocess.run(["curl", "-fsSL", "--retry", "5", "-o", z, ENC_URL.format(st)], check=True)
         d = os.path.join(work, st)
-        with zipfile.ZipFile(z) as zf:
-            zf.extractall(d)
+        if not os.path.isdir(d):
+            log(f"Downloading {ENC_URL.format(st)}")
+            subprocess.run(["curl", "-fsSL", "--retry", "5", "-o", z, ENC_URL.format(st)], check=True)
+            with zipfile.ZipFile(z) as zf:
+                zf.extractall(d)
         for root, _, files in os.walk(d):
             for f in files:
                 if f.endswith(".000") and f[:-4] not in cells:
                     cells[f[:-4]] = os.path.join(root, f)
-    log(f"{len(cells)} chart cells")
+    log(f"{len(cells)} chart cells from {', '.join(states)}")
     return cells
+
+
+def check_units(name, path):
+    """Depths must be meters; returns the sounding datum code (12 = MLLW)."""
+    ds = ogr.Open(path)
+    lyr = ds.GetLayerByName("DSID")
+    f = lyr.GetNextFeature() if lyr is not None else None
+    if f is None:
+        raise SystemExit(f"{name}: no DSID record")
+    duni = f.GetField("DSPM_DUNI") if f.GetFieldIndex("DSPM_DUNI") >= 0 else None
+    if duni not in (None, 1):
+        raise SystemExit(f"{name}: depth units code {duni}, expected 1 (meters)")
+    return f.GetField("DSPM_SDAT") if f.GetFieldIndex("DSPM_SDAT") >= 0 else None
 
 
 def to_gpkg(name, path, work):
     """One GeoPackage per cell with NOAA's update files applied."""
     g = os.path.join(work, "gpkg", name + ".gpkg")
     os.makedirs(os.path.dirname(g), exist_ok=True)
+    if os.path.isfile(g):  # converted for an earlier area in this run
+        ds = ogr.Open(g)
+        return g, [ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())]
     src = ogr.Open(path)
     have = [l for l in LAYERS if src.GetLayerByName(l) is not None]
     src = None
@@ -150,14 +176,19 @@ def coverage_extent(g):
 # ---------------------------------------------------------------- rasterizing
 
 class Grid:
-    def __init__(self, west, south, east, north, res):
-        latmid = (south + north) / 2
-        self.res = res
-        self.dlat = res / M_PER_DEG
-        self.dlon = res / (M_PER_DEG * math.cos(math.radians(latmid)))
-        self.w = int(math.ceil((east - west) / self.dlon / TILE)) * TILE
-        self.h = int(math.ceil((north - south) / self.dlat / TILE)) * TILE
-        self.west, self.north = west, north
+    """The part of the global grid covering [west, south, east, north], tile aligned."""
+
+    def __init__(self, west, south, east, north):
+        self.res = 20.0
+        self.dlat, self.dlon = GRID_DLAT, GRID_DLON
+        self.tx0 = int(math.floor((west + 180) / (GRID_DLON * TILE)))
+        self.ty0 = int(math.floor((90 - north) / (GRID_DLAT * TILE)))
+        tx1 = int(math.ceil((east + 180) / (GRID_DLON * TILE)))
+        ty1 = int(math.ceil((90 - south) / (GRID_DLAT * TILE)))
+        self.w = (tx1 - self.tx0) * TILE
+        self.h = (ty1 - self.ty0) * TILE
+        self.west = -180 + self.tx0 * TILE * GRID_DLON
+        self.north = 90 - self.ty0 * TILE * GRID_DLAT
         self.srs = osr.SpatialReference()
         self.srs.ImportFromEPSG(4326)
         self.srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -222,11 +253,14 @@ def build(cells, grid, work):
             and e[2] < grid.north and e[3] > grid.north - grid.h * grid.dlat
 
     by_band = {}
+    datums = set()
     for name, path in sorted(cells.items()):
         g, have = to_gpkg(name, path, work)
         e = coverage_extent(g)
         if inside(e):
+            datums.add(check_units(name, path))
             by_band.setdefault(int(name[2]), []).append((g, have))
+    log(f"{sum(len(v) for v in by_band.values())} cells in area, sounding datum codes {sorted(d for d in datums if d is not None)}")
 
     for band in sorted(by_band):
         gp = by_band[band]
@@ -317,7 +351,7 @@ def build(cells, grid, work):
         planes[CABLECLR] = np.where(cc > 0, cc, planes[CABLECLR])
         planes[FLAGS] |= flags
 
-    return planes, depth_table, notes
+    return planes, depth_table, notes, sorted(d for d in datums if d is not None)
 
 
 def note(kind, band, geom, **attrs):
@@ -338,12 +372,15 @@ def note(kind, band, geom, **attrs):
 
 # ---------------------------------------------------------------- output
 
-def write_pack(path, grid, planes, depth_table, notes, states):
+def write_pack(path, area, grid, planes, depth_table, notes, datums):
     tw, th = grid.w // TILE, grid.h // TILE
     header = {
-        "format": "NRPK", "version": 1, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "source": [ENC_URL.format(s) for s in states], "states": states,
+        "format": "NRPK", "version": 2, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "area": {"id": area["id"], "name": area["name"], "bbox": area["bbox"]},
+        "source": [ENC_URL.format(s) for s in area["states"]], "states": area["states"],
+        "sounding_datums": datums,
         "west": grid.west, "north": grid.north, "dlat": grid.dlat, "dlon": grid.dlon, "res": grid.res,
+        "tx0": grid.tx0, "ty0": grid.ty0,
         "width": grid.w, "height": grid.h, "tile": TILE, "planes": NPLANES,
         "depth_table": depth_table, "notes": notes,
     }
@@ -359,7 +396,7 @@ def write_pack(path, grid, planes, depth_table, notes, states):
             index.append(len(blobs) - 1)
     base = 6 + 4 + len(hb) + len(index) * 12
     with open(path + ".tmp", "wb") as f:
-        f.write(b"NRPK1\n")
+        f.write(b"NRPK2\n")
         f.write(struct.pack("<I", len(hb)))
         f.write(hb)
         offs, pos = [], base
@@ -377,20 +414,35 @@ def write_pack(path, grid, planes, depth_table, notes, states):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-s", "--states", default="MD")
-    ap.add_argument("-r", "--res", type=float, default=20.0)
-    ap.add_argument("-b", "--bbox", default="-77.50,37.71,-74.55,39.68", help="W,S,E,N")
+    ap.add_argument("-a", "--area", help="area id from areas.json (default: all)")
+    ap.add_argument("--areas", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "areas.json"))
     ap.add_argument("-w", "--work", default="enc-work")
-    ap.add_argument("-o", "--out", default="md-route-pack.bin")
+    ap.add_argument("-o", "--out", default="packs")
     a = ap.parse_args()
-    states = [s.strip().upper() for s in a.states.split(",") if s.strip()]
-    W, S, E, N = (float(v) for v in a.bbox.split(","))
+    areas = json.load(open(a.areas))["areas"]
+    if a.area:
+        areas = [x for x in areas if x["id"] == a.area] or sys.exit(f"Unknown area {a.area}")
     os.makedirs(a.work, exist_ok=True)
-    cells = fetch(states, a.work)
-    grid = Grid(W, S, E, N, a.res)
-    log(f"Grid {grid.w} x {grid.h} at {a.res:g} m")
-    planes, depth_table, notes = build(cells, grid, a.work)
-    write_pack(a.out, grid, planes, depth_table, notes, states)
+    os.makedirs(a.out, exist_ok=True)
+    catalog = []
+    for area in areas:
+        log(f"== {area['id']}: {area['name']}")
+        cells = fetch(area["states"], a.work)
+        grid = Grid(*area["bbox"])
+        log(f"Grid {grid.w} x {grid.h} (tiles from {grid.tx0},{grid.ty0})")
+        planes, depth_table, notes, datums = build(cells, grid, a.work)
+        if datums and datums != [12]:
+            log(f"WARNING: sounding datums {datums}; 12 (MLLW) expected for US tidal waters")
+        path = os.path.join(a.out, area["id"] + ".bin")
+        write_pack(path, area, grid, planes, depth_table, notes, datums)
+        data = open(path, "rb").read()
+        catalog.append({"id": area["id"], "name": area["name"], "description": area.get("description", ""),
+                        "bbox": area["bbox"], "states": area["states"], "file": area["id"] + ".bin",
+                        "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                        "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "sounding_datums": datums})
+    json.dump({"version": 2, "areas": catalog}, open(os.path.join(a.out, "catalog.json"), "w"), indent=1)
+    log(f"Wrote catalog with {len(catalog)} area(s)")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 name: Route pack
 
-# Weekly NOAA ENC -> route pack for the NOAA Route app. NOAA publishes ENC
-# updates Friday afternoon (US Eastern), so build Saturday morning.
+# Weekly NOAA ENC -> area route packs for the NOAA Route app. NOAA publishes
+# ENC updates Friday afternoon (US Eastern), so build Saturday morning.
+# Areas and their reference routes are defined in tools/areas.json; nothing is
+# published unless every reference route still passes.
 on:
   schedule:
     - cron: "0 12 * * 6"
@@ -13,7 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -22,29 +24,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
 
-      - name: Build Maryland pack
-        run: python3 tools/build_route_pack.py -s MD -r 20 -o md-route-pack.bin
+      - name: Build area packs
+        run: python3 tools/build_route_pack.py -o packs
 
-      - name: Describe pack
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Reference routes
+        working-directory: android
+        env:
+          PACK_DIR: ${{ github.workspace }}/packs
+          AREAS_JSON: ${{ github.workspace }}/tools/areas.json
         run: |
-          python3 - <<'PY'
-          import hashlib, json, os, struct
-          p = "md-route-pack.bin"
-          with open(p, "rb") as f:
-              assert f.read(6) == b"NRPK1\n"
-              h = json.loads(f.read(struct.unpack("<I", f.read(4))[0]))
-          meta = {"file": p, "created": h["created"], "states": h["states"], "size": os.path.getsize(p),
-                  "sha256": hashlib.sha256(open(p, "rb").read()).hexdigest(),
-                  "bbox": [h["west"], h["north"] - h["height"] * h["dlat"], h["west"] + h["width"] * h["dlon"], h["north"]]}
-          json.dump(meta, open("md-route-pack.json", "w"), indent=1)
-          print(json.dumps(meta, indent=1))
-          PY
+          rc=0
+          gradle --no-daemon testReleaseUnitTest --tests '*AreaRoutesTest' -i > routes.log 2>&1 || rc=$?
+          grep -E 'PASS\?|REFUSED|Reference route failures|^ +[a-z]+: ' routes.log || tail -50 routes.log
+          exit $rc
 
-      - name: Publish release asset
+      - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view route-pack >/dev/null 2>&1 || \
-            gh release create route-pack --title "Route pack (weekly)" \
-              --notes "NOAA ENC route pack for the NOAA Route app, rebuilt every Saturday. Not for navigation."
-          gh release upload route-pack md-route-pack.bin md-route-pack.json --clobber
+            gh release create route-pack --title "Route packs (weekly)" \
+              --notes "NOAA ENC area route packs for the NOAA Route app, rebuilt every Saturday. Not for navigation."
+          gh release upload route-pack packs/*.bin packs/catalog.json --clobber

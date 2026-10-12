@@ -1,6 +1,6 @@
 # NOAA Charts for OsmAnd+ (Termux scripts)
 
-Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux, plus a route planner (`noaa-route.py`) that writes GPX routes from NOAA's vector chart data.
+Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux, plus a route planner (`noaa-route.py`) that writes GPX routes from NOAA's vector chart data, and the same planner as a standalone Android app (`android/`).
 
 | Script | Chart style | Source | Depths | Best for |
 |---|---|---|---|---|
@@ -233,6 +233,21 @@ The planner searches a box around your points. If the only way runs outside it (
 
 ---
 
+## NOAA Route Android app
+
+A self-contained Android version of the route planner: no Termux needed. Same rules and reports as `noaa-route.py`, ported to Kotlin, and much faster (under a second per route).
+
+- **Install:** download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) and open it (allow installs from your browser or file manager when Android asks). Later builds install over it as updates.
+- **Chart areas:** tap **Chart areas** and download the area(s) you boat in (a few MB each). The app then plans fully offline and joins neighboring areas for trips that cross between them. A GitHub Actions job rebuilds every area from NOAA's ENC data each Saturday; the button shows when updates are available. Available now: **Chesapeake Bay** (Susquehanna to the Virginia Capes, Potomac, Hampton Roads, C&D Canal).
+- **Points:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places** (preloaded with a few Chesapeake spots; edit them under **Manage places**), or tap **Here** for the current GPS position.
+- **Output:** the route report, and the GPX saved to `Download/noaa-charts/routes/`. **Open in OsmAnd** sends it directly; if OsmAnd will not open it, **Show routes folder in Files** and tap it there.
+
+How it works: areas are defined in `tools/areas.json` (NOAA state sets, bounds and reference routes). `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) turns each area's ENC charts into a 20 m grid of depth ranges, shallowest hazards and soundings, bridge/cable clearances and restricted-area notes, independent of any boat, on one global grid so areas line up. It checks every chart's depth units (meters) and records the sounding datum. Before publishing, the workflow runs every area's reference routes through the app's planner and publishes nothing if one fails. The app applies your depth and air draft at planning time; long trips use a coarser grid (40-100 m) to save memory, so add via points near narrow spots. The APK is built by `.github/workflows/android.yml` on every push to `android/`.
+
+**Adding an area:** add an entry to `tools/areas.json` with its NOAA state sets (`charts.noaa.gov/ENCs/<STATE>_ENCs.zip`), bbox and a few reference routes (including one that should fail), then run the Route pack workflow.
+
+---
+
 ## Getting maps into OsmAnd+
 
 OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied.
@@ -281,6 +296,9 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 | `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` |
 | `~/.noaa-enc/` | ENC chart data and converted cells for the route planner (safe to delete; re-downloads). Works offline once downloaded |
 | `~/.noaa-enc/route-defaults.json` | Last draft and air draft, used as interview defaults |
+| `android/` | Android app source (Kotlin) |
+| `tools/build_route_pack.py`, `tools/areas.json` | Area pack builder and area definitions for the app (run on GitHub Actions) |
+| `~/.noaa-route-signing/` | App signing key and password (also stored as GitHub secrets). Back it up: without it, new builds cannot update the installed app |
 | `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
 

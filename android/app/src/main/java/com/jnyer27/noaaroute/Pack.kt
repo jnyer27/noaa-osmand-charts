@@ -84,8 +84,10 @@ class Note(
 }
 
 /**
- * Reader for the NRPK1 route pack written by tools/build_route_pack.py: a
- * constant-degree grid in 256 x 256 tiles of 6 byte planes each.
+ * Reader for one NRPK2 area pack written by tools/build_route_pack.py: part of
+ * a global constant-degree grid in 256 x 256 tiles of 6 byte planes each.
+ * Tiles are numbered globally from 90 N, 180 W, so packs of neighboring areas
+ * line up and can be combined (see ChartSet).
  */
 class Pack(file: File) : AutoCloseable {
     companion object {
@@ -109,6 +111,11 @@ class Pack(file: File) : AutoCloseable {
     }
 
     private val raf = RandomAccessFile(file, "r")
+    val areaId: String
+    val areaName: String
+    val areaBbox: DoubleArray
+    val tx0: Int
+    val ty0: Int
     val created: String
     val states: List<String>
     val west: Double
@@ -128,12 +135,18 @@ class Pack(file: File) : AutoCloseable {
     init {
         val magic = ByteArray(6)
         raf.readFully(magic)
-        require(String(magic) == "NRPK1\n") { "Not a route pack" }
+        require(String(magic) == "NRPK2\n") { "Not a current route pack; download the chart area again" }
         val hl = Integer.reverseBytes(raf.readInt())
         val hb = ByteArray(hl)
         raf.readFully(hb)
         @Suppress("UNCHECKED_CAST")
         val h = MiniJson.parse(String(hb, Charsets.UTF_8)) as Map<String, Any?>
+        val area = h["area"] as Map<*, *>
+        areaId = area["id"] as String
+        areaName = area["name"] as String
+        areaBbox = (area["bbox"] as List<*>).map { it as Double }.toDoubleArray()
+        tx0 = (h["tx0"] as Double).toInt()
+        ty0 = (h["ty0"] as Double).toInt()
         created = h["created"] as String
         states = (h["states"] as List<*>).map { it as String }
         west = h["west"] as Double
@@ -175,7 +188,19 @@ class Pack(file: File) : AutoCloseable {
     val south get() = north - height * dlat
     val east get() = west + width * dlon
 
-    fun covers(lat: Double, lon: Double) = lat in south..north && lon in west..east
+    /** True if the point is inside this area's published bbox and its grid. */
+    fun covers(lat: Double, lon: Double) = lon in areaBbox[0]..areaBbox[2] && lat in areaBbox[1]..areaBbox[3] &&
+        lon in west..east && lat in south..north
+
+    val tilesY get() = height / tile
+
+    /** Tile data by global tile number, or null if this pack has no data there. */
+    fun tileGlobal(gtx: Int, gty: Int): ByteArray? {
+        val tx = gtx - tx0
+        val ty = gty - ty0
+        if (tx < 0 || ty < 0 || tx >= tilesX || ty >= tilesY) return null
+        return tileData(tx, ty)
+    }
 
     private val cache = object : LinkedHashMap<Int, ByteArray?>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ByteArray?>) = size > 160
@@ -205,47 +230,6 @@ class Pack(file: File) : AutoCloseable {
         }
         cache[k] = data
         return data
-    }
-
-    /**
-     * Copy a window of the pack (pack rows r0 until r0 + h*f, cols c0 until
-     * c0 + w*f) into per-cell planes, combining f x f blocks: depth sampled at
-     * the block center, hazards/soundings/clearances keep the minimum, flags OR.
-     */
-    fun window(r0: Int, c0: Int, h: Int, w: Int, f: Int): Array<ByteArray> {
-        val out = Array(NPLANES) { ByteArray(h * w) }
-        val minPlanes = intArrayOf(P_HAZARD, P_SOUND, P_SPANCLR, P_CABLECLR)
-        val t = tile
-        val half = f / 2
-        val ty0 = max(0, r0 / t)
-        val ty1 = min(height / t - 1, (r0 + h * f - 1) / t)
-        val tx0 = max(0, c0 / t)
-        val tx1 = min(tilesX - 1, (c0 + w * f - 1) / t)
-        for (ty in ty0..ty1) for (tx in tx0..tx1) {
-            val d = tileData(tx, ty) ?: continue
-            val prA = max(ty * t, r0)
-            val prB = min((ty + 1) * t, r0 + h * f)
-            val pcA = max(tx * t, c0)
-            val pcB = min((tx + 1) * t, c0 + w * f)
-            for (pr in prA until prB) {
-                val wr = (pr - r0) / f
-                val centerRow = (pr - r0) % f == half
-                val rowBase = (pr - ty * t) * t
-                for (pc in pcA until pcB) {
-                    val wc = (pc - c0) / f
-                    val i = wr * w + wc
-                    val ti = rowBase + (pc - tx * t)
-                    if (centerRow && (pc - c0) % f == half) out[P_DEPTH][i] = d[P_DEPTH * t * t + ti]
-                    for (p in minPlanes) {
-                        val v = d[p * t * t + ti].toInt() and 0xff
-                        val cur = out[p][i].toInt() and 0xff
-                        if (v != 0 && (cur == 0 || v < cur)) out[p][i] = v.toByte()
-                    }
-                    out[P_FLAGS][i] = (out[P_FLAGS][i].toInt() or d[P_FLAGS * t * t + ti].toInt()).toByte()
-                }
-            }
-        }
-        return out
     }
 
     override fun close() = raf.close()

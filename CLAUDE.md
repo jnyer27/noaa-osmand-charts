@@ -6,12 +6,15 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - `noaa-charts.sh`: downloads NOAA NCDS regional MBTiles (paper-chart style, depths in feet) from `https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_XX.mbtiles` and converts to OsmAnd `.sqlitedb`. `-M` merges multiple regions into one `ncds_XX_YY.sqlitedb` (`-S` = separate; asks if neither). **Working and confirmed on device.**
 - `noaa-ecdis-tiles.sh`: pulls 256px tiles for a bbox from NOAA's ECDIS Display Service (S-52 style, depths in meters) via the ArcGIS MCS `export` endpoint and packs them into `.sqlitedb`. Auto-refresh/resume logic. **Confirmed on device.**
 - `noaa-route.py`: route planner. NOAA ENC S-57 (state zip, updates applied by GDAL `UPDATES=APPLY`) -> per-cell GeoPackage cache -> rasterized Byte grid (gdal_rasterize, bands burned low to high detail, each cell resets its own M_COVR coverage) -> pure-Python A* (no numpy) -> GPX `<rte>`. Python because routing in bash is impractical. **Confirmed on device:** Middle River to Annapolis (3 ft draft, 26.3 nm) and Maryland Marina to Chesapeake City public dock (34.3 nm, via APG waters and C&D Canal) import and display correctly in OsmAnd (2026-10-11).
+- `android/`: NOAA Route app, Kotlin, no AndroidX. Core (`MiniJson`, `Pack`, `Planner`, `Gpx`, `Coords`) is Android-free so it compiles and tests on a plain JVM in Termux (`kotlinc` + junit jars, see below). `MainActivity` is programmatic UI. minSdk 29, largeHeap.
+- `tools/build_route_pack.py` + `tools/areas.json`: builds NRPK2 area packs (format in the docstring) with python3-gdal + numpy on a **global grid** (dlat = 20 m, dlon = 20 m at 38 N, tiles numbered from 90 N/180 W) so areas join in the app (`ChartSet`). Checks DSPM_DUNI == 1 (meters) per cell, records DSPM_SDAT (12 = MLLW). Weekly `route-pack.yml` builds all areas, runs `AreaRoutesTest` (reference routes from areas.json via the Kotlin planner, env PACK_DIR/AREAS_JSON) and only then publishes `packs/*.bin` + `catalog.json` to release `route-pack`. Areas so far: chesapeake (MD+VA). The first single-pack build (NRPK1, `md-route-pack.bin`, 3.1 MB) is obsolete; the app deletes it.
+- `.github/workflows/android.yml`: unit tests + signed release APK on pushes to `android/`, published as release `app` (`noaa-route.apk`). Signing key: secrets `NOAAROUTE_KEYSTORE_B64`, `NOAAROUTE_KEYSTORE_PASSWORD`, `NOAAROUTE_KEY_ALIAS`, `NOAAROUTE_KEY_PASSWORD`; local copy in `~/.noaa-route-signing/` (never commit it).
 - `README.md`: user guide. Keep it in sync with any script changes.
 
 ## Status
 - [x] Both scripts working on Jason's phone (Termux, aarch64)
 - [x] README written
-- [x] Private GitHub repo created and pushed: https://github.com/jnyer27/noaa-osmand-charts
+- [x] GitHub repo https://github.com/jnyer27/noaa-osmand-charts, **public since 2026-10-11** (history rewritten to noreply email 22139984+jnyer27@users.noreply.github.com; repo-local git user.email set to it)
 - [x] Region merge (`-M`) confirmed on device: `ncds_03_04_05.sqlitedb` (1.7 GB, 1,185,109 tiles) imports and renders in OsmAnd (2026-10-11)
 
 ## First task: push to GitHub
@@ -40,6 +43,9 @@ Bash scripts that build offline NOAA nautical chart overlays (`.sqlitedb`) for O
 - Single PILPNT/PYLONS points no longer block (one pile closed Ego Alley at 20 m grid); only area geometries do (`OGR_GEOMETRY IN ('POLYGON','MULTIPOLYGON')`).
 - `-d` is the safe operating depth, not boat draft (Jason: 1.8 ft draft, 3 ft safe depth). Depths compared with ROUNDING_M = 0.05 since NOAA stores 6 ft as 1.8 m.
 - **OsmAnd crashes on GPX opened via `termux-open`** (tried --view, --send, with --content-type application/gpx+xml), but the same file opens fine from the Files app. Cause is on Termux's content-provider side; OsmAnd's crash log is unreadable (scoped storage) and `/system/bin/content` cannot run from Termux. `-O` therefore opens the folder in Files via `am start -t vnd.android.document/directory -d content://com.android.externalstorage.documents/document/primary%3A<path>` (confirmed on device). `.sqlitedb` via termux-open works.
+- App planner vs noaa-route.py on the real pack (2026-10-11): Annapolis 26.2/26.2 nm, Bear Creek 10.5/10.4, Rock Hall 15.7/15.8, Chesapeake City 34.2/34.3, 6 ft Annapolis fails the same way. Bug found: on the 40 m grid (f=2 downsampling for >4M cells) the hazard buffer rounded 60/40 up to 2 cells and closed the C&D Canal; now rounds down.
+- JVM test loop in Termux: `pkg install openjdk-17 kotlin`; junit-4.13.2 + hamcrest-core-1.3 jars from Maven Central; compile the 5 core files + test with `JAVA_OPTS=-Djansi.mode=strip kotlinc ... -d out`, run `java -cp out:junit:hamcrest:$PREFIX/opt/kotlin/lib/kotlin-stdlib.jar org.junit.runner.JUnitCore com.jnyer27.noaaroute.PlannerTest`.
+- gh needed the `workflow` scope to push `.github/workflows/*` (Jason ran `gh auth refresh -s workflow`).
 - GDAL on Termux needed `pkg install openexr` (missing `libOpenEXR` at first run).
 
 ## Known issues / ideas
