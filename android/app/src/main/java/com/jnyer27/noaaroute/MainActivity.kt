@@ -224,6 +224,13 @@ class MainActivity : Activity() {
                     status.text = "Start and destination set from the GPX file."
                 }
             }
+            if (gpx.waypoints.isNotEmpty()) {
+                items.add("Save all ${gpx.waypoints.size} waypoint${if (gpx.waypoints.size > 1) "s" else ""} as places")
+                actions.add {
+                    upsertPlaces(places(), gpx.waypoints.map { it.name to Coords.format(it.pos) })
+                    toast("Saved ${gpx.waypoints.size} place(s) from the GPX file")
+                }
+            }
             for (p in (gpx.waypoints + gpx.route + gpx.trackEnds).take(300)) {
                 items.add("${p.name}\n${Coords.format(p.pos)}")
                 actions.add { assignPoint(p) }
@@ -244,14 +251,30 @@ class MainActivity : Activity() {
 
     private fun assignPoint(p: SharedPoint) {
         val pos = Coords.format(p.pos)
-        val title = if (p.name == pos) pos else "${p.name}\n$pos"
-        AlertDialog.Builder(this).setTitle("Use this position as").setMessage(title)
-            .setPositiveButton("Destination") { _, _ -> dest.setText(pos); status.text = "Destination set: $title" }
-            .setNegativeButton("Start") { _, _ -> start.setText(pos); status.text = "Start set: $title" }
-            .setNeutralButton("Via point") { _, _ ->
-                via.setText(if (via.text.isBlank()) pos else "${via.text}; $pos")
-                status.text = "Via point added: $title"
-            }.show()
+        val named = p.name != pos
+        val title = if (named) "${p.name}\n$pos" else pos
+        val choices = arrayOf("Start", "Destination", "Via point", "Save as place\u2026")
+        AlertDialog.Builder(this).setTitle(title)
+            .setItems(choices) { _, k ->
+                when (k) {
+                    0 -> { start.setText(pos); status.text = "Start set: $title" }
+                    1 -> { dest.setText(pos); status.text = "Destination set: $title" }
+                    2 -> {
+                        via.setText(if (via.text.isBlank()) pos else "${via.text}; $pos")
+                        status.text = "Via point added: $title"
+                    }
+                    else -> editPlace(places(), -1, if (named) p.name else "", pos)
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    /** Add or update places by name (same name = same place, updated). */
+    private fun upsertPlaces(list: MutableList<Pair<String, String>>, entries: List<Pair<String, String>>) {
+        for (e in entries) {
+            val i = list.indexOfFirst { it.first.equals(e.first, ignoreCase = true) }
+            if (i >= 0) list[i] = e else list.add(e)
+        }
+        savePlaces(list)
     }
 
     override fun onDestroy() {
@@ -432,10 +455,10 @@ class MainActivity : Activity() {
             }.setNegativeButton("Close", null).show()
     }
 
-    private fun editPlace(list: MutableList<Pair<String, String>>, k: Int) {
+    private fun editPlace(list: MutableList<Pair<String, String>>, k: Int, newName: String = "", newPos: String? = null) {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
-        val n = field("name").apply { if (k >= 0) setText(list[k].first) }
-        val p = field("LAT, LON").apply { setText(if (k >= 0) list[k].second else start.text.toString()) }
+        val n = field("name").apply { setText(if (k >= 0) list[k].first else newName) }
+        val p = field("LAT, LON").apply { setText(if (k >= 0) list[k].second else newPos ?: start.text.toString()) }
         box.addView(n)
         box.addView(p)
         val d = AlertDialog.Builder(this).setTitle(if (k >= 0) "Edit place" else "Add place").setView(box)
@@ -443,8 +466,8 @@ class MainActivity : Activity() {
                 val ll = Coords.parse(p.text.toString())
                 if (n.text.isBlank() || ll == null) { toast("Need a name and LAT, LON"); return@setPositiveButton }
                 val entry = n.text.toString().trim() to Coords.format(ll)
-                if (k >= 0) list[k] = entry else list.add(entry)
-                savePlaces(list)
+                if (k >= 0) { list[k] = entry; savePlaces(list) } else upsertPlaces(list, listOf(entry))
+                toast("Saved place: ${entry.first}")
             }.setNegativeButton("Cancel", null)
         if (k >= 0) d.setNeutralButton("Delete") { _, _ -> list.removeAt(k); savePlaces(list) }
         d.show()
