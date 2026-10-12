@@ -38,8 +38,9 @@ object Gpx {
     fun report(r: Route): String {
         val sb = StringBuilder()
         val air = if (r.airFt != null) "air draft ${num(r.airFt)} ft" else "air draft not checked"
-        sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\ndepth %s ft (MLLW), %s, grid %.0f m\n",
-            r.name, r.totalNm, r.points.size, num(r.depthFt), air, r.resM))
+        sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\ndepth %s ft (MLLW), %s, grid %.0f m%s\n",
+            r.name, r.totalNm, r.points.size, num(r.depthFt), air, r.resM,
+            r.guideM?.let { String.format(Locale.US, " (long trip, guided by a %.0f m overview)", it) } ?: ""))
         for (m in r.messages) sb.append(m).append('\n')
         sb.append("\nLeg Course  Dist nm  Notes\n")
         for ((k, l) in r.legs.withIndex()) {

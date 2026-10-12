@@ -20,7 +20,7 @@ data class LatLon(val lat: Double, val lon: Double)
 class Leg(val distM: Double, val bearing: Double, val shoalM: Double, val lowM: Double?, val notes: List<String>)
 
 class Route(val name: String, val points: List<LatLon>, val legs: List<Leg>, val depthFt: Double,
-            val airFt: Double?, val resM: Double, val messages: List<String>) {
+            val airFt: Double?, val resM: Double, val messages: List<String>, val guideM: Double? = null) {
     val totalNm get() = legs.sumOf { it.distM } / Planner.NM
 }
 
@@ -453,9 +453,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return near.filter { it.band == top }.mapNotNull { it.describe() }.distinct()
     }
 
-    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray): List<Leg> {
+    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>): List<Leg> {
         val out = ArrayList<Leg>()
-        val seen = HashSet<String>()
         val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
         val every = max(1, (500 / a.res).toInt())
         for (k in 0 until idx.size - 1) {
@@ -483,6 +482,153 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return out
     }
 
+    // ------------------------------------------------------------ planning
+
+    private class Ctx(val depthFt: Double, val airFt: Double?, val depthM: Double, val airM: Double?, val bufM: Double,
+                      val progress: (String) -> Unit) {
+        val seen = HashSet<String>()           // notes already reported on an earlier leg
+        val messages = ArrayList<String>()
+        val moved = HashSet<Int>()             // user points already reported as moved
+    }
+
+    private class Piece(val wps: List<LatLon>, val legs: List<Leg>, val res: Double)
+
+    private val widths = doubleArrayOf(1.0, 2.5, 5.0)
+
+    /** Label for a routing point: user point number, or a guide point placed by the planner. */
+    private fun label(n: Int?, p: LatLon) =
+        if (n != null) "Point $n (%.5f, %.5f)".format(p.lat, p.lon) else "A guide point the planner placed at %.5f, %.5f".format(p.lat, p.lon)
+
+    private fun noRoute(c: Ctx, a: Area, who: String, enc: Triple<Int, Boolean, Map<String, Pair<Int, Int>>>): PlanException {
+        val (cnt, _, walls) = enc
+        val sb = StringBuilder()
+        sb.append("No route found for ${fmt(c.depthFt)} ft depth")
+        sb.append(if (c.airFt != null) " and ${fmt(c.airFt)} ft air draft.\n" else ".\n")
+        sb.append("$who is in a pocket of about %.1f ha of usable water, closed off by:\n".format(cnt * a.res * a.res / 1e4))
+        for ((why, v) in walls.entries.sortedByDescending { it.value.first }) {
+            val ll = a.latlon(v.second)
+            sb.append("  - ${wallText[why]} (${(v.first * a.res).roundToInt()} m of edge, near %.5f, %.5f)\n".format(ll.lat, ll.lon))
+        }
+        sb.append("Move the point into open water, or adjust depth or air draft.")
+        return PlanException(sb.toString())
+    }
+
+    /** Route a to b on the full-detail grid (its window must fit without coarsening). */
+    private fun planPiece(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Piece {
+        for ((attempt, widen) in widths.withIndex()) {
+            val a = area(listOf(p, q), widen)
+            val g = buildGrid(a, c.depthM, c.airM, c.bufM)
+            val (sp, mp) = snap(a, g, p)
+            val (sq, mq) = snap(a, g, q)
+            for ((n, m) in listOf(np to mp, nq to mq)) if (n != null && m > a.res && n !in c.moved) {
+                c.moved.add(n)
+                c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
+            }
+            val path = astar(a, g.cost, sp, sq)
+            if (path != null) {
+                val idx = simplify(a, g, path)
+                val wps = idx.map { a.latlon(it) }.toMutableList()
+                wps[0] = p
+                wps[wps.size - 1] = q
+                return Piece(wps, legs(a, g, wps, idx, c.seen), a.res)
+            }
+            val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
+            val closed = (0..1).filter { !ends[it].second }
+            if (closed.isNotEmpty() || attempt == widths.size - 1) {
+                val e = closed.firstOrNull() ?: (0..1).minBy { ends[it].first }
+                throw noRoute(c, a, if (e == 0) label(np, p) else label(nq, q), ends[e])
+            }
+            c.progress("No route inside this area, widening the search")
+        }
+        throw PlanException("No route found")
+    }
+
+    /** Full-detail window of +/- halfM meters around p. */
+    private fun areaAround(p: LatLon, halfM: Double): Area {
+        val dy = halfM / Pack.M_PER_DEG
+        val dx = halfM / (Pack.M_PER_DEG * cos(Math.toRadians(p.lat)))
+        val r0 = max(0, floor((pack.north - (p.lat + dy)) / pack.dlat).toInt())
+        val r1 = min(pack.height, ceil((pack.north - (p.lat - dy)) / pack.dlat).toInt())
+        val c0 = max(0, floor((p.lon - dx - pack.west) / pack.dlon).toInt())
+        val c1 = min(pack.width, ceil((p.lon + dx - pack.west) / pack.dlon).toInt())
+        return Area(r0, c0, r1 - r0, c1 - c0, 1)
+    }
+
+    /**
+     * Long trips: plan on a coarse overview grid, with the water around both
+     * ends worked out at full detail and stamped in (a narrow creek must not
+     * disappear at 100 m), then return open-water guide points about every
+     * 18 km along that path. Each stretch between them is then routed at full
+     * detail by planPiece.
+     */
+    private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
+        for ((attempt, widen) in widths.withIndex()) {
+            val a = area(listOf(p, q), widen)
+            c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})")
+            val g = buildGrid(a, c.depthM, c.airM, c.bufM)
+            val ends = IntArray(2)
+            for ((k, pt) in listOf(p, q).withIndex()) {
+                val fa = areaAround(pt, 4000.0)
+                val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+                val (s, _) = snap(fa, fg, pt)
+                // Everything reachable from the point within the detail window is usable on the overview
+                val seen = BooleanArray(fa.n)
+                val stack = IntArray(fa.n)
+                var sp = 0
+                stack[sp++] = s
+                seen[s] = true
+                while (sp > 0) {
+                    val i = stack[--sp]
+                    val ci = a.cell(fa.latlon(i))
+                    g.ok[ci] = true
+                    if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
+                    val r = i / fa.w
+                    val col = i % fa.w
+                    for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
+                                         if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
+                        if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                    }
+                }
+                ends[k] = a.cell(fa.latlon(s))
+            }
+            val path = astar(a, g.cost, ends[0], ends[1])
+            if (path != null) {
+                // Cumulative distance along the overview path
+                val cum = DoubleArray(path.size)
+                for (k in 1 until path.size) cum[k] = cum[k - 1] + distanceM(a.latlon(path[k - 1]), a.latlon(path[k]))
+                val total = cum.last()
+                val n = max(1, ceil(total / 18000.0).toInt())
+                val out = ArrayList<LatLon>()
+                var from = 0
+                for (k in 1 until n) {
+                    val target = total * k / n
+                    var j = from
+                    while (j < path.size - 1 && cum[j] < target) j++
+                    // Prefer a nearby path cell in open, safe water
+                    val reach = max(1, (2000 / a.res).toInt())
+                    var best = j
+                    for (d in 0..reach) {
+                        val cand = listOf(j + d, j - d).firstOrNull { it in (from + 1) until path.size - 1 &&
+                            g.nav[path[it]].toInt() == SAFE && g.prox[path[it]].toInt() == 0 }
+                        if (cand != null) { best = cand; break }
+                    }
+                    if (cum[best] < 4000 || total - cum[best] < 4000) continue
+                    out.add(a.latlon(path[best]))
+                    from = best
+                }
+                return out to a.res
+            }
+            val enc = listOf(enclosure(a, g, ends[0]), enclosure(a, g, ends[1]))
+            val closed = (0..1).filter { !enc[it].second }
+            if (closed.isNotEmpty() || attempt == widths.size - 1) {
+                val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].first }
+                throw noRoute(c, a, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", enc[e])
+            }
+            c.progress("No route inside this area, widening the search")
+        }
+        throw PlanException("No route found")
+    }
+
     // ------------------------------------------------------------ main entry
 
     fun plan(name: String, pts: List<LatLon>, depthFt: Double, airFt: Double?, bufM: Double = 60.0,
@@ -490,67 +636,30 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         require(pts.size >= 2)
         for (p in pts) if (!pack.covers(p.lat, p.lon))
             throw PlanException("%.5f, %.5f is outside your downloaded chart areas (%s). Download the area that covers it.".format(p.lat, p.lon, pack.names))
-        val depthM = depthFt * Pack.FT
-        val airM = airFt?.let { it * Pack.FT }
-        val widths = doubleArrayOf(1.0, 2.5, 5.0)
-        val messages = ArrayList<String>()
-        for ((attempt, widen) in widths.withIndex()) {
-            val a = area(pts, widen)
-            progress("Loading charts at ${a.res.roundToInt()} m (${a.w} x ${a.h})")
-            val g = buildGrid(a, depthM, airM, bufM)
-            val idx = IntArray(pts.size)
-            for ((k, p) in pts.withIndex()) {
-                val (i, moved) = snap(a, g, p)
-                if (moved > a.res && attempt == 0) messages.add("Point ${k + 1} moved ${moved.roundToInt()} m to the nearest usable water")
-                idx[k] = i
+        val c = Ctx(depthFt, airFt, depthFt * Pack.FT, airFt?.let { it * Pack.FT }, bufM, progress)
+        val wps = ArrayList<LatLon>()
+        val legs = ArrayList<Leg>()
+        var res = 0.0
+        var guideRes: Double? = null
+        for (k in 0 until pts.size - 1) {
+            val p = pts[k]
+            val q = pts[k + 1]
+            // Short enough for one full-detail window, or guided through overview points
+            val chain = if (area(listOf(p, q), 1.0).f == 1) listOf(p, q) else {
+                val (guide, gr) = guidePoints(p, q, k + 1, k + 2, c)
+                guideRes = max(guideRes ?: 0.0, gr)
+                listOf(p) + guide + listOf(q)
             }
-            val full = ArrayList<Int>()
-            var failed = -1
-            for (k in 0 until idx.size - 1) {
-                progress("Routing leg ${k + 1} of ${idx.size - 1}")
-                val p = astar(a, g.cost, idx[k], idx[k + 1])
-                if (p == null) { failed = k; break }
-                if (full.isEmpty()) full.addAll(p.toList()) else full.addAll(p.drop(1))
+            for (j in 0 until chain.size - 1) {
+                progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
+                val piece = planPiece(chain[j], chain[j + 1], if (j == 0) k + 1 else null,
+                                      if (j == chain.size - 2) k + 2 else null, c)
+                if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
+                legs.addAll(piece.legs)
+                res = max(res, piece.res)
             }
-            if (failed < 0) {
-                progress("Simplifying")
-                val wpsIdx = ArrayList<Int>()
-                var pos = 0
-                for (k in 1 until idx.size) {
-                    var end = pos
-                    while (full[end] != idx[k]) end++
-                    val seg = simplify(a, g, full.subList(pos, end + 1).toIntArray())
-                    if (wpsIdx.isEmpty()) wpsIdx.addAll(seg.toList()) else wpsIdx.addAll(seg.drop(1))
-                    pos = end
-                }
-                val wps = wpsIdx.map { a.latlon(it) }.toMutableList()
-                wps[0] = pts.first()
-                wps[wps.size - 1] = pts.last()
-                progress("Checking legs")
-                val legs = legs(a, g, wps, wpsIdx.toIntArray())
-                return Route(name, wps, legs, depthFt, airFt, a.res, messages)
-            }
-            val ends = listOf(enclosure(a, g, idx[failed]), enclosure(a, g, idx[failed + 1]))
-            val closed = (0..1).filter { !ends[it].second }
-            if (closed.isNotEmpty() || attempt == widths.size - 1) {
-                val e = closed.firstOrNull() ?: (0..1).minBy { ends[it].first }
-                val (cnt, _, walls) = ends[e]
-                val p = pts[failed + e]
-                val sb = StringBuilder()
-                sb.append("No route found for ${fmt(depthFt)} ft depth")
-                sb.append(if (airFt != null) " and ${fmt(airFt)} ft air draft.\n" else ".\n")
-                sb.append("Point ${failed + e + 1} (%.5f, %.5f) is in a pocket of about %.1f ha of usable water, closed off by:\n"
-                    .format(p.lat, p.lon, cnt * a.res * a.res / 1e4))
-                for ((why, v) in walls.entries.sortedByDescending { it.value.first }) {
-                    val ll = a.latlon(v.second)
-                    sb.append("  - ${wallText[why]} (${(v.first * a.res).roundToInt()} m of edge, near %.5f, %.5f)\n".format(ll.lat, ll.lon))
-                }
-                sb.append("Move the point into open water, or adjust depth or air draft.")
-                throw PlanException(sb.toString())
-            }
-            progress("No route inside this area, widening the search")
         }
-        throw PlanException("No route found")
+        return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
     }
 
     private fun fmt(v: Double) = if (v == floor(v)) v.toInt().toString() else v.toString()
