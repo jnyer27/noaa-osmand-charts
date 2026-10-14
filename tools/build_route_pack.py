@@ -541,8 +541,15 @@ def build(cells, grid, work):
                                          f"{COARSE_M} m")
                     depth_index[key] = len(depth_table)
                     depth_table.append(list(key))
-                depth_feats.append((geom, depth_index[key]))
-        d = burn(grid, depth_feats)
+                d1, d2 = fnum(f, "DRVAL1"), fnum(f, "DRVAL2")
+                order = (kind, -1e9 if d1 is None else d1, -1e9 if d2 is None else d2)
+                depth_feats.append((order, geom, depth_index[key]))
+        # Burned shallow to deep (a later feature wins a cell), dredged areas after depth
+        # areas, as noaa-route.py does: where areas overlap the deeper one wins. In chart
+        # order a 3.3 ft dredged basin beside Masonboro Sound overwrote the 12 ft ICW
+        # channel's cells, and at 5 ft that shut the 1-2 cell wide channel.
+        depth_feats.sort(key=lambda t: t[0])
+        d = burn(grid, [(g_, v) for _, g_, v in depth_feats])
         planes[DEPTH] = np.where(d > 0, d, planes[DEPTH])
         # Not all touched: that narrowed harbor entrances shut (Rock Hall); the
         # planner's shore proximity cost keeps routes off land instead
