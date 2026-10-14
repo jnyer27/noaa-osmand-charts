@@ -857,7 +857,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * A guide point moved to real channel water: the nearest full-detail cell charted
      * at least the safe depth, usable, not a pier/marker/snag cell nor in a hazard
-     * buffer, and preferably not hugging danger. An overview cell (320 m on a long
+     * buffer, nearness to danger only a tie-breaker (a hard "not hugging danger" rule
+     * skipped every cell of the narrow ICW behind Masonboro Island and picked the
+     * Atlantic across the island, sending the route around Cape Fear). An overview cell (320 m on a long
      * trip) counts as water when a sliver of channel runs through it, so its center
      * can lie in shallow sound beside the ICW (Masonboro Sound: the stretch was sent
      * there, the 20 m search failed, and the 40 m one left the marked channel).
@@ -869,17 +871,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val at = fa.cell(pt)
         val r0 = at / fa.w
         val c0 = at % fa.w
-        fun good(i: Int, maxProx: Int) = fg.ok[i] && fg.nav[i].toInt() == SAFE && !fg.pier[i] && !fg.soft[i] && fg.prox[i] <= maxProx
-        for (maxProx in listOf(fg.k - 3, fg.k)) {
-            var best = -1
-            var bestD = Double.MAX_VALUE
-            for (i in 0 until fa.n) if (good(i, maxProx)) {
-                val dd = hypot((i / fa.w - r0).toDouble(), (i % fa.w - c0).toDouble())
-                if (dd < bestD) { bestD = dd; best = i }
-            }
-            if (best >= 0) return fa.latlon(best)
+        var best = -1
+        var bestD = Double.MAX_VALUE
+        for (i in 0 until fa.n) if (fg.ok[i] && fg.nav[i].toInt() == SAFE && !fg.pier[i] && !fg.soft[i]) {
+            val dd = hypot((i / fa.w - r0).toDouble(), (i % fa.w - c0).toDouble()) + 0.5 * fg.prox[i]
+            if (dd < bestD) { bestD = dd; best = i }
         }
-        return pt
+        return if (best >= 0) fa.latlon(best) else pt
     }
 
     private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
