@@ -100,6 +100,8 @@ class Pack(file: File) : AutoCloseable {
         const val P_FLAGS = 3
         const val P_SPANCLR = 4
         const val P_CABLECLR = 5
+        /** HAZARD plane value for a pier or seawall line without a hazard (older apps read it as 25.4 m deep) */
+        const val HZ_PIER = 255
         const val F_STRUCT = 1
         const val F_PROHIB = 2
         const val F_DECK = 4

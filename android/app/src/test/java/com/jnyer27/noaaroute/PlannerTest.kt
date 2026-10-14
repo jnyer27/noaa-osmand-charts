@@ -11,6 +11,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.Deflater
+import kotlin.math.max
 
 class PlannerTest {
     private val res = 20.0
@@ -41,6 +42,12 @@ class PlannerTest {
         }
         planes[Pack.P_HAZARD][180 * size + 252] = 6 // 0.5 m
         val bridgeLat = north - 256.5 * dlat
+        val notes = """[{"kind":"bridge","band":5,"bbox":[${west + 255 * dlon},${bridgeLat - dlat},${west + 257 * dlon},${bridgeLat + dlat}],
+            "type":"Bbox","coords":null,"name":"Test Bridge","clr":10.0}]"""
+        return writePack(planes, notes, onlyTileRow)
+    }
+
+    private fun writePack(planes: Array<ByteArray>, notes: String, onlyTileRow: Int? = null): File {
         val rows = if (onlyTileRow == null) 0 until 2 else onlyTileRow..onlyTileRow
         val pNorth = north - rows.first * 256 * dlat
         val header = """{"format":"NRPK","version":2,"created":"2026-01-01T00:00:00Z","states":["TEST"],
@@ -48,8 +55,7 @@ class PlannerTest {
             "tx0":$gtx0,"ty0":${gty0 + rows.first},
             "west":$west,"north":$pNorth,"dlat":$dlat,"dlon":$dlon,"res":$res,"width":$size,"height":${rows.count() * 256},
             "tile":256,"planes":6,"depth_table":[null,[2.0,3.6,0]],
-            "notes":[{"kind":"bridge","band":5,"bbox":[${west + 255 * dlon},${bridgeLat - dlat},${west + 257 * dlon},${bridgeLat + dlat}],
-            "type":"Bbox","coords":null,"name":"Test Bridge","clr":10.0}]}""".trimIndent().replace("\n", "")
+            "notes":$notes}""".trimIndent().replace("\n", "")
         val hb = header.toByteArray()
         val tiles = ArrayList<ByteArray?>()
         for (ty in rows) for (tx in 0 until 2) {
@@ -135,6 +141,79 @@ class PlannerTest {
                     assertNotNull(e.message)
                 }
             }
+        }
+    }
+
+    /**
+     * Open water (2.0-3.6 m) with a land block in the southwest quarter (rows
+     * 256-511, cols 0-255): a bulkhead headland with its corner at row 256, col 255.
+     */
+    private fun headlandPack(): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 0 until size) for (c in 0 until size) if (r < 256 || c > 255) planes[Pack.P_DEPTH][r * size + c] = 1
+        return writePack(planes, "[]")
+    }
+
+    /** Distance in meters from p to the land block of [headlandPack]. */
+    private fun metersToLand(p: LatLon): Double {
+        val r = (north - p.lat) / dlat
+        val c = (p.lon - west) / dlon
+        val dr = max(0.0, 256.0 - r)
+        val dc = max(0.0, c - 256.0)
+        return Math.hypot(dr, dc) * res
+    }
+
+    @Test
+    fun roundsHeadlandWithClearance() {
+        Pack(headlandPack()).use { pack ->
+            // Starts 100 m off the east shore, ends 100 m off the north shore: the route
+            // must turn the corner, and must not shave it once simplified.
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(400, 260), cellCenter(251, 100)), 3.0, null)
+            var closest = Double.MAX_VALUE
+            for ((p, q) in r.points.zipWithNext()) for (k in 0..200) {
+                val t = k / 200.0
+                closest = minOf(closest, metersToLand(LatLon(p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)))
+            }
+            assertTrue("closest approach to the headland %.0f m".format(closest), closest >= 60.0)
+        }
+    }
+
+    @Test
+    fun startOnLandKeepsItsWaterWaypoint() {
+        Pack(headlandPack()).use { pack ->
+            val start = cellCenter(300, 250) // 5 cells inside the land block
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(start, cellCenter(100, 400)), 3.0, null)
+            assertEquals(start, r.points[0])
+            assertTrue("second point is the nearest water, not a far waypoint", metersToLand(r.points[1]) < 40.0)
+            assertTrue("first leg flagged", r.legs[0].notes.firstOrNull()?.startsWith("connects your point") == true)
+            assertTrue("other legs not flagged", r.legs.drop(1).none { l -> l.notes.any { it.startsWith("connects") } })
+        }
+    }
+
+    /** Open water (2.0-3.6 m) with a pier or seawall line (HAZARD = HZ_PIER) along col 300, rows [rows]. */
+    private fun pierPack(rows: IntRange): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in rows) planes[Pack.P_HAZARD][r * size + 300] = Pack.HZ_PIER.toByte()
+        return writePack(planes, "[]")
+    }
+
+    @Test
+    fun goesAroundPierWhenItCan() {
+        Pack(pierPack(200..300)).use { pack ->
+            // 400 m apart across a 2 km pier: the route goes around its end, not over it
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(250, 290), cellCenter(250, 310)), 3.0, null)
+            assertTrue("went around (%.0f m)".format(r.totalNm * Planner.NM), r.totalNm * Planner.NM > 2000.0)
+            assertTrue("no pier note", r.legs.none { l -> l.notes.any { it.contains("piers or seawalls") } })
+        }
+    }
+
+    @Test
+    fun crossesPierOnlyWhenItMustAndSaysSo() {
+        Pack(pierPack(0 until size)).use { pack ->
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(250, 290), cellCenter(250, 310)), 3.0, null)
+            assertTrue("crossed directly (%.0f m)".format(r.totalNm * Planner.NM), r.totalNm * Planner.NM < 600.0)
+            assertTrue("pier note", r.legs.any { l -> l.notes.any { it.contains("piers or seawalls") } })
         }
     }
 

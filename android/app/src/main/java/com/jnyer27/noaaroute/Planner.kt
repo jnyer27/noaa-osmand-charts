@@ -43,7 +43,20 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val HAZARD = 3
         const val STRUCT = 4
         const val SHALLOW = 5
-        private const val K = 5 // proximity reach in cells
+        // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
+        private const val SHORE_M = 100.0
+        private const val K_MIN = 5
+        private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
+        // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
+        // water, often between a slip and open water. As walls they sealed marinas and
+        // narrow bridge spans (fenders) on a 20 m grid, so they are passable at this cost
+        // multiple and count as danger for the shore proximity cost: routes go around
+        // them and only cross one to reach a slip.
+        private const val PIER_COST = 50f
+        private const val PIER_NOTE = "runs along or across charted piers or seawalls: check"
+
+        /** Proximity reach in cells for grid resolution res. */
+        fun proxReach(res: Double) = max(K_MIN, ceil(SHORE_M / res).toInt())
 
         /** Class of a depth range for depth d (meters, rounding slack already taken off). */
         fun classify(r: DepthRange?, d: Double): Int {
@@ -114,7 +127,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     // ------------------------------------------------------------ grid
 
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
-                       val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int)
+                       val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
+                       val pier: BooleanArray)
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM)
@@ -133,7 +147,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val sv = planes[Pack.P_SOUND][i].toInt() and 0xff
             nav[i] = when {
                 fl and Pack.F_STRUCT != 0 -> STRUCT
-                hzv != 0 && (hzv - 1) / 10.0 < hz -> HAZARD
+                hzv != 0 && hzv != Pack.HZ_PIER && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
                 else -> planes[Pack.P_DEPTH][i].toInt()
@@ -175,42 +189,52 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
         }
 
-        // Distance (cells, capped at K) to the nearest unusable cell
-        val dist = ByteArray(n) { K.toByte() }
+        // Distance (cells, capped at k) to the nearest unusable cell. Steps alternate
+        // 8- and 4-neighbor growth (octagonal distance, close to straight-line): with
+        // 4-neighbor steps alone, water diagonal off a headland looked 1.4x farther away.
+        val k = proxReach(a.res)
+        val pier = BooleanArray(n) { ok[it] && (planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER }
+        val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
         var fn = 0
-        for (i in 0 until n) if (!ok[i]) dist[i] = 0
-        for (i in 0 until n) if (!ok[i]) {
-            // only unusable cells next to usable water start the spread
+        for (i in 0 until n) if (!ok[i] || pier[i]) dist[i] = 0
+        for (i in 0 until n) if (!ok[i] || pier[i]) {
+            // only unusable cells next to usable water (8 neighbors) start the spread
             val r = i / w
             val c = i % w
-            if ((r > 0 && ok[i - w]) || (r < h - 1 && ok[i + w]) || (c > 0 && ok[i - 1]) || (c < w - 1 && ok[i + 1])) frontier[fn++] = i
+            var edge = false
+            for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) if (ok[rr * w + cc] && !pier[rr * w + cc]) edge = true
+            if (edge) frontier[fn++] = i
         }
-        for (step in 1 until K) {
+        for (step in 1 until k) {
+            val diag = step % 2 == 1
             var nn = 0
-            for (k in 0 until fn) {
-                val i = frontier[k]
+            for (f in 0 until fn) {
+                val i = frontier[f]
                 val r = i / w
                 val c = i % w
-                if (r > 0 && dist[i - w] > step) { dist[i - w] = step.toByte(); next[nn++] = i - w }
-                if (r < h - 1 && dist[i + w] > step) { dist[i + w] = step.toByte(); next[nn++] = i + w }
-                if (c > 0 && dist[i - 1] > step) { dist[i - 1] = step.toByte(); next[nn++] = i - 1 }
-                if (c < w - 1 && dist[i + 1] > step) { dist[i + 1] = step.toByte(); next[nn++] = i + 1 }
+                for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                    if (!diag && rr != r && cc != c) continue
+                    val j = rr * w + cc
+                    if (dist[j] > step) { dist[j] = step.toByte(); next[nn++] = j }
+                }
             }
             val t = frontier; frontier = next; next = t
             fn = nn
         }
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
+        val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         for (i in 0 until n) if (ok[i]) {
-            val p = K - dist[i]
+            val p = k - dist[i]
             prox[i] = p.toByte()
-            var c = 1f + 0.6f * p
+            var c = 1f + pc * p
             if (nav[i].toInt() == MARGINAL) c *= 4f
+            if (pier[i]) c *= PIER_COST
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass, rad)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier)
     }
 
     // ------------------------------------------------------------ search
@@ -316,7 +340,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         }
     }
 
-    private fun astar(a: Area, cost: FloatArray, start: Int, goal: Int): IntArray? {
+    private fun astar(a: Area, g0: Grid, start: Int, goal: Int): IntArray? {
+        val cost = g0.cost
+        val pier = g0.pier
         val w = a.w
         val h = a.h
         val res = a.res.toFloat()
@@ -347,8 +373,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val j = rr * w + cc
                 val cj = cost[j]
                 if (cj == Float.POSITIVE_INFINITY || closed[j]) continue
-                if (k >= 4 && (cost[r * w + cc] == Float.POSITIVE_INFINITY || cost[rr * w + c] == Float.POSITIVE_INFINITY)) continue
-                val ng = gi + step[k] * res * (ci + cj) * 0.5f
+                var cs = cj
+                if (k >= 4) {
+                    val o1 = r * w + cc
+                    val o2 = rr * w + c
+                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    // slipping diagonally between pier cells crosses the pier
+                    if (pier[o1]) cs = max(cs, cost[o1])
+                    if (pier[o2]) cs = max(cs, cost[o2])
+                }
+                val ng = gi + step[k] * res * (ci + cs) * 0.5f
                 if (ng < g[j]) {
                     g[j] = ng
                     parent[j] = i
@@ -440,7 +474,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val sv = g.planes[Pack.P_SOUND][i].toInt() and 0xff
                 val hv = g.planes[Pack.P_HAZARD][i].toInt() and 0xff
                 if (sv != 0 && (snd == 0 || sv < snd)) { snd = sv; sndAt = i }
-                if (hv != 0 && (obs == 0 || hv < obs)) { obs = hv; obsAt = i }
+                if (hv != 0 && hv != Pack.HZ_PIER && (obs == 0 || hv < obs)) { obs = hv; obsAt = i }
             }
         }
         return (if (sndAt >= 0) (snd - 1) / 10.0 to sndAt else null) to (if (obsAt >= 0) (obs - 1) / 10.0 to obsAt else null)
@@ -467,7 +501,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return lo / 2.0
     }
 
-    private fun lineCells(a: Area, p: Int, q: Int): IntArray {
+    /**
+     * Cells along p-q. With [corners], each diagonal step also adds both corner
+     * cells to it (A*'s no-corner-cutting rule): otherwise a leg slipped between
+     * the two cells of a thin diagonal wall (a pier burned one cell wide).
+     */
+    private fun lineCells(a: Area, p: Int, q: Int, corners: MutableList<Int>? = null): IntArray {
         val w = a.w
         val r0 = p / w
         val c0 = p % w
@@ -475,38 +514,79 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val c1 = q % w
         val n = max(abs(r1 - r0), abs(c1 - c0)) * 2 + 1
         val out = LinkedHashSet<Int>()
+        var pr = r0
+        var pc = c0
         for (k in 0..n) {
             val t = k.toDouble() / n
-            out.add((r0 + (r1 - r0) * t).roundToInt() * w + (c0 + (c1 - c0) * t).roundToInt())
+            val r = (r0 + (r1 - r0) * t).roundToInt()
+            val c = (c0 + (c1 - c0) * t).roundToInt()
+            out.add(r * w + c)
+            if (corners != null && r != pr && c != pc) { corners.add(pr * w + c); corners.add(r * w + pc) }
+            pr = r; pc = c
         }
         return out.toIntArray()
     }
 
+    /** Pier crossings along a chain of cells: pier cells entered, plus diagonal steps that slip past a pier corner. */
+    private fun pierSteps(a: Area, cells: IntArray, pier: (Int) -> Boolean): Int {
+        val w = a.w
+        var n = 0
+        for (k in cells.indices) {
+            val i = cells[k]
+            if (pier(i)) n++
+            else if (k > 0) {
+                val r0 = cells[k - 1] / w
+                val c0 = cells[k - 1] % w
+                val r1 = i / w
+                val c1 = i % w
+                if (r0 != r1 && c0 != c1 && (pier(r0 * w + c1) || pier(r1 * w + c0))) n++
+            }
+        }
+        return n
+    }
+
+    /**
+     * Drop path points while the straight line stays in water no shallower, no
+     * closer to danger and over no more pier or seawall lines than the cells
+     * the planned path itself used.
+     */
     private fun simplify(a: Area, g: Grid, path: IntArray): IntArray {
         fun marg(i: Int) = g.nav[i].toInt() == MARGINAL
-        fun fits(p: Int, q: Int, maxp: Int, nmarg: Int): Boolean {
+        fun px(i: Int) = if (g.pier[i]) 0 else g.prox[i].toInt() // a pier cell is next to danger by definition
+        fun fits(p: Int, q: Int, maxp: Int, nmarg: Int, npier: Int): Boolean {
+            // One level of grid staircase tolerance, but never into the two rings
+            // nearest danger unless the path itself went there
+            val lim = if (maxp + 1 <= g.k - 3) maxp + 1 else maxp
             var m = 0
-            for (i in lineCells(a, path[p], path[q])) {
-                if (!g.ok[i] || g.prox[i] > maxp + 1) return false
+            val corners = ArrayList<Int>()
+            val cells = lineCells(a, path[p], path[q], corners)
+            if (corners.any { !g.ok[it] }) return false
+            for (i in cells) {
+                if (!g.ok[i]) return false
+                if (g.pier[i]) continue // counted below
+                if (g.prox[i] > lim) return false
                 if (marg(i)) { m++; if (m > nmarg + 1) return false }
             }
-            return true
+            return pierSteps(a, cells) { g.pier[it] } <= npier
         }
+        // pier crossings of the planned path up to each point
+        val pc = IntArray(path.size)
+        for (k in 1 until path.size) pc[k] = pc[k - 1] + pierSteps(a, intArrayOf(path[k - 1], path[k])) { g.pier[it] }
         val keep = ArrayList<Int>()
         keep.add(0)
         var s = 0
-        var maxp = g.prox[path[0]].toInt()
+        var maxp = px(path[0])
         var nmarg = if (marg(path[0])) 1 else 0
         var j = 1
         while (j < path.size) {
-            val p2 = max(maxp, g.prox[path[j]].toInt())
+            val p2 = max(maxp, px(path[j]))
             val m2 = nmarg + if (marg(path[j])) 1 else 0
-            if (j == s + 1 || fits(s, j, p2, m2)) {
+            if (j == s + 1 || fits(s, j, p2, m2, pc[j] - pc[s] + if (g.pier[path[s]]) 1 else 0)) {
                 maxp = p2; nmarg = m2; j++
             } else {
                 s = j - 1
                 keep.add(s)
-                maxp = max(g.prox[path[s]].toInt(), g.prox[path[j]].toInt())
+                maxp = max(px(path[s]), px(path[j]))
                 nmarg = (if (marg(path[s])) 1 else 0) + (if (marg(path[j])) 1 else 0)
             }
         }
@@ -556,6 +636,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val out = ArrayList<Leg>()
         val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
         val every = max(1, (500 / a.res).toInt())
+        var prevPier = false
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
             var marg = lc.count { g.nav[it].toInt() == MARGINAL }
@@ -574,6 +655,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     if (s !in seen) { seen.add(s); notes.add(s) }
                 }
             }
+            // pier or seawall over usable-depth water (same test as noaa-route.py's report)
+            val onPier = pierSteps(a, lc) { i ->
+                (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
+            } > 0
+            if (onPier && !prevPier) notes.add(0, PIER_NOTE) // once per stretch of such legs
+            prevPier = onPier
             val d = distanceM(wps[k], wps[k + 1])
             val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))
@@ -635,7 +722,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 c.moved.add(n)
                 c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
             }
-            var path = astar(a, g.cost, sp, sq)
+            var path = astar(a, g, sp, sq)
             if (path == null) {
                 // An end in a small pocket walled off only by land or structures (a marina
                 // basin behind a charted pier, too thin for the grid): move it to the nearest
@@ -648,7 +735,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val other = region(a, g.ok, if (e == 0) sq else sp)
                     val pt = if (e == 0) p else q
                     val (cell, dist) = nearestIn(a, other, pt, CUT_OFF_M) ?: continue
-                    val retry = if (e == 0) astar(a, g.cost, cell, sq) else astar(a, g.cost, sp, cell)
+                    val retry = if (e == 0) astar(a, g, cell, sq) else astar(a, g, sp, cell)
                     if (retry != null) {
                         path = retry
                         val walls = ends[e].walls.entries.sortedByDescending { it.value.first }.joinToString(" and ") { wallText[it.key]!! }
@@ -662,11 +749,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             if (path != null) {
-                val idx = simplify(a, g, path)
+                var idx = simplify(a, g, path)
                 val wps = idx.map { a.latlon(it) }.toMutableList()
-                wps[0] = p
-                wps[wps.size - 1] = q
-                return Piece(wps, legs(a, g, wps, idx, c.seen), a.res)
+                // An end that was moved to usable water (snapped or cut off) keeps that
+                // water as its own waypoint; replacing it by the end point itself made
+                // the first or last leg cut across land or piers unchecked.
+                val cp = a.cell(p)
+                val cq = a.cell(q)
+                val head = cp != idx.first()
+                val tail = cq != idx.last()
+                if (idx.size == 1 && !head && !tail) { wps.add(p); idx = intArrayOf(idx[0], idx[0]) }
+                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else wps[0] = p
+                if (tail) { wps.add(q); idx += cq } else wps[wps.size - 1] = q
+                val ls = legs(a, g, wps, idx, c.seen).toMutableList()
+                fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
+                if (head) ls[0] = offWater(ls[0])
+                if (tail) ls[ls.size - 1] = offWater(ls[ls.size - 1])
+                return Piece(wps, ls, a.res)
             }
             val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
             val closed = (0..1).filter { !ends[it].edge }
@@ -738,7 +837,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
                 ends[k] = a.cell(fa.latlon(s))
             }
-            val path = astar(a, g.cost, ends[0], ends[1])
+            val path = astar(a, g, ends[0], ends[1])
             if (path != null) {
                 // Cumulative distance along the overview path
                 val cum = DoubleArray(path.size)

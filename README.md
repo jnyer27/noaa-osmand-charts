@@ -220,14 +220,17 @@ Takes 15-60 seconds on the phone for a trip within a bay region; long trips (ove
 | Land, drying, unsurveyed or uncharted water | Never used |
 | Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth | Avoided with the hazard buffer |
 | Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |
+| Piers, seawalls, jetties and breakwaters charted as lines (shoreline construction) | Crossed only when there is no other way, e.g. into a slip (they cost 50 times normal water and count as shore for the keep-off cost). Legs that run along or across one are flagged "runs along or across charted piers or seawalls: check" |
 | Single charted piles | Not avoided: a grid cell is 10-60 m wide and would close narrow channels. Keep a lookout |
 | Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance; check the opening schedule |
 | Entry prohibited / area to be avoided | Never used |
 | Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
 
+Routes keep off the shore: the cost of a cell rises within about 100 m of land, shallow water, piers, structures and hazard buffers (at least 5 grid cells on coarse grids), up to 3.4 times next to them, so the route only goes close where it has to. Straightening the route into long legs never brings a leg into the two grid cells nearest danger unless the planned path itself went there, and never over more piers or seawalls than the path crossed. Inside marinas and narrow bulkheaded harbors (Ego Alley) the route still runs close to piers and walls: there is no other water.
+
 Depths are compared with 5 cm of slack because NOAA stores feet rounded to 0.1 m (the 6 ft line is 1.8 m = 5.9 ft). NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft depth most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
 
-A point on land or a dock is moved to the nearest usable water, and the output says how far. If that water is a pocket walled in only by land or structures (a marina basin behind a pier too thin for the grid), the end moves up to 250 m to the nearest water that connects to the rest of the route, and the output says so.
+A point on land or a dock is moved to the nearest usable water, and the output says how far. If that water is a pocket walled in only by land or structures (a marina basin behind a pier too thin for the grid), the end moves up to 250 m to the nearest water that connects to the rest of the route, and the output says so. Either way the route keeps that water as its own waypoint, and the short leg between it and your point is marked "connects your point to usable water: not checked": it may cross a dock or the shore, so steer it by eye.
 
 The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If a point is boxed in (by shallow water, land, a hazard buffer, or a bridge or cable too low for `-a`), it stops right away and says which, naming the shallowest sounding or obstruction responsible with its position, and, when depth is the limit, the deepest `-d` that gets out (e.g. Maryland Marina at `-d 6`: soundings as shallow as 3.9 ft, `-d 5` works).
 

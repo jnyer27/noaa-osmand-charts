@@ -22,6 +22,9 @@ Planes (0 always means "nothing here"):
             kind 0 = DEPARE, 1 = DRGARE. 0 = land, uncharted or no data.
   1 HAZARD  shallowest OBSTRN/WRECKS/UWTROC: 1 + VALSOU in dm (0-253); unknown
             depth is stored as 1 (0.0 m) so it is a hazard for any boat.
+            255 = shoreline construction (SLCONS: pier, seawall, jetty) and no
+            hazard: the app routes across it only at a high cost. Apps from
+            before this value read it as a 25.4 m deep obstruction (no effect).
   2 SOUND   shallowest sounding: 1 + DEPTH in dm (0-253), negative -> 1.
   3 FLAGS   bit 0 STRUCT   pier/pylon drawn as an area (blocks, no buffer)
             bit 1 PROHIB   restricted area: entry prohibited / area to be avoided
@@ -64,7 +67,7 @@ gdal.SetConfigOption("OGR_S57_OPTIONS", os.environ["OGR_S57_OPTIONS"])
 
 ENC_URL = "https://charts.noaa.gov/ENCs/{}_ENCs.zip"
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
-          "SOUNDG", "PILPNT", "PYLONS", "RESARE", "BRIDGE", "CBLOHD"]
+          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -72,6 +75,7 @@ GRID_DLON = 20.0 / (M_PER_DEG * math.cos(math.radians(38.0)))
 NPLANES = 6
 DEPTH, HAZARD, SOUND, FLAGS, SPANCLR, CABLECLR = range(NPLANES)
 STRUCT, PROHIB, DECK, SPAN, OPENING, CABLE, RESNOTE, BRIDGE = (1 << b for b in range(8))
+HZ_PIER = 255  # HAZARD plane: shoreline construction, no hazard
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
@@ -283,6 +287,8 @@ def build(cells, grid, work):
                 depth_feats.append((geom, depth_index[key]))
         d = burn(grid, depth_feats)
         planes[DEPTH] = np.where(d > 0, d, planes[DEPTH])
+        # Not all touched: that narrowed harbor entrances shut (Rock Hall); the
+        # planner's shore proximity cost keeps routes off land instead
         land = burn(grid, [(geom, 1) for f, geom in features(gp, "LNDARE")]) > 0
         planes[DEPTH][land] = 0
 
@@ -294,6 +300,10 @@ def build(cells, grid, work):
                 hz.append((geom, 1 if v is None else dm(v)))
         h = burn(grid, hz, all_touched=True, merge="min")
         planes[HAZARD] = np.where((h > 0) & ((planes[HAZARD] == 0) | (h < planes[HAZARD])), h, planes[HAZARD])
+        # Piers, seawalls, jetties, breakwaters: one cell wide (not all touched) so a
+        # bulkheaded channel keeps its middle; only where no hazard is charted
+        pier = burn(grid, [(geom, 1) for f, geom in features(gp, "SLCONS")]) > 0
+        planes[HAZARD][pier & (planes[HAZARD] == 0)] = HZ_PIER
         sd = burn(grid, [(geom, dm(fnum(f, "DEPTH") or 0.0)) for f, geom in features(gp, "SOUNDG")],
                   merge="min")
         planes[SOUND] = np.where((sd > 0) & ((planes[SOUND] == 0) | (sd < planes[SOUND])), sd, planes[SOUND])

@@ -41,6 +41,9 @@ How depth is judged (charted depths are at MLLW, no tide added):
     depth): avoided with the hazard buffer. Bridge piers and piers drawn
     as areas are visible, so only the structure itself is avoided. Single
     charted piles are not avoided (a grid cell is far wider than a pile).
+  - Piers, seawalls and jetties charted as lines are crossed only when
+    there is no other way (into a slip); such legs are flagged.
+  - Routes keep about 100 m off shore and structures where the water allows.
   - Bridges are only passed under spans that have a charted vertical
     clearance (the navigation spans), and with -a only if it is enough.
     Opening bridges (swing, bascule, lift, draw) are passed and reported
@@ -78,7 +81,7 @@ ENC_DIR = os.path.join(HOME, ".noaa-enc")
 ENC_URL = "https://charts.noaa.gov/ENCs/{}_ENCs.zip"
 S57_OPTS = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON"
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
-          "SOUNDG", "PILPNT", "PYLONS", "RESARE", "BRIDGE", "CBLOHD"]
+          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
 FT = 0.3048
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
@@ -91,9 +94,21 @@ BLOCKED, SAFE, MARGINAL, HAZARD, STRUCT, SHALLOW = 0, 1, 2, 3, 4, 5  # STRUCT: v
 # NOAA converts feet to meters at 0.1 m, so the 6 ft line is stored as 1.8 m (5.9 ft).
 # Compare depths with this much slack so "6 ft" water counts for a 6 ft need.
 ROUNDING_M = 0.05
-# Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span)
+# Shore proximity: route cost rises within about SHORE_M of land, shallow water,
+# structures and hazard buffers (at least K_MIN cells on coarse grids)
+SHORE_M = 100.0
+K_MIN = 5
+# Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span,
+# 6 = pier or seawall line)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
-NO_PASS, SPAN_OK = 4, 5
+NO_PASS, SPAN_OK, PIER = 4, 5, 6
+NFLAGS = 6
+# Piers and seawalls (SLCONS) are lines over charted water, often between a slip and
+# open water. As walls they sealed marinas and narrow bridge spans (fenders) on a
+# 10-20 m grid, so they are passable at this cost multiple and count as danger for
+# the shore proximity cost: routes go around them and only cross one to reach a slip.
+PIER_COST = 50.0
+PIER_NOTE = "runs along or across charted piers or seawalls: check"
 # S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
 OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
 OPENING_SQL = " OR ".join(f"CATBRG LIKE '%\"{c}\"%'" for c in OPENING)
@@ -330,16 +345,21 @@ def cell_gpkg(name, path):
     gdir = os.path.join(ENC_DIR, "gpkg")
     os.makedirs(gdir, exist_ok=True)
     g = os.path.join(gdir, name + ".gpkg")
-    lj = g + ".layers"
+    lj = g + ".layers2"  # {"layers": LAYERS when built, "have": ...}; ".layers" was the old list form
     if os.path.isfile(g) and os.path.isfile(lj) and os.path.getmtime(g) >= newest_mtime(path):
-        return g, json.load(open(lj))
+        try:
+            j = json.load(open(lj))
+        except ValueError:
+            j = None
+        if isinstance(j, dict) and j.get("layers") == LAYERS:  # older caches lack newer layers
+            return g, j["have"]
     txt = run(["ogrinfo", "-ro", "-q", path], capture=True)
     have = [l for l in LAYERS if re.search(rf"^\d+: {l}\b", txt, re.M)]
     for f in (g, lj):
         if os.path.exists(f):
             os.remove(f)
     run(["ogr2ogr", "-f", "GPKG", "-nlt", "GEOMETRY", "-skipfailures", g, path] + have)
-    json.dump(have, open(lj, "w"))
+    json.dump({"layers": LAYERS, "have": have}, open(lj, "w"))
     return g, have
 
 
@@ -417,7 +437,7 @@ class Grid:
 def build_rasters(grid, cells, ext, draft_m, air_m, work):
     gt = os.path.join(work, "grid.tif")
     ft = os.path.join(work, "flags.tif")
-    for f, bands in ((gt, 1), (ft, 5)):
+    for f, bands in ((gt, 1), (ft, NFLAGS)):
         run(["gdal_create", "-q", "-of", "GTiff", "-outsize", str(grid.w), str(grid.h),
              "-bands", str(bands), "-ot", "Byte", "-burn", "0", "-a_srs", "EPSG:4326",
              "-a_ullr", repr(grid.west), repr(grid.north), repr(grid.east), repr(grid.south), f])
@@ -431,6 +451,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         ("DEPARE", f"DRVAL1 >= {d}", SAFE, False),
         ("DRGARE", f"DRVAL1 IS NULL OR DRVAL1 < {d}", MARGINAL, False),
         ("DRGARE", f"DRVAL1 >= {d}", SAFE, False),
+        # Not all touched: that narrowed harbor entrances shut (Rock Hall at 20 m);
+        # the shore proximity cost keeps routes off land instead
         ("LNDARE", None, BLOCKED, False),
         ("RESARE", "RESTRN LIKE '%\"7\"%' OR RESTRN LIKE '%\"14\"%'", BLOCKED, False),
         ("OBSTRN", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
@@ -472,7 +494,7 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
             if layer in have:
                 raster(src, layer, burn, where, at)
         if "M_COVR" in have:
-            raster(src, "M_COVR", 0, "CATCOV = 1", bands=range(1, 6), target=ft)
+            raster(src, "M_COVR", 0, "CATCOV = 1", bands=range(1, NFLAGS + 1), target=ft)
         for layer, fb in FLAG_LAYERS.items():
             if layer in have:
                 where = " OR ".join(f"RESTRN LIKE '%\"{c}\"%'" for c in RESTRN) if layer == "RESARE" else None
@@ -482,6 +504,10 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         if "BRIDGE" in have:
             raster(src, "BRIDGE", 1, f"VERCLR IS NULL OR VERCLR < {air}", True, [NO_PASS], ft)
             raster(src, "BRIDGE", 1, f"VERCLR >= {air} OR {OPENING_SQL}", True, [SPAN_OK], ft)
+        # Piers, seawalls, jetties, breakwaters, one cell wide (not all touched) so a
+        # bulkheaded channel keeps its middle
+        if "SLCONS" in have:
+            raster(src, "SLCONS", 1, None, False, [PIER], ft)
         if air_m and "CBLOHD" in have:
             raster(src, "CBLOHD", 1, f"VERCLR IS NULL OR VERCLR < {air_m}", True, [NO_PASS], ft)
 
@@ -493,7 +519,7 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
     with open(fb, "rb") as f:
         flags = f.read()
     n = grid.w * grid.h
-    return nav, [flags[k * n:(k + 1) * n] for k in range(5)], use
+    return nav, [flags[k * n:(k + 1) * n] for k in range(NFLAGS)], use
 
 
 # ---------------------------------------------------------------- costs
@@ -501,6 +527,11 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
 def buffer_cells(buf_m, res):
     """Hazard buffer in cells, rounded down so a coarse grid never inflates it."""
     return max(1, int(math.floor(buf_m / res + 0.25)))
+
+
+def prox_reach(res):
+    """Proximity reach K in cells: about SHORE_M, never fewer than K_MIN cells."""
+    return max(K_MIN, int(math.ceil(SHORE_M / res)))
 
 
 def _grow(mask, offsets):
@@ -517,7 +548,7 @@ def _grow(mask, offsets):
 
 def prepare(grid, nav, flags, hazard_buf_m):
     """Usable cells, step costs and danger proximity, as whole-array numpy operations.
-    Returns (ok bytearray, cost array('f'), prox bytearray) for the search code."""
+    Returns (ok bytearray, cost array('f'), prox bytearray, pier bytearray) for the search code."""
     h, w = grid.h, grid.w
     navA = np.frombuffer(bytes(nav), np.uint8).reshape(h, w)
     nopass = np.frombuffer(flags[NO_PASS - 1], np.uint8).reshape(h, w) > 0
@@ -532,22 +563,28 @@ def prepare(grid, nav, flags, hazard_buf_m):
     disc = [(dr, dc) for dr in range(-rad, rad + 1) for dc in range(-rad, rad + 1) if dr * dr + dc * dc <= rad * rad]
     ok &= ~_grow(navA == HAZARD, disc)
 
-    # Distance (4-connected steps, capped at K) to the nearest unusable cell
-    K = 5
+    # Distance (cells, capped at K) to the nearest unusable cell. Steps alternate
+    # 8- and 4-neighbor growth (octagonal distance, close to straight-line): with
+    # 4-neighbor steps alone, water diagonal off a headland looked 1.4x farther away.
+    K = prox_reach(grid.res)
     cross = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+    square = cross + [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     dist = np.full((h, w), K, np.uint8)
-    reach = ~ok
+    pier = ok & (np.frombuffer(flags[PIER - 1], np.uint8).reshape(h, w) > 0)
+    reach = ~ok | pier
     dist[reach] = 0
     for d in range(1, K):
-        reach = _grow(reach, cross)
+        reach = _grow(reach, square if d % 2 else cross)
         dist[reach & (dist > d)] = d
 
     prox = np.where(ok, K - dist, 0).astype(np.uint8)           # 0 in open water, up to K-1 next to danger
-    c = (1.0 + 0.6 * prox) * np.where(navA == MARGINAL, 4.0, 1.0)
+    c = (1.0 + 2.4 / (K - 1) * prox) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
+    c = np.where(pier, c * PIER_COST, c)
     cost = np.where(ok, c, np.inf).astype(np.float32)
     cost_arr = array("f")
     cost_arr.frombytes(cost.tobytes())
-    return bytearray(ok.astype(np.uint8).tobytes()), cost_arr, bytearray(prox.tobytes())
+    return (bytearray(ok.astype(np.uint8).tobytes()), cost_arr, bytearray(prox.tobytes()),
+            bytearray(pier.astype(np.uint8).tobytes()))
 
 
 WALLS = {"shallow": "water shallower than your -d depth",
@@ -647,7 +684,7 @@ def snap(grid, ok, lat, lon, max_m=3000, quiet=False):
     die(f"No navigable water within {max_m} m of {lat},{lon} for this depth")
 
 
-def astar(grid, cost, start, goal):
+def astar(grid, cost, start, goal, pier=None):
     w, h, res = grid.w, grid.h, grid.res
     gr, gc = divmod(goal, w)
     INF = float("inf")
@@ -676,9 +713,15 @@ def astar(grid, cost, start, goal):
             cj = cost[j]
             if cj == INF or closed[j]:
                 continue
-            if dr and dc and (cost[r * w + cc] == INF or cost[rr * w + c] == INF):
-                continue  # no corner cutting past land
-            ng = gi + step * res * (ci + cj) * 0.5
+            cs = cj
+            if dr and dc:
+                o1, o2 = r * w + cc, rr * w + c
+                if cost[o1] == INF or cost[o2] == INF:
+                    continue  # no corner cutting past land
+                if pier is not None and (pier[o1] or pier[o2]):
+                    # slipping diagonally between pier cells crosses the pier
+                    cs = max(cj, cost[o1] if pier[o1] else 0.0, cost[o2] if pier[o2] else 0.0)
+            ng = gi + step * res * (ci + cs) * 0.5
             if ng < g[j]:
                 g[j] = ng
                 parent[j] = i
@@ -691,50 +734,93 @@ def astar(grid, cost, start, goal):
     return path[::-1]
 
 
-def line_cells(grid, a, b):
+def line_cells(grid, a, b, corners=None):
+    """Cells along a-b. With a corners list, each diagonal step also adds both
+    corner cells to it (A*'s no-corner-cutting rule): otherwise a leg slipped
+    between the two cells of a thin diagonal wall (a pier burned one cell wide)."""
     w = grid.w
     r0, c0 = divmod(a, w)
     r1, c1 = divmod(b, w)
     n = max(abs(r1 - r0), abs(c1 - c0)) * 2 + 1
     seen, out = set(), []
+    pr, pc = r0, c0
     for k in range(n + 1):
         t = k / n
-        i = int(round(r0 + (r1 - r0) * t)) * w + int(round(c0 + (c1 - c0) * t))
+        r, c = int(round(r0 + (r1 - r0) * t)), int(round(c0 + (c1 - c0) * t))
+        i = r * w + c
         if i not in seen:
             seen.add(i)
             out.append(i)
+        if corners is not None and r != pr and c != pc:
+            corners += (pr * w + c, r * w + pc)
+        pr, pc = r, c
     return out
 
 
-def simplify(grid, path, ok, nav, prox):
-    """Drop path points while the straight line stays in water no shallower and
-    no closer to danger than the cells the planned path itself used."""
-    def fits(a, b, maxp, nmarg):
-        m = 0
-        for i in line_cells(grid, path[a], path[b]):
-            if not ok[i] or prox[i] > maxp + 1:  # +1: grid staircase tolerance
+def pier_steps(grid, cells, pier):
+    """Pier crossings along a chain of cells: pier cells entered, plus diagonal
+    steps that slip past a pier corner."""
+    w, n = grid.w, 0
+    for k, i in enumerate(cells):
+        if pier[i]:
+            n += 1
+        elif k:
+            (r0, c0), (r1, c1) = divmod(cells[k - 1], w), divmod(i, w)
+            if r0 != r1 and c0 != c1 and (pier[r0 * w + c1] or pier[r1 * w + c0]):
+                n += 1
+    return n
+
+
+def simplify(grid, path, ok, nav, prox, pier):
+    """Drop path points while the straight line stays in water no shallower, no
+    closer to danger and over no more pier or seawall lines than the cells the
+    planned path itself used."""
+    K = prox_reach(grid.res)
+
+    def fits(a, b, maxp, nmarg, npier):
+        # One level of grid staircase tolerance, but never into the two rings
+        # nearest danger unless the path itself went there
+        lim = maxp + 1 if maxp + 1 <= K - 3 else maxp
+        m, corners = 0, []
+        cells = line_cells(grid, path[a], path[b], corners)
+        if not all(ok[i] for i in corners):
+            return False
+        for i in cells:
+            if not ok[i]:
+                return False
+            if pier[i]:
+                continue  # counted below; a pier cell is next to danger by definition
+            if prox[i] > lim:
                 return False
             if nav[i] == MARGINAL:
                 m += 1
                 if m > nmarg + 1:
                     return False
-        return True
+        return pier_steps(grid, cells, pier) <= npier
+
+    # pier crossings of the planned path up to each point
+    pc = [0]
+    for k in range(1, len(path)):
+        pc.append(pc[-1] + pier_steps(grid, path[k - 1:k + 1], pier))
+
+    def px(i):
+        return 0 if pier[i] else prox[i]
 
     keep = [0]
     a = 0
-    maxp = prox[path[0]]
+    maxp = px(path[0])
     nmarg = 1 if nav[path[0]] == MARGINAL else 0
     j = 1
     while j < len(path):
-        p2 = max(maxp, prox[path[j]])
+        p2 = max(maxp, px(path[j]))
         m2 = nmarg + (nav[path[j]] == MARGINAL)
-        if j == a + 1 or fits(a, j, p2, m2):
+        if j == a + 1 or fits(a, j, p2, m2, pc[j] - pc[a] + pier[path[a]]):
             maxp, nmarg = p2, m2
             j += 1
         else:
             a = j - 1
             keep.append(a)
-            maxp = max(prox[path[a]], prox[path[j]])
+            maxp = max(px(path[a]), px(path[j]))
             nmarg = (nav[path[a]] == MARGINAL) + (nav[path[j]] == MARGINAL)
     if keep[-1] != len(path) - 1:
         keep.append(len(path) - 1)
@@ -835,6 +921,11 @@ def shallowest_near(work, use, a, b, within_m=100):
 def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_before=None):
     legs = []
     seen_before = seen_before if seen_before is not None else set()
+
+    class Pier:  # pier or seawall over usable-depth water, as in prepare()
+        def __getitem__(self, i):
+            return flags[PIER - 1][i] and nav[i] in (SAFE, MARGINAL)
+    pier = Pier()
     for k in range(len(wps_idx) - 1):
         a, b = wps_idx[k], wps_idx[k + 1]
         lc = line_cells(grid, a, b)
@@ -859,10 +950,13 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_b
                         names.append(s)
             seen = seen_before | {n for l in legs for n in l["notes"]}  # report each area once, where first entered
             notes += [s for s in names if s not in seen]
+        on_pier = pier_steps(grid, lc, pier) > 0
+        if on_pier and not (legs and legs[-1].get("pier")):
+            notes.insert(0, PIER_NOTE)  # once per stretch of such legs
         d = distance_m(wps_ll[k], wps_ll[k + 1])
         low = shallowest_near(work, use, wps_ll[k], wps_ll[k + 1]) if marg else None
         legs.append({"dist": d, "brg": bearing(wps_ll[k], wps_ll[k + 1]),
-                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes})
+                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes, "pier": on_pier})
     return legs
 
 
@@ -912,6 +1006,7 @@ def open_folder(path):
 # full-detail window, or for long legs, sketched on a coarse overview and then
 # routed at 20 m between open-water guide points about every 18 km.
 
+OFF_WATER = "connects your point to usable water: not checked, use your eyes"
 CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
 GUIDE_SPACING_M = 18000.0
 PIECE_RES = 20.0
@@ -941,8 +1036,8 @@ def build(grid, ctx, draft_m=None):
         die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Add -v points closer together.")
     nav, flags, use = build_rasters(grid, ctx.cells, ctx.ext, draft_m if draft_m is not None else ctx.draft_m,
                                     ctx.air_m, ctx.work)
-    ok, cost, prox = prepare(grid, nav, flags, ctx.a.buf)
-    return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox,
+    ok, cost, prox, pier = prepare(grid, nav, flags, ctx.a.buf)
+    return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox, "pier": pier,
             "rad": buffer_cells(ctx.a.buf, grid.res)}
 
 
@@ -1067,7 +1162,7 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
                 ctx.moved.add(n)
                 ctx.messages.append(f"Point {n} moved {m:.0f} m to the nearest usable water")
                 log(ctx.messages[-1])
-        path = astar(grid, G["cost"], sp, sq)
+        path = astar(grid, G["cost"], sp, sq, G["pier"])
         if path is None:
             # An end in a pocket walled in only by land or structures (a marina basin behind
             # a pier too thin for the grid): move it to the nearest connected water.
@@ -1079,7 +1174,8 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
                 hit = nearest_in(grid, other, *(p if e == 0 else q), CUT_OFF_M)
                 if not hit:
                     continue
-                retry = astar(grid, G["cost"], hit[0], sq) if e == 0 else astar(grid, G["cost"], sp, hit[0])
+                retry = (astar(grid, G["cost"], hit[0], sq, G["pier"]) if e == 0 else
+                         astar(grid, G["cost"], sp, hit[0], G["pier"]))
                 if retry:
                     path = retry
                     n = np_ if e == 0 else nq
@@ -1092,12 +1188,31 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
                         ctx.moved.add(n)
                     break
         if path:
-            idx = simplify(grid, path, ok, G["nav"], G["prox"])
+            idx = simplify(grid, path, ok, G["nav"], G["prox"], G["pier"])
             wps = [grid.latlon(i) for i in idx]
-            wps[0], wps[-1] = p, q
+            # An end that was moved to usable water (snapped or cut off) keeps that
+            # water as its own waypoint; replacing it by the end point itself made
+            # the first or last leg cut across land or piers unchecked.
+            cp, cq = grid.cell(*p), grid.cell(*q)
+            cp, cq = cp[0] * grid.w + cp[1], cq[0] * grid.w + cq[1]
+            head, tail = cp != idx[0], cq != idx[-1]
+            if len(idx) == 1 and not (head or tail):
+                wps, idx = [p, p], idx * 2  # both ends in one cell
+            if head:
+                wps, idx = [p] + wps, [cp] + idx
+            else:
+                wps[0] = p
+            if tail:
+                wps, idx = wps + [q], idx + [cq]
+            else:
+                wps[-1] = q
             legs = report_legs(grid, wps, idx, G["nav"], G["flags"], ctx.cells, ctx.ext, G["use"], ctx.work, ctx.seen)
             for l in legs:
                 ctx.seen.update(l["notes"])
+            if head:
+                legs[0]["notes"].insert(0, OFF_WATER)
+            if tail:
+                legs[-1]["notes"].insert(0, OFF_WATER)
             return wps, legs, grid.res
         ends = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in (sp, sq)]
         closed = [e for e in (0, 1) if not ends[e][1]]
@@ -1140,7 +1255,7 @@ def guide_points(p, q, np_, nq, ctx):
             costv[ci[np.isinf(costv[ci])]] = 2.0
             r0, c0 = grid.cell(*fg.latlon(s0))
             ends.append(r0 * grid.w + c0)
-        path = astar(grid, cost, ends[0], ends[1])
+        path = astar(grid, cost, ends[0], ends[1], G["pier"])
         if path:
             cum = [0.0]
             for k in range(1, len(path)):
