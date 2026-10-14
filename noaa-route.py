@@ -1358,6 +1358,7 @@ def open_folder(path):
 
 OFF_WATER = "connects your point to usable water: not checked, use your eyes"
 CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
+APPROACH_M = 20000.0  # reach of the 40 m detail drawn into a long trip's overview around each end
 GUIDE_SPACING_M = 18000.0
 PIECE_RES = 20.0
 
@@ -1604,28 +1605,37 @@ def guide_points(p, q, np_, nq, ctx):
         ok, cost = G["ok"], G["cost"]
         ends = []
         for pt in (p, q):
-            fg = Grid.around(pt[0], pt[1], 4000, PIECE_RES)
-            F = build(fg, ctx)
-            s0, _ = snap(fg, F["ok"], *pt)
-            enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
-            if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
-                border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
-                          (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
-                hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
-                if hit:
-                    s0 = hit[0]
-            reach = np.flatnonzero(np.frombuffer(bytes(region(fg, F["ok"], [s0])), np.uint8))
-            lat = fg.north - (reach // fg.w + 0.5) * fg.dlat
-            lon = fg.west + (reach % fg.w + 0.5) * fg.dlon
-            rr = np.clip(((grid.north - lat) / grid.dlat).astype(np.int64), 0, grid.h - 1)
-            cc = np.clip(((lon - grid.west) / grid.dlon).astype(np.int64), 0, grid.w - 1)
-            ci = rr * grid.w + cc
-            okv = np.frombuffer(ok, np.uint8)
-            costv = np.frombuffer(cost, np.float32)
-            okv[ci] = 1
-            costv[ci[np.isinf(costv[ci])]] = 2.0
-            r0, c0 = grid.cell(*fg.latlon(s0))
-            ends.append(r0 * grid.w + c0)
+            # Two layers of detail drawn into the overview around each end: 20 m within 4 km
+            # (the end itself), and 40 m within APPROACH_M, so the overview can see an inlet
+            # and the inside route to the end (Masonboro Inlet and the ICW, 17 km from
+            # Carolina Beach, were invisible on a coarse overview)
+            for layer, (half, res) in enumerate(((4000, PIECE_RES), (APPROACH_M, 2 * PIECE_RES))):
+                fg = Grid.around(pt[0], pt[1], half, res)
+                F = build(fg, ctx)
+                hit0 = snap(fg, F["ok"], *pt, quiet=layer > 0)
+                if hit0 is None:
+                    continue
+                s0 = hit0[0]
+                enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+                if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
+                    border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
+                              (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
+                    hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
+                    if hit:
+                        s0 = hit[0]
+                reach = np.flatnonzero(np.frombuffer(bytes(region(fg, F["ok"], [s0])), np.uint8))
+                lat = fg.north - (reach // fg.w + 0.5) * fg.dlat
+                lon = fg.west + (reach % fg.w + 0.5) * fg.dlon
+                rr = np.clip(((grid.north - lat) / grid.dlat).astype(np.int64), 0, grid.h - 1)
+                cc = np.clip(((lon - grid.west) / grid.dlon).astype(np.int64), 0, grid.w - 1)
+                ci = rr * grid.w + cc
+                okv = np.frombuffer(ok, np.uint8)
+                costv = np.frombuffer(cost, np.float32)
+                okv[ci] = 1
+                costv[ci[np.isinf(costv[ci])]] = 2.0
+                if layer == 0:
+                    r0, c0 = grid.cell(*fg.latlon(s0))
+                    ends.append(r0 * grid.w + c0)
         path = astar(grid, cost, ends[0], ends[1], G["pier"])
         if path:
             cum = [0.0]

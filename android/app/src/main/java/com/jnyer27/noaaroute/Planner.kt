@@ -37,6 +37,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
+        const val APPROACH_M = 20000.0 // reach of the 40 m detail drawn into a long trip's overview around each end
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
@@ -849,14 +850,14 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /** Full-detail window of +/- halfM meters around p. */
-    private fun areaAround(p: LatLon, halfM: Double): Area {
+    private fun areaAround(p: LatLon, halfM: Double, f: Int = 1): Area {
         val dy = halfM / Pack.M_PER_DEG
         val dx = halfM / (Pack.M_PER_DEG * cos(Math.toRadians(p.lat)))
         val r0 = max(0, floor((pack.north - (p.lat + dy)) / pack.dlat).toInt())
         val r1 = min(pack.height, ceil((pack.north - (p.lat - dy)) / pack.dlat).toInt())
         val c0 = max(0, floor((p.lon - dx - pack.west) / pack.dlon).toInt())
         val c1 = min(pack.width, ceil((p.lon + dx - pack.west) / pack.dlon).toInt())
-        return Area(r0, c0, r1 - r0, c1 - c0, 1)
+        return Area(r0, c0, (r1 - r0) / f, (c1 - c0) / f, f)
     }
 
     /**
@@ -903,39 +904,45 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
                 val ends = IntArray(2)
                 for ((k, pt) in listOf(p, q).withIndex()) {
-                    val fa = areaAround(pt, 4000.0)
-                    val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
-                    var (s, _) = snap(fa, fg, pt)
-                    val enc0 = enclosure(fa, fg, s)
-                    if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
-                        // Cut off within the detail window: use the nearest water that leads out of it
-                        val border = (0 until fa.n).filter { i ->
+                    // Two layers of detail drawn into the overview around each end: 20 m within
+                    // 4 km (the end itself), and 40 m within APPROACH_M, so the overview can see
+                    // an inlet and the inside route to the end (Masonboro Inlet and the ICW, 17 km
+                    // from Carolina Beach, were invisible at 300 m: the trip went in by Cape Fear)
+                    for ((layer, spec) in listOf(4000.0 to 1, APPROACH_M to 2).withIndex()) {
+                        val fa = areaAround(pt, spec.first, spec.second)
+                        val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+                        var (s, _) = try { snap(fa, fg, pt) } catch (e: PlanException) { if (layer == 0) throw e else continue }
+                        val enc0 = enclosure(fa, fg, s)
+                        if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
+                            // Cut off within the detail window: use the nearest water that leads out of it
+                            val border = (0 until fa.n).filter { i ->
+                                val r = i / fa.w
+                                val col = i % fa.w
+                                fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
+                            }.toIntArray()
+                            val out = region(fa, fg.ok, border)
+                            nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
+                        }
+                        // Everything reachable from the point within the detail window is usable on the overview
+                        val seen = BooleanArray(fa.n)
+                        val stack = IntArray(fa.n)
+                        var sp = 0
+                        stack[sp++] = s
+                        seen[s] = true
+                        while (sp > 0) {
+                            val i = stack[--sp]
+                            val ci = a.cell(fa.latlon(i))
+                            g.ok[ci] = true
+                            if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
                             val r = i / fa.w
                             val col = i % fa.w
-                            fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
-                        }.toIntArray()
-                        val out = region(fa, fg.ok, border)
-                        nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
-                    }
-                    // Everything reachable from the point within the detail window is usable on the overview
-                    val seen = BooleanArray(fa.n)
-                    val stack = IntArray(fa.n)
-                    var sp = 0
-                    stack[sp++] = s
-                    seen[s] = true
-                    while (sp > 0) {
-                        val i = stack[--sp]
-                        val ci = a.cell(fa.latlon(i))
-                        g.ok[ci] = true
-                        if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
-                        val r = i / fa.w
-                        val col = i % fa.w
-                        for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
-                                             if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
-                            if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                            for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
+                                                 if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
+                                if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                            }
                         }
+                        if (layer == 0) ends[k] = a.cell(fa.latlon(s))
                     }
-                    ends[k] = a.cell(fa.latlon(s))
                 }
                 val path = astar(a, g, ends[0], ends[1])
                 if (path != null) {
