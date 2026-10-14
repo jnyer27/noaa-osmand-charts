@@ -33,6 +33,13 @@ class ChartMaps(private val ctx: Context) {
         private const val JOB_ID = 2
         private const val MIME = "application/octet-stream"
         fun url(code: String) = "https://distribution.charts.noaa.gov/ncds/mbtiles/ncds_$code.mbtiles"
+        /**
+         * Free space a download needs: the download itself plus the converted map, which
+         * is about 1.7x NOAA's file (MBTiles stores a repeated tile once, OsmAnd's format
+         * every time: region 21, 36 MB, became 61 MB).
+         */
+        fun spaceNeeded(size: Long, mbtilesOnly: Boolean) = if (mbtilesOnly) 2 * size else (2.8 * size).toLong()
+
         /** Key of a combined map: "m:" + the region codes, sorted. */
         fun mergedKey(codes: List<String>) = "m:" + codes.sorted().joinToString("_")
 
@@ -218,8 +225,8 @@ class ChartMaps(private val ctx: Context) {
             notify("Chart map region ${e.key} downloaded", "Download/$SUBDIR/$name")
             return
         }
-        val tmp = File(dir, "ncds_${e.key}.sqlitedb.tmp")
-        tmp.delete()
+        val out = Output("ncds_${e.key}")
+        val tmp = out.tmp
         // Same SQL as noaa-charts.sh convert(), which mirrors tarwirdur/mbtiles2osmand:
         // y = 2^zoom - 1 - tile_row (TMS to XYZ), z = 17 - zoom (OsmAnd's inverted zoom),
         // and an info table with only maxzoom/minzoom (extra columns: OsmAnd shows nothing)
@@ -235,9 +242,8 @@ class ChartMaps(private val ctx: Context) {
             db.execSQL("INSERT INTO info (maxzoom, minzoom) SELECT max(z), min(z) FROM tiles")
         }
         src.delete()
-        val (uri, name) = publish(tmp, "ncds_${e.key}", "sqlitedb")
-        tmp.delete()
-        put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = File(DownloadFiles.path(SUBDIR, name)).length()))
+        val (uri, name, size) = out.finish()
+        put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = size))
         notify("Chart map region ${e.key} ready for OsmAnd", "Download/$SUBDIR/$name: open it in OsmAnd")
     }
 
@@ -249,9 +255,8 @@ class ChartMaps(private val ctx: Context) {
                 ?: throw Exception("region $c is not downloaded for OsmAnd")
             File(DownloadFiles.path(SUBDIR, r.file!!)).also { if (!it.canRead()) throw Exception("cannot read ${it.name}") }
         }
-        val base = "ncds_" + e.codes.sorted().joinToString("_")
-        val tmp = File(dir, "$base.sqlitedb.tmp")
-        tmp.delete()
+        val out = Output("ncds_" + e.codes.sorted().joinToString("_"))
+        val tmp = out.tmp
         // Same as noaa-charts.sh merge(): where regions overlap, keep the larger image
         // (usually the one with more chart on it rather than a mostly blank edge tile)
         SQLiteDatabase.openOrCreateDatabase(tmp, null).use { db ->
@@ -267,10 +272,46 @@ class ChartMaps(private val ctx: Context) {
             }
             db.execSQL("INSERT INTO info (maxzoom, minzoom) SELECT max(z), min(z) FROM tiles")
         }
-        val (uri, name) = publish(tmp, base, "sqlitedb")
-        tmp.delete()
-        put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = File(DownloadFiles.path(SUBDIR, name)).length()))
+        val (uri, name, size) = out.finish()
+        put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = size))
         notify("Combined chart map ready for OsmAnd", "Download/$SUBDIR/$name (regions ${e.codes.joinToString(" + ")})")
+    }
+
+    /**
+     * Where a converted or combined map is built. On Android 11+ straight in
+     * Download/noaa-charts under a .part name, renamed when done: app storage and
+     * Download are separate file systems, so building in app storage meant a full copy
+     * afterwards (and that much more free space). On Android 10, in app storage + copy.
+     */
+    private inner class Output(val base: String) {
+        private val direct = Build.VERSION.SDK_INT >= 30
+        private val folder = File(DownloadFiles.path(SUBDIR, "")).apply { if (direct) mkdirs() }
+        val tmp: File = (if (direct) File(folder, "$base.sqlitedb.part") else File(dir, "$base.sqlitedb.tmp")).apply { delete() }
+
+        fun finish(): Triple<Uri, String, Long> {
+            if (!direct) {
+                val (uri, name) = publish(tmp, base, "sqlitedb")
+                val size = tmp.length()
+                tmp.delete()
+                return Triple(uri, name, size)
+            }
+            // A name not taken (an older map from Termux keeps its name)
+            var name = "$base.sqlitedb"
+            var k = 2
+            while (File(folder, name).exists()) name = "$base-${k++}.sqlitedb"
+            val f = File(folder, name)
+            if (!tmp.renameTo(f)) throw Exception("could not name the map $name")
+            return Triple(scan(f), name, f.length())
+        }
+    }
+
+    /** MediaStore's content URI for a file just written under Download (indexes it). */
+    private fun scan(f: File): Uri {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var found: Uri? = null
+        android.media.MediaScannerConnection.scanFile(ctx, arrayOf(f.path), null) { _, uri -> found = uri; latch.countDown() }
+        latch.await(60, java.util.concurrent.TimeUnit.SECONDS)
+        return found ?: throw Exception("Android did not index ${f.name}; find it in Download/$SUBDIR")
     }
 
     /** Copy a finished file to Download/noaa-charts. */

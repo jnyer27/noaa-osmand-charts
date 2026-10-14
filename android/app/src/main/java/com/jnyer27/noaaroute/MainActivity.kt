@@ -710,7 +710,8 @@ class MainActivity : Activity() {
                     val size = try { maps.remoteSize(code) } catch (_: Exception) { -1L }
                     ui.post {
                         status.text = if (size > 0) "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd: " +
-                            "%.0f MB download, about %.0f MB free space needed while converting.".format(size / 1e6, 2.1 * size / 1e6)
+                            "%.0f MB download, about %.0f MB for OsmAnd, %.0f MB free space needed while converting.".format(
+                                size / 1e6, 1.7 * size / 1e6, ChartMaps.spaceNeeded(size, false) / 1e6)
                         else "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd. Could not reach NOAA to check the size."
                     }
                 }
@@ -753,7 +754,7 @@ class MainActivity : Activity() {
                 ui.post { status.text = "Could not reach NOAA: ${e.message}" }
                 return@execute
             }
-            val need = (2.1 * size).toLong()
+            val need = ChartMaps.spaceNeeded(size, mbtilesOnly)
             val free = maps.freeBytes()
             ui.post {
                 status.text = ""
