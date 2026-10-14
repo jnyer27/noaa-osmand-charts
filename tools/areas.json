@@ -2,6 +2,20 @@
   "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), (legacy areas built from state sets, with states + bbox, still work). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused. Nothing is published unless every test passes.",
   "areas": [
     {
+      "id": "ncds_02a",
+      "ncds": "02a",
+      "name": "Region 02a: Long Island Sound and the Hudson",
+      "description": "Long Island Sound north of 41.1 N and its east end, the Hudson River from Haverstraw to Troy, the Connecticut and Rhode Island coasts, Block Island Sound and Narragansett Bay.",
+      "ncds_bbox": [-76.68, 41.1, -71.08, 42.8]
+    },
+    {
+      "id": "ncds_03",
+      "ncds": "03",
+      "name": "Region 03: New York Harbor and New Jersey",
+      "description": "New York Harbor and the Hudson to the Tappan Zee, western Long Island Sound, Long Island's south shore, the NJ coast north of Barnegat, and the Delaware River from Wilmington to Trenton.",
+      "ncds_bbox": [-76.68, 39.73, -64.95, 41.1]
+    },
+    {
       "id": "ncds_04",
       "ncds": "04",
       "name": "Region 04: Upper Chesapeake and Delaware Bay",
@@ -14,6 +28,20 @@
       "name": "Region 05: Lower Chesapeake and Hampton Roads",
       "description": "Lower Chesapeake, the lower Potomac, Hampton Roads and Norfolk, the Delmarva and Virginia Atlantic coast, Albemarle Sound.",
       "ncds_bbox": [-77.81, 35.5, -64.95, 38.23]
+    },
+    {
+      "id": "ncds_06",
+      "ncds": "06",
+      "name": "Region 06: North Carolina and northern South Carolina",
+      "description": "Pamlico Sound and Hatteras, the Neuse and Pamlico Rivers, Beaufort and Morehead City, Wilmington and Cape Fear, Myrtle Beach, Charleston, and the Savannah River to Augusta.",
+      "ncds_bbox": [-82.2, 32.54, -64.95, 35.5]
+    },
+    {
+      "id": "ncds_07",
+      "ncds": "07",
+      "name": "Region 07: Southern South Carolina, Georgia and northeast Florida",
+      "description": "Beaufort and Hilton Head, Savannah, the Georgia sea islands, Fernandina, Jacksonville and the St. Johns River, and the Florida coast to Cape Canaveral.",
+      "ncds_bbox": [-82.2, 28.1, -66.7, 32.54]
     }
   ],
   "tests": [
@@ -28,6 +56,15 @@
     {"name": "Potomac: Point Lookout to Colonial Beach", "points": ["38.0480,-76.3300", "38.2560,-76.9600"], "depth": 4, "nm": [29, 37], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Annapolis to Norfolk (MD to VA)", "points": ["38.9600,-76.4300", "36.9600,-76.3300"], "depth": 4, "nm": [120, 150], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to Mobjack Bay (long trip from a creek)", "points": ["39.32337,-76.40191", "37.42198,-76.40197"], "depth": 3, "air": 10, "nm": [128, 145], "areas": ["ncds_04", "ncds_05"]},
-    {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150], "areas": ["ncds_04", "ncds_05"]}
+    {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "New York Harbor: the Battery to Atlantic Highlands", "points": ["40.7000,-74.0200", "40.4175,-74.0350"], "depth": 3, "air": 10, "areas": ["ncds_03"]},
+    {"name": "Long Island Sound: City Island to New Haven (03 to 02a)", "points": ["40.8470,-73.7830", "41.2800,-72.9050"], "depth": 4, "air": 10, "areas": ["ncds_03", "ncds_02a"]},
+    {"name": "Hudson River: Haverstraw Bay to Kingston", "points": ["41.1950,-73.9550", "41.9180,-73.9750"], "depth": 4, "air": 10, "areas": ["ncds_02a"]},
+    {"name": "Delaware River: Delaware City to Philadelphia (04 to 03)", "points": ["39.56139,-75.52338", "39.9450,-75.1390"], "depth": 4, "air": 10, "areas": ["ncds_04", "ncds_03"]},
+    {"name": "Beaufort NC to Oriental", "points": ["34.7160,-76.6620", "35.0250,-76.6920"], "depth": 4, "air": 10, "areas": ["ncds_06"]},
+    {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"]},
+    {"name": "Wrightsville Beach to Southport (ICW)", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"]},
+    {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7760,-79.9250", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"]},
+    {"name": "Fernandina to Jacksonville", "points": ["30.6720,-81.4670", "30.3220,-81.6600"], "depth": 4, "air": 10, "areas": ["ncds_07"]}
   ]
 }
