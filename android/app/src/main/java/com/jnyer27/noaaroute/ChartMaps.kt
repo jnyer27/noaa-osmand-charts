@@ -57,14 +57,17 @@ class ChartMaps(private val ctx: Context) {
 
     enum class State { DOWNLOADING, DOWNLOADED, CONVERTING, MERGING, READY, FAILED }
 
-    /** One chart map: a region ("04") or a combined map ("m:04_05"). */
+    /**
+     * One chart map: a region ("04") or a combined map ("m:04_05"). [base]: while regions
+     * are being added to a combined map, that map's key (it is amended in place).
+     */
     class Entry(val key: String, val state: State, val download: Long = -1, val uri: String? = null,
                 val file: String? = null, val size: Long = 0, val mbtilesOnly: Boolean = false,
-                val error: String? = null) {
+                val error: String? = null, val base: String? = null) {
         val codes get() = if (key.startsWith("m:")) key.removePrefix("m:").split("_") else listOf(key)
         val merged get() = key.startsWith("m:")
         fun json(): JSONObject = JSONObject().put("state", state.name).put("download", download).put("uri", uri)
-            .put("file", file).put("size", size).put("mbtilesOnly", mbtilesOnly).put("error", error)
+            .put("file", file).put("size", size).put("mbtilesOnly", mbtilesOnly).put("error", error).put("base", base)
     }
 
     private val prefs = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE)
@@ -79,7 +82,8 @@ class ChartMaps(private val ctx: Context) {
             val e = j.getJSONObject(k)
             out[k] = Entry(k, State.valueOf(e.getString("state")), e.optLong("download", -1),
                 e.optString("uri").ifEmpty { null }.takeIf { it != "null" }, e.optString("file").ifEmpty { null }.takeIf { it != "null" },
-                e.optLong("size"), e.optBoolean("mbtilesOnly"), e.optString("error").ifEmpty { null }.takeIf { it != "null" })
+                e.optLong("size"), e.optBoolean("mbtilesOnly"), e.optString("error").ifEmpty { null }.takeIf { it != "null" },
+                e.optString("base").ifEmpty { null }.takeIf { it != "null" })
         }
         return out
     }
@@ -186,6 +190,13 @@ class ChartMaps(private val ctx: Context) {
         schedule(ctx)
     }
 
+    /** Ask to add ready regions to a combined map, in place (ChartJob does it). */
+    fun requestAdd(baseKey: String, add: List<String>) {
+        val base = get(baseKey) ?: return
+        put(Entry(mergedKey((base.codes + add).distinct()), State.MERGING, base = baseKey))
+        schedule(ctx)
+    }
+
     // ------------------------------------------------------------ the work (ChartJob)
 
     /**
@@ -247,14 +258,18 @@ class ChartMaps(private val ctx: Context) {
         notify("Chart map region ${e.key} ready for OsmAnd", "Download/$SUBDIR/$name: open it in OsmAnd")
     }
 
+    /** The published file of a ready region map, for combining. */
+    private fun regionFile(all: Map<String, Entry>, code: String): File {
+        val r = all[code]?.takeIf { it.state == State.READY && !it.mbtilesOnly && it.file != null }
+            ?: throw Exception("region $code is not downloaded for OsmAnd")
+        return File(DownloadFiles.path(SUBDIR, r.file!!)).also { if (!it.canRead()) throw Exception("cannot read ${it.name}") }
+    }
+
     private fun merge(e: Entry) {
         if (Build.VERSION.SDK_INT < 30) throw Exception("combining chart maps needs Android 11 or newer")
+        if (e.base != null) { add(e); return }
         val all = all()
-        val srcs = e.codes.map { c ->
-            val r = all[c]?.takeIf { it.state == State.READY && !it.mbtilesOnly && it.file != null }
-                ?: throw Exception("region $c is not downloaded for OsmAnd")
-            File(DownloadFiles.path(SUBDIR, r.file!!)).also { if (!it.canRead()) throw Exception("cannot read ${it.name}") }
-        }
+        val srcs = e.codes.map { regionFile(all, it) }
         val out = Output("ncds_" + e.codes.sorted().joinToString("_"))
         val tmp = out.tmp
         // Same as noaa-charts.sh merge(): where regions overlap, keep the larger image
@@ -275,6 +290,48 @@ class ChartMaps(private val ctx: Context) {
         val (uri, name, size) = out.finish()
         put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = size))
         notify("Combined chart map ready for OsmAnd", "Download/$SUBDIR/$name (regions ${e.codes.joinToString(" + ")})")
+    }
+
+    /**
+     * Add regions to a combined map in place: copying a 2-3 GB map to amend it would need
+     * that much free space again. One transaction with SQLite's rollback journal, so an
+     * interrupted run leaves the map as it was (and the job redoes it). Then the file is
+     * renamed to list all its regions. OsmAnd keeps the copy it imported: the user deletes
+     * that one in OsmAnd and imports the new file.
+     */
+    private fun add(e: Entry) {
+        val all = all()
+        val base = all[e.base]?.takeIf { it.state == State.READY && it.file != null }
+            ?: throw Exception("the combined map to add to is gone")
+        val f = File(DownloadFiles.path(SUBDIR, base.file!!))
+        if (!f.canWrite()) throw Exception("cannot write ${f.name}")
+        val srcs = (e.codes - base.codes.toSet()).map { regionFile(all, it) }
+        SQLiteDatabase.openDatabase(f.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            // ATTACH is not allowed inside a transaction
+            for ((k, src) in srcs.withIndex()) db.execSQL("ATTACH DATABASE ? AS s$k", arrayOf(src.path))
+            db.beginTransaction()
+            try {
+                for (k in srcs.indices) db.execSQL("INSERT INTO tiles (x, y, z, s, image) SELECT x, y, z, s, image FROM s$k.tiles WHERE true " +
+                    "ON CONFLICT (x, y, z, s) DO UPDATE SET image = excluded.image WHERE length(excluded.image) > length(tiles.image)")
+                db.execSQL("DELETE FROM info")
+                db.execSQL("INSERT INTO info (maxzoom, minzoom) SELECT max(z), min(z) FROM tiles")
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            for (k in srcs.indices) db.execSQL("DETACH DATABASE s$k")
+        }
+        val base0 = "ncds_" + e.codes.sorted().joinToString("_")
+        var name = "$base0.sqlitedb"
+        var k = 2
+        while (File(f.parentFile, name).exists()) name = "$base0-${k++}.sqlitedb"
+        val nf = File(f.parentFile, name)
+        if (!f.renameTo(nf)) throw Exception("could not rename ${f.name} to $name")
+        val uri = scan(nf)
+        put(null, base.key)
+        put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = nf.length()))
+        notify("Combined chart map now has regions ${e.codes.joinToString(" + ")}",
+            "Download/$SUBDIR/$name: in OsmAnd, delete the old combined map and import this one")
     }
 
     /**

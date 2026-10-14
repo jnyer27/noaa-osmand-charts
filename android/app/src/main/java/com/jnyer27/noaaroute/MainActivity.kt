@@ -665,7 +665,7 @@ class MainActivity : Activity() {
             else "download queued (waits for Wi-Fi unless mobile data was allowed)"
         } ?: "downloading"
         ChartMaps.State.DOWNLOADED, ChartMaps.State.CONVERTING -> "converting for OsmAnd..."
-        ChartMaps.State.MERGING -> "combining..."
+        ChartMaps.State.MERGING -> if (e.base != null) "adding regions to the combined map..." else "combining..."
         ChartMaps.State.READY -> "ready: Download/${ChartMaps.SUBDIR}/${e.file} (%.0f MB)".format(e.size / 1e6) +
             if (e.mbtilesOnly) " (.mbtiles, not converted)" else ""
         ChartMaps.State.FAILED -> "failed: ${e.error}"
@@ -722,6 +722,9 @@ class MainActivity : Activity() {
                 status.text = chartStatus(e)
                 if (!e.mbtilesOnly) box.addView(act("Open in OsmAnd") { openChart(e) })
                 box.addView(act("Show in Files") { showFolder(ChartMaps.SUBDIR) })
+                // Add this region to a combined map that does not have it yet
+                if (!e.mbtilesOnly) for (m in maps.all().values.filter { it.merged && it.state == ChartMaps.State.READY && code !in it.codes })
+                    box.addView(act("Add to combined map " + m.codes.joinToString(" + ")) { addToCombined(m.key, listOf(code)) })
                 box.addView(act("Delete chart map") { maps.delete(code); regionsChanged?.invoke() })
             }
             ChartMaps.State.FAILED -> {
@@ -737,13 +740,44 @@ class MainActivity : Activity() {
         d.show()
     }
 
-    /** A combined chart map's card. */
+    /** A combined chart map's card: open it, add regions to it, or delete it. */
     private fun chartCard(key: String) {
         val e = maps.get(key) ?: return
-        val b = AlertDialog.Builder(this).setTitle("Combined chart map: regions " + e.codes.joinToString(" + ")).setMessage(chartStatus(e))
-        if (e.state == ChartMaps.State.READY) b.setPositiveButton("Open in OsmAnd") { _, _ -> openChart(e) }
-        b.setNeutralButton("Delete") { _, _ -> maps.delete(key); regionsChanged?.invoke() }
-        b.setNegativeButton("Close", null).show()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        val d = AlertDialog.Builder(this).setTitle("Combined chart map: regions " + e.codes.joinToString(" + "))
+            .setView(ScrollView(this).apply { addView(box) }).setNegativeButton("Close", null).create()
+        fun act(text: String, f: () -> Unit) = button(text) { d.dismiss(); f() }
+        box.addView(TextView(this).apply { text = chartStatus(e) })
+        if (e.state == ChartMaps.State.READY) {
+            box.addView(act("Open in OsmAnd") { openChart(e) })
+            box.addView(act("Show in Files") { showFolder(ChartMaps.SUBDIR) })
+            val more = maps.all().values.filter { !it.merged && !it.mbtilesOnly && it.state == ChartMaps.State.READY && it.key !in e.codes }.map { it.key }
+            if (more.isNotEmpty()) box.addView(act("Add regions\u2026") { addToCombined(key, more, ask = true) })
+        }
+        box.addView(act("Delete") { maps.delete(key); regionsChanged?.invoke() })
+        d.show()
+    }
+
+    /**
+     * Add ready region maps to a combined map (in place, then renamed to list all its
+     * regions); with [ask], pick which of [codes] first.
+     */
+    private fun addToCombined(key: String, codes: List<String>, ask: Boolean = false) {
+        val e = maps.get(key) ?: return
+        fun go(sel: List<String>) {
+            maps.requestAdd(key, sel)
+            status.text = "Adding region ${sel.joinToString(" + ")} to the combined map " + e.codes.joinToString(" + ") +
+                ". When it is done, delete the old combined map in OsmAnd and import the new file."
+            regionsChanged?.invoke()
+        }
+        if (!ask) { go(codes); return }
+        val pick = BooleanArray(codes.size) { true }
+        AlertDialog.Builder(this).setTitle("Add to combined map " + e.codes.joinToString(" + "))
+            .setMultiChoiceItems(codes.map { "Region $it" }.toTypedArray(), pick) { _, k, on -> pick[k] = on }
+            .setPositiveButton("Add") { _, _ ->
+                val sel = codes.filterIndexed { k, _ -> pick[k] }
+                if (sel.isEmpty()) toast("Pick at least one region.") else go(sel)
+            }.setNegativeButton("Cancel", null).show()
     }
 
     /** Check the size and space, ask Wi-Fi or mobile data, then hand the download to Android. */
