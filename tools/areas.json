@@ -1,12 +1,29 @@
 {
-  "comment": "Route pack areas. Each area is built from the listed NOAA ENC state sets (cells deduplicated), clipped to bbox [W,S,E,N], on the shared global grid. 'tests' are reference routes that must succeed before the weekly build is published; 'nm' is the accepted length range, 'fail' marks routes that must be refused.",
+  "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), plus legacy areas built from state sets (states + bbox). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused. Nothing is published unless every test passes.",
   "areas": [
+    {
+      "id": "ncds_04",
+      "ncds": "04",
+      "name": "Region 04: Upper Chesapeake and Delaware Bay",
+      "description": "Upper and mid Chesapeake (Susquehanna Flats to Solomons), the Potomac to Washington, the C&D Canal, Delaware Bay and River to Wilmington, the NJ coast from Cape May to Barnegat.",
+      "ncds_bbox": [-77.81, 38.23, -64.95, 39.73]
+    },
+    {
+      "id": "ncds_05",
+      "ncds": "05",
+      "name": "Region 05: Lower Chesapeake and Hampton Roads",
+      "description": "Lower Chesapeake, the lower Potomac, Hampton Roads and Norfolk, the Delmarva and Virginia Atlantic coast, Albemarle Sound.",
+      "ncds_bbox": [-77.81, 35.5, -64.95, 38.23]
+    },
     {
       "id": "chesapeake",
       "name": "Chesapeake Bay",
       "description": "Susquehanna Flats to the Virginia Capes: Potomac to DC, Hampton Roads and Norfolk, the whole C&D Canal to Delaware City, Delmarva bay side and the MD/VA Atlantic coast.",
       "states": ["MD", "VA", "DE"],
-      "bbox": [-77.60, 36.70, -75.00, 39.70],
+      "bbox": [-77.6, 36.7, -75.0, 39.7],
+      "deprecated": true,
+      "replaced_by": ["ncds_04", "ncds_05"],
+      "comment": "Kept until about 2026-11-14 so apps can swap it for NCDS regions 04 and 05; then remove it.",
       "tests": [
         {"name": "Maryland Marina to Ego Alley", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 3, "air": 10, "nm": [24, 29]},
         {"name": "Hart-Miller to Bear Creek (opening bridges)", "points": ["39.2470,-76.3880", "39.25084,-76.48861"], "depth": 3, "air": 10, "nm": [9, 12]},
@@ -22,5 +39,19 @@
         {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150]}
       ]
     }
+  ],
+  "tests": [
+    {"name": "Maryland Marina to Ego Alley", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 3, "air": 10, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Hart-Miller to Bear Creek (opening bridges)", "points": ["39.2470,-76.3880", "39.25084,-76.48861"], "depth": 3, "air": 10, "nm": [9, 12], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Rock Hall", "points": ["39.32371,-76.39998", "39.13276,-76.24449"], "depth": 3, "air": 10, "nm": [14, 18], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Chesapeake City (C&D Canal)", "points": ["39.32,-76.40", "39.5268,-75.8107"], "depth": 3, "nm": [31, 38], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Delaware City (whole C&D Canal, DE charts)", "points": ["39.32371,-76.39998", "39.56139,-75.52338"], "depth": 3, "air": 10, "nm": [38, 50], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina at 6 ft is boxed in", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "fail": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Norfolk Waterside to Hampton River", "points": ["36.8440,-76.2930", "37.0180,-76.3380"], "depth": 4, "nm": [10, 14], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Solomons to off Stingray Point (Deltaville)", "points": ["38.3240,-76.4560", "37.5600,-76.2750"], "depth": 4, "nm": [46, 56], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Potomac: Point Lookout to Colonial Beach", "points": ["38.0480,-76.3300", "38.2560,-76.9600"], "depth": 4, "nm": [29, 37], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Annapolis to Norfolk (MD to VA)", "points": ["38.9600,-76.4300", "36.9600,-76.3300"], "depth": 4, "nm": [120, 150], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Mobjack Bay (long trip from a creek)", "points": ["39.32337,-76.40191", "37.42198,-76.40197"], "depth": 3, "air": 10, "nm": [128, 145], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150], "areas": ["ncds_04", "ncds_05"]}
   ]
 }

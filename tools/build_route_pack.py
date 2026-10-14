@@ -5,9 +5,22 @@ NOAA ENC (S-57) data. Runs on GitHub Actions (Ubuntu with python3-gdal and
 python3-numpy); see .github/workflows/route-pack.yml.
 
   python3 tools/build_route_pack.py                 (all areas in tools/areas.json)
-  python3 tools/build_route_pack.py -a chesapeake   (one area)
+  python3 tools/build_route_pack.py -a ncds_04      (one area)
 
 Writes packs/<area>.bin per area plus packs/catalog.json.
+
+Areas are NOAA Chart Display Service (NCDS) regions (`"ncds": "04"`, with the
+region's rectangle as `ncds_bbox`): every Active cell in NOAA's ENC product
+catalog whose coverage meets the pack's grid is downloaded on its own, so a
+region never stops at a state line. The pack is clipped to where approach and
+harbor charts (band 4+) exist in the region, plus 0.1 degree, instead of the
+whole NCDS rectangle (region 04 reaches 64.95 W, far offshore). Legacy areas
+built from state sets (`"states"`) still work.
+
+Seams: a pack covers its clipped region rounded out to whole tiles, built from
+every cell meeting that larger box, so a tile two neighboring packs share holds
+the same data in both (the app takes a shared tile from whichever pack it reads
+first).
 
 All areas share one global grid so the app can join neighboring areas: rows of
 GRID_DLAT degrees from 90 N, columns of GRID_DLON degrees from 180 W (20 m at
@@ -44,6 +57,7 @@ File layout:
 """
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import math
@@ -54,6 +68,8 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
@@ -66,6 +82,8 @@ os.environ["OGR_S57_OPTIONS"] = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DE
 gdal.SetConfigOption("OGR_S57_OPTIONS", os.environ["OGR_S57_OPTIONS"])
 
 ENC_URL = "https://charts.noaa.gov/ENCs/{}_ENCs.zip"
+CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
+REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
 M_PER_DEG = 111320.0
@@ -133,6 +151,74 @@ def fetch(states, work):
                 if f.endswith(".000") and f[:-4] not in cells:
                     cells[f[:-4]] = os.path.join(root, f)
     log(f"{len(cells)} chart cells from {', '.join(states)}")
+    return cells
+
+
+def enc_catalog(work):
+    """Active cells from NOAA's ENC product catalog: name, zip URL, usage band,
+    coverage bbox (w, s, e, n) and zip size."""
+    path = os.path.join(work, "ENCProdCat.xml")
+    if not os.path.isfile(path):
+        log(f"Downloading {CATALOG_URL}")
+        subprocess.run(["curl", "-fsSL", "--retry", "5", "-o", path, CATALOG_URL], check=True)
+    cells = []
+    for c in ET.parse(path).getroot().iter("cell"):
+        if c.findtext("status") != "Active":
+            continue
+        v = [(float(x.findtext("long")), float(x.findtext("lat"))) for x in c.iter("vertex")]
+        if not v:
+            continue
+        name = c.findtext("name")
+        cells.append({"name": name, "url": c.findtext("zipfile_location"), "band": int(name[2]),
+                      "bbox": (min(a for a, _ in v), min(b for _, b in v), max(a for a, _ in v), max(b for _, b in v)),
+                      "size": int(c.findtext("zipfile_size") or 0)})
+    log(f"ENC catalog: {len(cells)} active cells")
+    return cells
+
+
+def meets(b, w, s, e, n):
+    return b[0] < e and b[2] > w and b[1] < n and b[3] > s
+
+
+def region_bbox(area, catalog):
+    """The part of an NCDS region where approach and harbor charts exist, plus REGION_MARGIN."""
+    w, s, e, n = area["ncds_bbox"]
+    detail = [c["bbox"] for c in catalog if c["band"] >= 4 and meets(c["bbox"], w, s, e, n)]
+    if not detail:
+        raise SystemExit(f"{area['id']}: no band 4+ charts in the region")
+    m = REGION_MARGIN
+    return [round(max(w, min(b[0] for b in detail) - m), 2), round(max(s, min(b[1] for b in detail) - m), 2),
+            round(min(e, max(b[2] for b in detail) + m), 2), round(min(n, max(b[3] for b in detail) + m), 2)]
+
+
+def fetch_cells(metas, work):
+    """Download and unpack single cells (base edition + updates); {name: path to .000}."""
+    d = os.path.join(work, "cells")
+    os.makedirs(d, exist_ok=True)
+
+    def one(m):
+        root = os.path.join(d, m["name"])
+        base = os.path.join(root, "ENC_ROOT", m["name"], m["name"] + ".000")
+        if not os.path.isfile(base):  # fetched for an earlier area in this run
+            z = root + ".zip"
+            for attempt in range(5):
+                try:
+                    req = urllib.request.Request(m["url"], headers={"User-Agent": "noaa-osmand-charts route pack builder"})
+                    with urllib.request.urlopen(req, timeout=120) as r, open(z, "wb") as f:
+                        shutil.copyfileobj(r, f)
+                    with zipfile.ZipFile(z) as zf:
+                        zf.extractall(root)
+                    os.remove(z)
+                    break
+                except Exception as ex:  # network hiccup: back off and retry
+                    if attempt == 4:
+                        raise SystemExit(f"{m['name']}: download failed: {ex}")
+                    time.sleep(5 * (attempt + 1))
+        return m["name"], base
+
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+        cells = dict(ex.map(one, metas))
+    log(f"{len(cells)} chart cells ({sum(m['size'] for m in metas) / 1e6:.0f} MB of zips)")
     return cells
 
 
@@ -387,7 +473,8 @@ def write_pack(path, area, grid, planes, depth_table, notes, datums, created):
     header = {
         "format": "NRPK", "version": 2, "created": created,
         "area": {"id": area["id"], "name": area["name"], "bbox": area["bbox"]},
-        "source": [ENC_URL.format(s) for s in area["states"]], "states": area["states"],
+        "source": [ENC_URL.format(s) for s in area["states"]] if "states" in area else [CATALOG_URL],
+        "states": area.get("states", []), "ncds": area.get("ncds"),
         "sounding_datums": datums,
         "west": grid.west, "north": grid.north, "dlat": grid.dlat, "dlon": grid.dlon, "res": grid.res,
         "tx0": grid.tx0, "ty0": grid.ty0,
@@ -434,11 +521,20 @@ def main():
         areas = [x for x in areas if x["id"] == a.area] or sys.exit(f"Unknown area {a.area}")
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(a.out, exist_ok=True)
-    catalog = []
+    catalog, enc = [], None
     for area in areas:
         log(f"== {area['id']}: {area['name']}")
-        cells = fetch(area["states"], a.work)
-        grid = Grid(*area["bbox"])
+        if "ncds" in area:
+            enc = enc or enc_catalog(a.work)
+            area = dict(area, bbox=region_bbox(area, enc))
+            grid = Grid(*area["bbox"])
+            gw, gn = grid.west, grid.north
+            ge, gs = gw + grid.w * grid.dlon, gn - grid.h * grid.dlat
+            log(f"Region {area['ncds']}: charts in {area['bbox']}, grid box {[round(x, 3) for x in (gw, gs, ge, gn)]}")
+            cells = fetch_cells([c for c in enc if meets(c["bbox"], gw, gs, ge, gn)], a.work)
+        else:
+            cells = fetch(area["states"], a.work)
+            grid = Grid(*area["bbox"])
         log(f"Grid {grid.w} x {grid.h} (tiles from {grid.tx0},{grid.ty0})")
         planes, depth_table, notes, datums = build(cells, grid, a.work)
         if datums and datums != [12]:
@@ -450,11 +546,16 @@ def main():
         created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         write_pack(path, area, grid, planes, depth_table, notes, datums, created)
         data = open(path, "rb").read()
-        catalog.append({"id": area["id"], "name": area["name"], "description": area.get("description", ""),
-                        "bbox": area["bbox"], "states": area["states"], "file": area["id"] + ".bin",
-                        "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                        "created": created,
-                        "sounding_datums": datums})
+        entry = {"id": area["id"], "name": area["name"], "description": area.get("description", ""),
+                 "bbox": area["bbox"], "states": area.get("states", []), "file": area["id"] + ".bin",
+                 "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                 "created": created, "sounding_datums": datums}
+        # NCDS region fields, and the hand-over from an older area (apps that know them
+        # swap it for its regions; older apps ignore unknown fields)
+        for k in ("ncds", "ncds_bbox", "deprecated", "replaced_by"):
+            if k in area:
+                entry[k] = area[k]
+        catalog.append(entry)
     json.dump({"version": 2, "areas": catalog}, open(os.path.join(a.out, "catalog.json"), "w"), indent=1)
     log(f"Wrote catalog with {len(catalog)} area(s)")
 

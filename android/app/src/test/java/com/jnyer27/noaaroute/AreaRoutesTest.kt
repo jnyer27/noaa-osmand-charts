@@ -7,7 +7,8 @@ import java.io.File
 
 /**
  * Reference routes from tools/areas.json, run against freshly built area
- * packs. The route-pack workflow sets PACK_DIR (packs/) and AREAS_JSON; in
+ * packs: each area's tests on its own pack, top-level tests on the packs they
+ * list (NCDS regions 04 + 05 together, across their seam). The route-pack workflow sets PACK_DIR (packs/) and AREAS_JSON; in
  * a normal app build the test is skipped.
  */
 class AreaRoutesTest {
@@ -16,15 +17,20 @@ class AreaRoutesTest {
         val dir = System.getenv("PACK_DIR")
         val areasJson = System.getenv("AREAS_JSON")
         assumeTrue("PACK_DIR/AREAS_JSON not set", dir != null && areasJson != null)
-        val areas = (MiniJson.parse(File(areasJson!!).readText()) as Map<*, *>)["areas"] as List<*>
-        val packs = areas.map { Pack(File(dir, ((it as Map<*, *>)["id"] as String) + ".bin")) }
-        val charts = ChartSet(packs)
+        val root = MiniJson.parse(File(areasJson!!).readText()) as Map<*, *>
+        val areas = root["areas"] as List<*>
+        val packs = areas.associate { a -> val id = (a as Map<*, *>)["id"] as String; id to Pack(File(dir, "$id.bin")) }
         val failures = ArrayList<String>()
-        for (a in areas) {
-            val area = a as Map<*, *>
-            for (t in area["tests"] as List<*>) {
+        // Each area's own tests run on its pack alone (an old area and the regions that
+        // replace it overlap); top-level tests run on the packs they list
+        val groups = areas.map { a -> val area = a as Map<*, *>; listOf(area["id"] as String) to (area["tests"] as List<*>?).orEmpty() } +
+            (root["tests"] as List<*>?).orEmpty().map { t -> ((t as Map<*, *>)["areas"] as List<*>).map { it as String } to listOf(t) }
+        for ((ids, tests) in groups) {
+            if (tests.isEmpty()) continue
+            val charts = ChartSet(ids.map { packs[it] ?: error("No pack $it") })
+            for (t in tests) {
                 val test = t as Map<*, *>
-                val name = "${area["id"]}: ${test["name"]}"
+                val name = "${ids.joinToString("+")}: ${test["name"]}"
                 val pts = (test["points"] as List<*>).map { Coords.parse(it as String)!! }
                 val depth = test["depth"] as Double
                 val air = test["air"] as Double?
@@ -48,7 +54,7 @@ class AreaRoutesTest {
                 }
             }
         }
-        packs.forEach { it.close() }
+        packs.values.forEach { it.close() }
         assertTrue("Reference route failures:\n" + failures.joinToString("\n"), failures.isEmpty())
     }
 }
