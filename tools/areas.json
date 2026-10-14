@@ -61,7 +61,6 @@
     {"name": "Long Island Sound: City Island to New Haven (03 to 02a)", "points": ["40.8470,-73.7830", "41.2800,-72.9050"], "depth": 4, "air": 10, "areas": ["ncds_03", "ncds_02a"], "nm": [45, 55]},
     {"name": "Hudson River: Haverstraw Bay to Kingston (Poughkeepsie bridges)", "points": ["41.1950,-73.9550", "41.9170,-73.9550"], "depth": 4, "air": 10, "areas": ["ncds_02a"], "nm": [42, 51]},
     {"name": "Delaware River: Delaware City to Philadelphia (04 to 03)", "points": ["39.56139,-75.52338", "39.9450,-75.1390"], "depth": 4, "air": 10, "areas": ["ncds_04", "ncds_03"], "nm": [33, 41]},
-    {"name": "Morehead City to Oriental (ICW)", "points": ["34.7140,-76.7000", "35.0250,-76.6920"], "depth": 3, "air": 10, "areas": ["ncds_06"]},
     {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"], "nm": [73, 89]},
     {"name": "Wrightsville Beach to Southport (ICW)", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"], "nm": [30, 37]},
     {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [63, 77]},

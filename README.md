@@ -220,7 +220,7 @@ Takes 15-60 seconds on the phone for a trip within a bay region; long trips (ove
 | Depth area at least your depth (usually the 6 ft+ areas) | Used freely |
 | Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your depth are hazards. Legs through it are flagged with the length in that band and the shallowest charted sounding within 100 m |
 | Land, drying, unsurveyed or uncharted water | Never used |
-| Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth | Avoided with the hazard buffer |
+| Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth | Avoided with the hazard buffer. Foul ground (safe to navigate over, bad for anchoring) only counts with a charted depth that is too shallow |
 | Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |
 | Piers, seawalls, jetties and breakwaters charted as lines (shoreline construction) | Crossed only when there is no other way, e.g. into a slip (they cost 50 times normal water and count as shore for the keep-off cost). Legs that run along or across one are flagged "runs along or across charted piers or seawalls: check" |
 | Single charted piles | Not avoided: a grid cell is 10-60 m wide and would close narrow channels. Keep a lookout |
@@ -245,7 +245,17 @@ Long trips (too large for a 20 m grid in one piece) are sketched on a coarse ove
 A self-contained Android version of the route planner: no Termux needed. Same rules and reports as `noaa-route.py`, ported to Kotlin, and much faster (under a second per route).
 
 - **Install:** download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) and open it (allow installs from your browser or file manager when Android asks). Later builds install over it as updates.
-- **Chart regions:** route planning data comes in NOAA Chart Display Service regions, the same numbered regions as the NCDS chart maps (`ncds_04`, `ncds_05`). Available now: **Region 04** (upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay and River to Wilmington, the NJ coast from Cape May to Barnegat, 4.5 MB) and **Region 05** (lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound, 4.4 MB). The app plans fully offline once a region is downloaded and joins regions for trips that cross between them.
+- **Chart regions:** route planning data comes in NOAA Chart Display Service regions, the same numbered regions as the NCDS chart maps (`ncds_04`, `ncds_05`). Available now:
+
+  | Region | Covers | Size |
+  |---|---|---|
+  | **02a** | Long Island Sound north of 41.1 N and its east end, the Hudson from Haverstraw to Troy, Connecticut and Rhode Island, Narragansett Bay | 4.8 MB |
+  | **03** | New York Harbor and the lower Hudson, western Long Island Sound, Long Island's south shore, northern NJ, the Delaware River from Wilmington to Trenton | 6.7 MB |
+  | **04** | Upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay, the NJ coast from Cape May to Barnegat | 4.4 MB |
+  | **05** | Lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound | 4.2 MB |
+  | **06** | Pamlico Sound and Hatteras, Beaufort and Morehead City, Wilmington, Myrtle Beach, Charleston, the Savannah River to Augusta | 3.6 MB |
+  | **07** | Beaufort SC and Hilton Head, Savannah, the Georgia sea islands, Jacksonville and the St. Johns, the Florida coast to Cape Canaveral | 4.6 MB |
+ The app plans fully offline once a region is downloaded and joins regions for trips that cross between them.
 - **First launch:** the app asks **Where do you boat?** and finds your region from your location, or lets you pick it on the map.
 - **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline (works offline). Green = downloaded and up to date, amber = update available, dashed blue = available, faint gray = no route data yet. Tap a region to download, update or delete it; pinch to zoom, drag to pan, double-tap to zoom in. The list below the map shows the same, and the main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ...").
 - **Trips that need another region:** as soon as Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded (with its size and a **Download** button), or says when part of the trip is outside every region.
