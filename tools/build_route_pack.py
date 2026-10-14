@@ -411,6 +411,11 @@ def build(cells, grid, work):
         for layer in ("OBSTRN", "WRECKS", "UWTROC"):
             for f, geom in features(gp, layer):
                 v = fnum(f, "VALSOU")
+                # Foul ground (CATOBS 7) is safe to navigate over, only bad for anchoring: a
+                # hazard only with a charted depth (unknown-depth foul ground around the
+                # Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
+                if v is None and layer == "OBSTRN" and fnum(f, "CATOBS") == 7:
+                    continue
                 hz.append((geom, 1 if v is None else dm(v)))
         h = burn(grid, hz, all_touched=True, merge="min")
         planes[HAZARD] = np.where((h > 0) & ((planes[HAZARD] == 0) | (h < planes[HAZARD])), h, planes[HAZARD])

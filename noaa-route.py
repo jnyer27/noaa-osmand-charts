@@ -553,7 +553,10 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # the shore proximity cost keeps routes off land instead
         ("LNDARE", None, BLOCKED, False),
         ("RESARE", "RESTRN LIKE '%\"7\"%' OR RESTRN LIKE '%\"14\"%'", BLOCKED, False),
-        ("OBSTRN", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
+        # Foul ground (CATOBS 7) is safe to navigate over, only bad for anchoring: a hazard
+        # only with a charted depth that is too shallow (unknown-depth foul ground around
+        # the Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
+        ("OBSTRN", f"(VALSOU IS NULL AND (CATOBS IS NULL OR CATOBS <> 7)) OR VALSOU < {hz}", HAZARD, True),
         ("WRECKS", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("UWTROC", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("SOUNDG", f"DEPTH < {d}", HAZARD, False),
@@ -997,10 +1000,16 @@ def shallowest_near(work, use, a, b, within_m=100):
         vrt = os.path.join(work, f"band{band}.vrt")
         if not os.path.isfile(vrt):
             continue
-        txt = run(["ogr2ogr", "-f", "CSV", "/vsistdout/", vrt, "SOUNDG", "-select", "DEPTH",
-                   "-lco", "GEOMETRY=AS_XY", "-spat", repr(min(a[1], b[1]) - e * ky / kx),
-                   repr(min(a[0], b[0]) - e), repr(max(a[1], b[1]) + e * ky / kx),
-                   repr(max(a[0], b[0]) + e)], capture=True)
+        # A band whose cells here have no soundings has no SOUNDG layer: skip it
+        p = subprocess.run(["ogr2ogr", "-f", "CSV", "/vsistdout/", vrt, "SOUNDG", "-select", "DEPTH",
+                            "-lco", "GEOMETRY=AS_XY", "-spat", repr(min(a[1], b[1]) - e * ky / kx),
+                            repr(min(a[0], b[0]) - e), repr(max(a[1], b[1]) + e * ky / kx),
+                            repr(max(a[0], b[0]) + e)],
+                           env=dict(os.environ, OGR_S57_OPTIONS=S57_OPTS, CPL_LOG="/dev/null"),
+                           capture_output=True, text=True)
+        if p.returncode != 0:
+            continue
+        txt = p.stdout
         best = None
         for line in txt.splitlines()[1:]:
             try:

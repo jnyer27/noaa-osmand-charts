@@ -63,7 +63,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         working-directory: .
         run: |
-          gh release view app >/dev/null 2>&1 || \
-            gh release create app --title "NOAA Route app (latest build)" \
-              --notes "Latest Android build of the NOAA Route planner. Not for navigation."
-          gh release upload app noaa-route.apk --clobber
+          # A fresh release for every build, so GitHub's release list shows this build's
+          # version and date (uploading over an old release kept its first date). The tag
+          # moves to this commit; the download URL .../releases/download/app/noaa-route.apk
+          # stays the same.
+          version="0.1.${GITHUB_RUN_NUMBER}"
+          change="$(git log -1 --format=%s)"
+          gh release delete app --yes --cleanup-tag 2>/dev/null || true
+          gh release create app noaa-route.apk --target "$GITHUB_SHA" --latest \
+            --title "NOAA Route $version ($(date -u +%Y-%m-%d))" \
+            --notes "Version $version, built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}: $change
+
+          Install noaa-route.apk over the previous version. Not for navigation."
