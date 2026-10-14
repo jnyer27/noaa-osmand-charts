@@ -364,6 +364,11 @@ class MainActivity : Activity() {
 
     private fun installed(id: String) = charts?.packs?.firstOrNull { it.areaId == id }
     private fun installedIds() = charts?.packs.orEmpty().map { it.areaId }.toSet()
+    /** The regions replacing an area: from the catalog while it lists the area, then built in. */
+    private fun replacedBy(id: String): List<String>? =
+        catalog.firstOrNull { it.id == id }?.let { a -> a.replacedBy.takeIf { a.deprecated && it.isNotEmpty() } }
+            ?: Regions.RETIRED[id]?.takeIf { catalog.none { it.id == id } }
+
     private fun hasUpdate(a: AreaInfo) = !a.deprecated && installed(a.id)?.let { a.created > it.created } == true
 
     private fun updateBadge() {
@@ -436,14 +441,14 @@ class MainActivity : Activity() {
         if (swap == null) {
             notice.visibility = View.GONE
         } else {
-            val old = catalog.first { it.id == swap.key }
+            val oldName = catalog.firstOrNull { it.id == swap.key }?.name ?: installed(swap.key)?.areaName ?: swap.key
             val names = swap.value.joinToString(" and ") { it.shortName }
             val mb = swap.value.sumOf { it.size } / 1e6
             if (store.auto == true && store.unmetered() && swap.value.none { it.id in failed }) {
-                status.text = "${old.name} is now $names: downloading them."
+                status.text = "$oldName is now $names: downloading them."
                 downloadAreas(swap.value)
             } else {
-                noticeText.text = "${old.name} is now $names (NOAA's chart regions, about %.0f MB). The old area is removed once they are in.".format(mb)
+                noticeText.text = "$oldName is now $names (NOAA's chart regions, about %.0f MB). The old area is removed once they are in.".format(mb)
                 noticeButton.text = "Switch"
                 noticeButton.setOnClickListener { ensureAuto { downloadAreas(swap.value) } }
                 notice.visibility = View.VISIBLE
@@ -585,13 +590,13 @@ class MainActivity : Activity() {
                 val c = catalog.firstOrNull { it.id == id }
                 val have = installed(id)
                 val state = when {
-                    c?.deprecated == true -> "replaced by " + c.replacedBy.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } +
+                    replacedBy(id) != null -> "replaced by " + replacedBy(id)!!.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } +
                         if (have != null) " (removed once they are downloaded)" else ""
                     have == null -> "not downloaded, about %.0f MB".format((c?.size ?: 0) / 1e6)
                     c != null && hasUpdate(c) -> "UPDATE available (${c.created.take(10)})"
                     else -> "up to date, NOAA data from ${have.created.take(10)}"
                 }
-                if (c?.deprecated == true && have == null) continue
+                if (replacedBy(id) != null && have == null) continue
                 rows.addView(TextView(this).apply {
                     text = "${c?.name ?: have?.areaName ?: id}\n$state"
                     setPadding(0, dp(10), 0, dp(10))
@@ -623,7 +628,7 @@ class MainActivity : Activity() {
             checkTrip()
         }
         b.setMessage(when {
-            c?.deprecated == true -> "Replaced by NOAA's chart regions " + c.replacedBy.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } + "."
+            replacedBy(id) != null -> "Replaced by NOAA's chart regions " + replacedBy(id)!!.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } + "."
             have != null && (c == null || !hasUpdate(c)) -> "Up to date: NOAA data from ${have.created.take(10)}." + (c?.let { "\n\n${it.description}" } ?: "")
             have != null -> "Installed: ${have.created.take(10)}. New: ${c!!.created.take(10)}."
             else -> "About %.0f MB.\n\n%s".format(c!!.size / 1e6, c.description)

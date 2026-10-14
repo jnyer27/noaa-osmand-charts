@@ -87,6 +87,15 @@ class RegionsTest {
     }
 
     @Test
+    fun swapsARetiredAreaTheCatalogNoLongerLists() {
+        val withoutOld = catalog.filter { it.id != "chesapeake" }
+        assertEquals(listOf("ncds_04", "ncds_05"), Regions.replacements(withoutOld, setOf("chesapeake"))["chesapeake"]!!.map { it.id })
+        assertTrue(Regions.replacements(withoutOld, setOf("chesapeake", "ncds_04", "ncds_05"))["chesapeake"]!!.isEmpty())
+        // Nothing to do on a phone without it
+        assertTrue(Regions.replacements(withoutOld, setOf("ncds_04")).isEmpty())
+    }
+
+    @Test
     fun whereDoYouBoat() {
         assertEquals("ncds_04", Regions.areaAt(marina, catalog)!!.id)
         assertNull(Regions.areaAt(LatLon(41.5, -70.0), catalog))

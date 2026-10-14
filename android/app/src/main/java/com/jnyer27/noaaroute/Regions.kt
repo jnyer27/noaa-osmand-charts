@@ -74,6 +74,12 @@ object Regions {
             NcdsRegion("31b", 154.08, 0.00, 173.53, 26.00),
     )
 
+    /**
+     * Retired areas and the regions that replace them, for phones that still hold one
+     * after the catalog dropped it (the catalog's own replaced_by is used while listed).
+     */
+    val RETIRED = mapOf("chesapeake" to listOf("ncds_04", "ncds_05"))
+
     fun byCode(code: String) = ALL.firstOrNull { it.code == code }
 
     /** catalog.json areas (fields added for NCDS regions are optional, so older catalogs parse too). */
@@ -130,11 +136,13 @@ object Regions {
      */
     fun replacements(catalog: List<AreaInfo>, installedIds: Set<String>): Map<String, List<AreaInfo>> {
         val out = LinkedHashMap<String, List<AreaInfo>>()
-        for (old in catalog) {
-            if (!old.deprecated || old.id !in installedIds || old.replacedBy.isEmpty()) continue
-            val repl = old.replacedBy.map { id -> catalog.firstOrNull { it.id == id } }
+        val replaced = catalog.filter { it.deprecated && it.replacedBy.isNotEmpty() }.associate { it.id to it.replacedBy } +
+            RETIRED.filterKeys { id -> catalog.none { it.id == id } }
+        for ((old, by) in replaced) {
+            if (old !in installedIds) continue
+            val repl = by.map { id -> catalog.firstOrNull { it.id == id } }
             if (repl.any { it == null }) continue
-            out[old.id] = repl.filterNotNull().filter { it.id !in installedIds }
+            out[old] = repl.filterNotNull().filter { it.id !in installedIds }
         }
         return out
     }
