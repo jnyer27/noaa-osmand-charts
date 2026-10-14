@@ -63,6 +63,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
         private const val SNAG_COST = 50f
         private const val SNAG_NOTE = "passes charted piles or snags: check"
+        // Lateral marks (buoys, daybeacons) and their wrong-side lines (the pack's GATE_MARK):
+        // a mark's channel side is the same whichever way a boat goes, so red right
+        // returning (green right going out) is never passing between a mark and the water it
+        // guards. Crossing costs GATE_COST like a pier and is flagged.
+        private const val GATE_COST = 50f
+        private const val GATE_NOTE = "passes over or on the wrong side of a channel marker: check"
 
         /** Proximity reach in cells for grid resolution res. */
         fun proxReach(res: Double) = max(K_MIN, ceil(SHORE_M / res).toInt())
@@ -138,7 +144,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray)
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray)
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
@@ -217,7 +223,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // 4-neighbor steps alone, water diagonal off a headland looked 1.4x farther away.
         val k = proxReach(a.res)
         // Costly cells a leg may not cut across, which count as danger for proximity
-        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it]) }
+        val gate = BooleanArray(n) {
+            ok[it] && !snag[it] && (planes[Pack.P_FLAGS][it].toInt() and Pack.F_CABLE) == 0 &&
+                (planes[Pack.P_CABLECLR][it].toInt() and 0xff) == Pack.GATE_MARK
+        }
+        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it] || gate[it]) }
         val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
@@ -255,12 +265,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             prox[i] = p.toByte()
             var c = 1f + pc * p
             if (nav[i].toInt() == MARGINAL) c *= 4f
-            if (pier[i] && !snag[i]) c *= PIER_COST
-            if (snag[i]) c *= SNAG_COST
+            // One of: pier or seawall, passable snag, channel marker or its wrong side
+            when {
+                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER -> c *= PIER_COST
+                snag[i] -> c *= SNAG_COST
+                gate[i] -> c *= GATE_COST
+            }
             if (soft[i]) c *= SOFT_COST
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft, gate)
     }
 
     // ------------------------------------------------------------ search
@@ -669,6 +683,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val every = max(1, (500 / a.res).toInt())
         var prevPier = false
         var prevSnag = false
+        var prevGate = false
         var prevSoft = false
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
@@ -697,6 +712,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val onSnag = pierSteps(a, lc) { g.snag[it] } > 0
             if (onSnag && !prevSnag) notes.add(0, SNAG_NOTE)
             prevSnag = onSnag
+            val onGate = pierSteps(a, lc) { g.gate[it] } > 0
+            if (onGate && !prevGate) notes.add(0, GATE_NOTE)
+            prevGate = onGate
             val near = lc.count { g.soft[it] } >= 2 // one edge cell is grid noise
             if (near && !prevSoft) notes.add(0, SOFT_NOTE)
             prevSoft = near

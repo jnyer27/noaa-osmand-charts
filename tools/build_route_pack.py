@@ -54,6 +54,9 @@ Planes (0 always means "nothing here"):
             HAZARD value stays 1, so apps from before this mark keep it a wall,
             while newer apps let a route through it at a high cost over water
             charted deep enough (piles at the edge of a narrow dredged channel).
+            254 (GATE_MARK), likewise without the CABLE bit: a lateral mark (buoy
+            or daybeacon) or its wrong-side line, which newer apps cross only at a
+            high cost (older apps ignore it).
 
 File layout:
   "NRPK2\\n", u32 header length, header JSON (UTF-8), then for each tile in
@@ -90,7 +93,8 @@ ENC_URL = "https://charts.noaa.gov/ENCs/{}_ENCs.zip"
 CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
 REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
-          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
+          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
+          "BOYLAT", "BCNLAT", "FAIRWY"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -100,6 +104,7 @@ DEPTH, HAZARD, SOUND, FLAGS, SPANCLR, CABLECLR = range(NPLANES)
 STRUCT, PROHIB, DECK, SPAN, OPENING, CABLE, RESNOTE, BRIDGE = (1 << b for b in range(8))
 HZ_PIER = 255  # HAZARD plane: shoreline construction, no hazard
 SNAG_MARK = 255  # CABLECLR plane without the CABLE flag: the cell's hazard is only a snag
+GATE_MARK = 254  # CABLECLR plane without the CABLE flag: a channel marker or its wrong side
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
@@ -354,6 +359,143 @@ def depth_key(d1, d2, kind, step=None):
     return (None if d1 is None else round(d1, 2), None if d2 is None else round(d2, 2), kind)
 
 
+# Lateral marks (buoys BOYLAT, daybeacons BCNLAT). A mark's channel side is the same
+# whichever way a boat goes, so red right returning (green right going out) is: never pass
+# between a mark and the water it guards. Each mark gets a "wrong side" line GATE_M long,
+# pointing away from its channel (from the side of the nearest fairway or dredged area
+# within CHANNEL_M, else toward the nearest opposite-colour mark within PAIR_M); crossing
+# it, or the mark's own cell, costs GATE_COST like a pier and is flagged.
+GATE_M = 100.0
+CHANNEL_M = 150.0
+PAIR_M = 400.0
+
+
+def channel_gates(marks, fairways, dredged):
+    """Wrong-side lines of lateral marks. marks: [(lon, lat, catlam)], catlam 1 = port-hand
+    (green in the US), 2 = starboard-hand (red), 3/4 = preferred channel (no line).
+    fairways, dredged: lists of exterior rings [(lon, lat), ...]. Returns
+    [((lon, lat), (lon, lat))]: from each mark GATE_M away from its channel, kept out of
+    fairways and dredged areas (a wrong guess can never block a charted channel)."""
+    if not marks:
+        return []
+    lat0 = sum(m[1] for m in marks) / len(marks)
+    kx, ky = 111320.0 * math.cos(math.radians(lat0)), 111320.0
+    to = lambda lon, lat: (lon * kx, lat * ky)
+    back = lambda x, y: (x / kx, y / ky)
+    rings = [[[to(*p) for p in r] for r in group if len(r) >= 3] for group in (fairways, dredged)]
+    # Bounding boxes, so each mark only looks at channels near it (a region has thousands)
+    boxes = [[(min(p[0] for p in r), min(p[1] for p in r), max(p[0] for p in r), max(p[1] for p in r)) for r in g] for g in rings]
+
+    def near(g, x, y, m):
+        return [r for r, b in zip(rings[g], boxes[g]) if b[0] - m <= x <= b[2] + m and b[1] - m <= y <= b[3] + m]
+    pts = [(to(lon, lat), cat) for lon, lat, cat in marks]
+
+    def inside(x, y, ring):
+        c = False
+        for i in range(len(ring)):
+            (x1, y1), (x2, y2) = ring[i - 1], ring[i]
+            if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                c = not c
+        return c
+
+    def nearest(x, y, ring):
+        best = None
+        for i in range(len(ring)):
+            (ax, ay), (bx, by) = ring[i - 1], ring[i]
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy or 1e-9
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+            px, py = ax + t * dx, ay + t * dy
+            d = math.hypot(x - px, y - py)
+            if best is None or d < best[0]:
+                best = (d, px, py, dx, dy)
+        return best
+
+    def nearest_side(x, y, ring):
+        """Nearest of the ring's long edges (its sides, not its end caps): (distance,
+        edge dx, dy, edge midpoint)."""
+        segs = [(ring[i - 1], ring[i]) for i in range(len(ring))]
+        lens = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in segs]
+        if not lens:
+            return None
+        long_ = min(60.0, 0.3 * max(lens))
+        best = None
+        for (a, b), L in zip(segs, lens):
+            if L < long_:
+                continue
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / (L * L)))
+            d = math.hypot(x - a[0] - t * dx, y - a[1] - t * dy)
+            if best is None or d < best[0]:
+                best = (d, dx, dy, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        return best
+
+    out = []
+    for (x, y), cat in pts:
+        if cat not in (1, 2):
+            continue
+        v = None
+        for g in (0, 1):
+            cand = [(nearest_side(x, y, r), r) for r in near(g, x, y, CHANNEL_M)]
+            cand = [(n, r) for n, r in cand if n is not None and n[0] <= CHANNEL_M]
+            if not cand:
+                continue
+            (d, dx, dy, mx, my), ring = min(cand, key=lambda c: c[0][0])
+            # Perpendicular to the channel's side, pointing into the channel (an end cap
+            # would point along the channel and block its own entrance)
+            L = math.hypot(dx, dy) or 1.0
+            n = (-dy / L, dx / L)
+            v = n if inside(mx + 3 * n[0], my + 3 * n[1], ring) else (-n[0], -n[1])
+            break
+        if v is None:
+            opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
+            opp = [o for o in opp if o[0] <= PAIR_M]
+            if opp:
+                _, ox, oy = min(opp)
+                v = (ox - x, oy - y)
+        if v is None:
+            continue
+        L = math.hypot(*v)
+        if L == 0:
+            continue
+        ux, uy = -v[0] / L, -v[1] / L
+        # The line never runs through a charted fairway or dredged area: it stops where
+        # one begins (a wrong guess can then never block a charted channel); a mark inside
+        # its channel starts the line where it leaves the channel
+        all_rings = near(0, x, y, GATE_M) + near(1, x, y, GATE_M)
+        start, end, t = None, None, 0.0
+        while t <= GATE_M:
+            px, py = x + ux * t, y + uy * t
+            inch = any(inside(px, py, r) for r in all_rings)
+            if not inch and start is None:
+                start = t
+            elif inch and start is not None:
+                end = t - 5
+                break
+            t += 5
+        if start is None:
+            continue
+        end = GATE_M if end is None else end
+        if end - start < 30:
+            continue
+        out.append((back(x + ux * start, y + uy * start), back(x + ux * end, y + uy * end)))
+    return out
+
+PIER_NOTE = "runs along or across charted piers or seawalls: check"
+# S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
+OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
+OPENING_SQL = " OR ".join(f"CATBRG LIKE '%\"{c}\"%'" for c in OPENING)
+
+
+def exterior_rings(geom):
+    """Exterior rings [(lon, lat), ...] of a polygon or multipolygon."""
+    g = geom.Clone()
+    g.FlattenTo2D()
+    t = g.GetGeometryType()
+    polys = [g] if t == ogr.wkbPolygon else [g.GetGeometryRef(i) for i in range(g.GetGeometryCount())] if t == ogr.wkbMultiPolygon else []
+    return [[(x, y) for x, y in p.GetGeometryRef(0).GetPoints()] for p in polys if p.GetGeometryCount()]
+
+
 def dm(v):
     return int(min(253, max(0, round(v * 10)))) + 1
 
@@ -498,6 +640,30 @@ def build(cells, grid, work):
         planes[CABLECLR][((flags & CABLE) != 0) & (cc == 0) & (planes[CABLECLR] == SNAG_MARK)] = 0
         planes[CABLECLR] = np.where(cc > 0, cc, planes[CABLECLR])
         planes[FLAGS] |= flags
+
+        # Lateral marks and their wrong-side lines (see channel_gates), only where the
+        # cable plane is free (no cable clearance, no snag mark)
+        marks = []
+        for layer in ("BOYLAT", "BCNLAT"):
+            for f, geom in features(gp, layer):
+                if geom.GetGeometryType() in (ogr.wkbPoint, ogr.wkbPoint25D):
+                    marks.append((geom.GetX(), geom.GetY(), int(fnum(f, "CATLAM") or 0)))
+        if marks:
+            fair = [r for f, geom in features(gp, "FAIRWY") for r in exterior_rings(geom)]
+            drg = [r for f, geom in features(gp, "DRGARE") for r in exterior_rings(geom)]
+            gl = []
+            for a, b in channel_gates(marks, fair, drg):
+                ln = ogr.Geometry(ogr.wkbLineString)
+                ln.AddPoint_2D(*a)
+                ln.AddPoint_2D(*b)
+                gl.append((ln, 1))
+            for x, y, _ in marks:
+                pt = ogr.Geometry(ogr.wkbPoint)
+                pt.AddPoint_2D(x, y)
+                gl.append((pt, 1))
+            gate = burn(grid, gl) > 0
+            planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
+            log(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
 
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")

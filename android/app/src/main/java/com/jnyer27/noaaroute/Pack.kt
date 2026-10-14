@@ -104,6 +104,8 @@ class Pack(file: File) : AutoCloseable {
         const val HZ_PIER = 255
         /** CABLECLR plane value without the CABLE flag: the cell's only hazard is a snag or stump */
         const val SNAG_MARK = 255
+        /** CABLECLR plane value without the CABLE flag: a channel marker or its wrong-side line */
+        const val GATE_MARK = 254
         const val F_STRUCT = 1
         const val F_PROHIB = 2
         const val F_DECK = 4
