@@ -43,6 +43,8 @@ class AreaRoutesTest {
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM
                     println("PASS? $name: %.1f nm (straight %.1f), %d points, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, r.resM, sec))
+                    // The route itself, so a surprising length can be looked at from the log
+                    println("POINTS $name: " + r.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
                     // "avoid": [[lat, lon, meters], ...]: places the route must keep away from
                     // (where an earlier version strayed out of a channel)
                     val strayed = (test["avoid"] as List<*>?).orEmpty().mapNotNull { av ->
