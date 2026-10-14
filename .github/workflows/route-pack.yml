@@ -50,12 +50,17 @@ jobs:
           exit $rc
 
       - name: Publish release assets
-        # Branch runs (workflow_dispatch) build and test only
-        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view route-pack >/dev/null 2>&1 || \
-            gh release create route-pack --title "Route packs (weekly)" \
-              --notes "NOAA ENC area route packs for the NOAA Route app, rebuilt every Saturday. Not for navigation."
-          gh release upload route-pack packs/*.bin packs/catalog.json --clobber
+          # main publishes to the route-pack release the app uses; a branch run publishes to
+          # the route-pack-beta pre-release, which only APKs built from a branch read
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            tag=route-pack; flags=""; title="Route packs (weekly)"
+          else
+            tag=route-pack-beta; flags="--prerelease"; title="Route packs (test builds from branches)"
+          fi
+          gh release view $tag >/dev/null 2>&1 || \
+            gh release create $tag $flags --title "$title" \
+              --notes "NOAA ENC area route packs for the NOAA Route app. Not for navigation."
+          gh release upload $tag packs/*.bin packs/catalog.json --clobber

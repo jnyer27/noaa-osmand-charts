@@ -18,7 +18,7 @@ import java.security.MessageDigest
  */
 class PackStore(private val ctx: Context) {
     companion object {
-        const val PACK_BASE = "https://github.com/jnyer27/noaa-osmand-charts/releases/download/route-pack/"
+        val PACK_BASE: String = BuildConfig.PACK_BASE
         private const val JOB_ID = 1
 
         /** Daily background update on unmetered networks, kept across reboots. */

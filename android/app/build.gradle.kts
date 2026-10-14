@@ -11,12 +11,21 @@ android {
     namespace = "com.jnyer27.noaaroute"
     compileSdk = 35
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.jnyer27.noaaroute"
         minSdk = 29
         targetSdk = 35
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        // APKs built from a branch read the route-pack-beta release (packs from branch runs
+        // of route-pack.yml); main and local builds read the route-pack release
+        val branch = System.getenv("GITHUB_REF_NAME")
+        val packTag = if (branch == null || branch == "main") "route-pack" else "route-pack-beta"
+        buildConfigField("String", "PACK_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$packTag/\"")
     }
 
     signingConfigs {
