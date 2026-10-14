@@ -62,7 +62,7 @@
     {"name": "Hudson River: Haverstraw Bay to Kingston (Poughkeepsie bridges)", "points": ["41.1950,-73.9550", "41.9170,-73.9550"], "depth": 4, "air": 10, "areas": ["ncds_02a"], "nm": [42, 51]},
     {"name": "Delaware River: Delaware City to Philadelphia (04 to 03)", "points": ["39.56139,-75.52338", "39.9450,-75.1390"], "depth": 4, "air": 10, "areas": ["ncds_04", "ncds_03"], "nm": [33, 41]},
     {"name": "Morehead City to Oriental (ICW, Adams Creek Canal past charted piles)", "points": ["34.7140,-76.7000", "35.0250,-76.6920"], "depth": 3, "air": 10, "areas": ["ncds_06"], "nm": [18, 24]},
-    {"name": "Maryland Marina to Carolina Beach (long trip at 5 ft: in at Masonboro, down the ICW, never in the sound)", "points": ["39.32371,-76.39998", "34.05312,-77.92213"], "depth": 5, "air": 10, "areas": ["ncds_04", "ncds_05", "ncds_06"], "nm": [395, 425], "avoid": [[34.1180, -77.8627, 150], [33.8800, -78.0000, 2000]]},
+    {"name": "Maryland Marina to Carolina Beach (long trip at 5 ft, never in Masonboro Sound)", "points": ["39.32371,-76.39998", "34.05312,-77.92213"], "depth": 5, "air": 10, "areas": ["ncds_04", "ncds_05", "ncds_06"], "nm": [415, 440], "avoid": [[34.1180, -77.8627, 150]]},
     {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"], "nm": [73, 89]},
     {"name": "Wrightsville Beach to Southport (ICW)", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"], "nm": [30, 37]},
     {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [63, 77]},
