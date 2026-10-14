@@ -854,6 +854,34 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * 18 km along that path. Each stretch between them is then routed at full
      * detail by planPiece.
      */
+    /**
+     * A guide point moved to real channel water: the nearest full-detail cell charted
+     * at least the safe depth, usable, not a pier/marker/snag cell nor in a hazard
+     * buffer, and preferably not hugging danger. An overview cell (320 m on a long
+     * trip) counts as water when a sliver of channel runs through it, so its center
+     * can lie in shallow sound beside the ICW (Masonboro Sound: the stretch was sent
+     * there, the 20 m search failed, and the 40 m one left the marked channel).
+     * Unchanged when there is no such water nearby.
+     */
+    private fun refineGuide(pt: LatLon, overviewRes: Double, c: Ctx): LatLon {
+        val fa = areaAround(pt, max(overviewRes, 300.0))
+        val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+        val at = fa.cell(pt)
+        val r0 = at / fa.w
+        val c0 = at % fa.w
+        fun good(i: Int, maxProx: Int) = fg.ok[i] && fg.nav[i].toInt() == SAFE && !fg.pier[i] && !fg.soft[i] && fg.prox[i] <= maxProx
+        for (maxProx in listOf(fg.k - 3, fg.k)) {
+            var best = -1
+            var bestD = Double.MAX_VALUE
+            for (i in 0 until fa.n) if (good(i, maxProx)) {
+                val dd = hypot((i / fa.w - r0).toDouble(), (i % fa.w - c0).toDouble())
+                if (dd < bestD) { bestD = dd; best = i }
+            }
+            if (best >= 0) return fa.latlon(best)
+        }
+        return pt
+    }
+
     private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
@@ -920,7 +948,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                             if (cand != null) { best = cand; break }
                         }
                         if (cum[best] < 4000 || total - cum[best] < 4000) continue
-                        out.add(a.latlon(path[best]))
+                        out.add(refineGuide(a.latlon(path[best]), a.res, c))
                         from = best
                     }
                     return out to a.res

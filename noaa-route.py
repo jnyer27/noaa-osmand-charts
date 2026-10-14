@@ -1564,6 +1564,28 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
         log("No route inside this area, widening the search")
 
 
+def refine_guide(pt, overview_res, ctx):
+    """A guide point moved to real channel water: the nearest full-detail cell charted at
+    least the safe depth, usable, not a pier/marker/snag cell nor in a hazard buffer, and
+    preferably not hugging danger. An overview cell counts as water when a sliver of
+    channel runs through it, so its center can lie in shallow sound beside the ICW
+    (Masonboro Sound). Unchanged when there is no such water nearby."""
+    g = Grid.around(pt[0], pt[1], max(overview_res, 300.0), PIECE_RES)
+    G = build(g, ctx)
+    r0, c0 = g.cell(*pt)
+    K = prox_reach(g.res)
+    for max_prox in (K - 3, K):
+        best = None
+        for i in range(g.w * g.h):
+            if G["ok"][i] and G["nav"][i] == SAFE and not G["pier"][i] and not G["soft"][i] and G["prox"][i] <= max_prox:
+                dd = math.hypot(i // g.w - r0, i % g.w - c0)
+                if best is None or dd < best[0]:
+                    best = (dd, i)
+        if best:
+            return g.latlon(best[1])
+    return pt
+
+
 def guide_points(p, q, np_, nq, ctx):
     """Long legs: open-water guide points about every GUIDE_SPACING_M along a coarse
     overview route, with each end's full-detail reachable water stamped in first."""
@@ -1620,7 +1642,7 @@ def guide_points(p, q, np_, nq, ctx):
                         break
                 if cum[best] < 4000 or total - cum[best] < 4000:
                     continue
-                out.append(grid.latlon(path[best]))
+                out.append(refine_guide(grid.latlon(path[best]), grid.res, ctx))
                 frm = best
             return out
         encs = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in ends]
