@@ -45,6 +45,8 @@ jobs:
           rc=0
           gradle --no-daemon testReleaseUnitTest --tests '*AreaRoutesTest' -i > routes.log 2>&1 || rc=$?
           grep -E 'PASS\?|REFUSED|Reference route failures|^ +[a-z]+: ' routes.log || tail -50 routes.log
+          # Full planner explanations (multi-line) for any failed route
+          if [ $rc -ne 0 ]; then sed -n '/Reference route failures:/,/at org\.junit\./p' routes.log; fi
           exit $rc
 
       - name: Publish release assets
