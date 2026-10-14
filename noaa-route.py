@@ -1358,7 +1358,7 @@ def open_folder(path):
 
 OFF_WATER = "connects your point to usable water: not checked, use your eyes"
 CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
-APPROACH_M = 20000.0  # reach of the 40 m detail drawn into a long trip's overview around each end
+APPROACH_M = 20000.0  # reach of the 20 m detail drawn into a long trip's overview around each end
 GUIDE_SPACING_M = 18000.0
 PIECE_RES = 20.0
 
@@ -1605,11 +1605,13 @@ def guide_points(p, q, np_, nq, ctx):
         ok, cost = G["ok"], G["cost"]
         ends = []
         for pt in (p, q):
-            # Two layers of detail drawn into the overview around each end: 20 m within 4 km
-            # (the end itself), and 40 m within APPROACH_M, so the overview can see an inlet
-            # and the inside route to the end (Masonboro Inlet and the ICW, 17 km from
-            # Carolina Beach, were invisible on a coarse overview)
-            for layer, (half, res) in enumerate(((4000, PIECE_RES), (APPROACH_M, 2 * PIECE_RES))):
+            # Two layers of detail drawn into the overview around each end: 4 km (the end
+            # itself), and APPROACH_M, so the overview can see an inlet and the inside route
+            # to the end (Masonboro Inlet and the ICW, 17 km from Carolina Beach, were
+            # invisible on a coarse overview). Both at 20 m: at 40 m the 1-cell ICW channel
+            # can vanish and Carolina Beach Inlet, closed at 20 m for 5 ft, can open
+            for layer, half in enumerate((4000, APPROACH_M)):
+                res = PIECE_RES
                 fg = Grid.around(pt[0], pt[1], half, res)
                 F = build(fg, ctx)
                 hit0 = snap(fg, F["ok"], *pt, quiet=layer > 0)

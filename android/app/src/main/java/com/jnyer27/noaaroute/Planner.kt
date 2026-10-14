@@ -37,7 +37,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
-        const val APPROACH_M = 20000.0 // reach of the 40 m detail drawn into a long trip's overview around each end
+        const val APPROACH_M = 20000.0 // reach of the 20 m detail drawn into a long trip's overview around each end
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
@@ -904,11 +904,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
                 val ends = IntArray(2)
                 for ((k, pt) in listOf(p, q).withIndex()) {
-                    // Two layers of detail drawn into the overview around each end: 20 m within
-                    // 4 km (the end itself), and 40 m within APPROACH_M, so the overview can see
-                    // an inlet and the inside route to the end (Masonboro Inlet and the ICW, 17 km
-                    // from Carolina Beach, were invisible at 300 m: the trip went in by Cape Fear)
-                    for ((layer, spec) in listOf(4000.0 to 1, APPROACH_M to 2).withIndex()) {
+                    // Two layers of detail drawn into the overview around each end: 4 km (the end
+                    // itself), and APPROACH_M, so the overview can see an inlet and the inside
+                    // route to the end (Masonboro Inlet and the ICW, 17 km from Carolina Beach,
+                    // were invisible at 300 m: the trip went in by Cape Fear). Both at 20 m: a 40 m
+                    // window samples one cell per block, which dropped the 1-cell ICW channel and
+                    // opened Carolina Beach Inlet, closed at 20 m for 5 ft
+                    for ((layer, spec) in listOf(4000.0 to 1, APPROACH_M to 1).withIndex()) {
                         val fa = areaAround(pt, spec.first, spec.second)
                         val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
                         var (s, _) = try { snap(fa, fg, pt) } catch (e: PlanException) { if (layer == 0) throw e else continue }
