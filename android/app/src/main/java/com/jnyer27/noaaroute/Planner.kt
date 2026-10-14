@@ -897,54 +897,58 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
+            // Two layers of detail drawn into the overview around each end: 4 km (the end
+            // itself), and APPROACH_M, so the overview can see an inlet and the inside
+            // route to the end (Masonboro Inlet and the ICW, 17 km from Carolina Beach,
+            // were invisible at 300 m: the trip went in by Cape Fear). Both at 20 m: a 40 m
+            // window samples one cell per block, which dropped the 1-cell ICW channel and
+            // opened Carolina Beach Inlet, closed at 20 m for 5 ft. Worked out before the
+            // overview grid exists, so the two big grids are never in memory together.
+            val stamp = BooleanArray(a.n)
+            val ends = IntArray(2)
+            for ((k, pt) in listOf(p, q).withIndex()) {
+                for ((layer, half) in listOf(4000.0, APPROACH_M).withIndex()) {
+                    val fa = areaAround(pt, half)
+                    val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+                    var (s, _) = try { snap(fa, fg, pt) } catch (e: PlanException) { if (layer == 0) throw e else continue }
+                    val enc0 = enclosure(fa, fg, s)
+                    if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
+                        // Cut off within the detail window: use the nearest water that leads out of it
+                        val border = (0 until fa.n).filter { i ->
+                            val r = i / fa.w
+                            val col = i % fa.w
+                            fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
+                        }.toIntArray()
+                        val out = region(fa, fg.ok, border)
+                        nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
+                    }
+                    // Everything reachable from the point within the detail window is usable on the overview
+                    val seen = BooleanArray(fa.n)
+                    val stack = IntArray(fa.n)
+                    var sp = 0
+                    stack[sp++] = s
+                    seen[s] = true
+                    while (sp > 0) {
+                        val i = stack[--sp]
+                        stamp[a.cell(fa.latlon(i))] = true
+                        val r = i / fa.w
+                        val col = i % fa.w
+                        for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
+                                             if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
+                            if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                        }
+                    }
+                    if (layer == 0) ends[k] = a.cell(fa.latlon(s))
+                }
+            }
             // A coarse overview can break up a narrow canal: before widening (which makes the
             // grid coarser still), retry with any clear 20 m cell keeping its block open
             for (optimistic in if (a.f > 1) listOf(false, true) else listOf(false)) {
                 c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})" + if (optimistic) ", keeping narrow channels" else "")
                 val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
-                val ends = IntArray(2)
-                for ((k, pt) in listOf(p, q).withIndex()) {
-                    // Two layers of detail drawn into the overview around each end: 4 km (the end
-                    // itself), and APPROACH_M, so the overview can see an inlet and the inside
-                    // route to the end (Masonboro Inlet and the ICW, 17 km from Carolina Beach,
-                    // were invisible at 300 m: the trip went in by Cape Fear). Both at 20 m: a 40 m
-                    // window samples one cell per block, which dropped the 1-cell ICW channel and
-                    // opened Carolina Beach Inlet, closed at 20 m for 5 ft
-                    for ((layer, spec) in listOf(4000.0 to 1, APPROACH_M to 1).withIndex()) {
-                        val fa = areaAround(pt, spec.first, spec.second)
-                        val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
-                        var (s, _) = try { snap(fa, fg, pt) } catch (e: PlanException) { if (layer == 0) throw e else continue }
-                        val enc0 = enclosure(fa, fg, s)
-                        if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
-                            // Cut off within the detail window: use the nearest water that leads out of it
-                            val border = (0 until fa.n).filter { i ->
-                                val r = i / fa.w
-                                val col = i % fa.w
-                                fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
-                            }.toIntArray()
-                            val out = region(fa, fg.ok, border)
-                            nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
-                        }
-                        // Everything reachable from the point within the detail window is usable on the overview
-                        val seen = BooleanArray(fa.n)
-                        val stack = IntArray(fa.n)
-                        var sp = 0
-                        stack[sp++] = s
-                        seen[s] = true
-                        while (sp > 0) {
-                            val i = stack[--sp]
-                            val ci = a.cell(fa.latlon(i))
-                            g.ok[ci] = true
-                            if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
-                            val r = i / fa.w
-                            val col = i % fa.w
-                            for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
-                                                 if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
-                                if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
-                            }
-                        }
-                        if (layer == 0) ends[k] = a.cell(fa.latlon(s))
-                    }
+                for (i in 0 until a.n) if (stamp[i]) {
+                    g.ok[i] = true
+                    if (g.cost[i] == Float.POSITIVE_INFINITY) g.cost[i] = 2f
                 }
                 val path = astar(a, g, ends[0], ends[1])
                 if (path != null) {
