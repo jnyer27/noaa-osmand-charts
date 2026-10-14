@@ -38,7 +38,8 @@ class AreaRoutesTest {
                 val mustFail = test["fail"] == true
                 val t0 = System.currentTimeMillis()
                 try {
-                    val r = Planner(charts).plan("test", pts, depth, air)
+                    // Progress (overview, guide points, each stretch's grid) goes to the log too
+                    val r = Planner(charts).plan("test", pts, depth, air) { msg -> println("PROGRESS $name: $msg") }
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM

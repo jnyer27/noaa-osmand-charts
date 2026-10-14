@@ -996,6 +996,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val chain = if (area(listOf(p, q), 1.0).f == 1) listOf(p, q) else {
                 val (guide, gr) = guidePoints(p, q, k + 1, k + 2, c)
                 guideRes = max(guideRes ?: 0.0, gr)
+                progress("Guide points (overview %.0f m): ".format(gr) + guide.joinToString("; ") { "%.5f,%.5f".format(it.lat, it.lon) })
                 listOf(p) + guide + listOf(q)
             }
             for (j in 0 until chain.size - 1) {
@@ -1005,6 +1006,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 res = max(res, piece.res)
+                progress("Stretch ${j + 1}: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
             }
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
