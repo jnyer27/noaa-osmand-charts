@@ -7,6 +7,8 @@
     <!-- Automatic chart updates: Wi-Fi only, and the daily job survives reboots -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- "Chart map ready" notices (optional; downloads show Android's own notification) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <package android:name="net.osmand.plus" />
@@ -60,6 +62,18 @@
                 <data android:scheme="geo" />
             </intent-filter>
         </activity>
+        <!-- Chart maps: a finished DownloadManager download starts the conversion job -->
+        <receiver
+            android:name=".ChartDownloadReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".ChartJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <service
             android:name=".UpdateJob"
             android:exported="false"

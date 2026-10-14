@@ -32,6 +32,8 @@ class RegionMapView(ctx: Context) : View(ctx) {
     /** Where to print a region's code: the middle of its pack's charted box, else of its rectangle. */
     var labelAt: (String) -> LatLon? = { null }
     var markers: List<Pair<LatLon, String>> = emptyList()
+    /** Whether a region code has a chart map ready for OsmAnd (labelled under its code). */
+    var hasChart: (String) -> Boolean = { false }
     var onRegionTap: (NcdsRegion) -> Unit = {}
 
     companion object {
@@ -190,8 +192,14 @@ class RegionMapView(ctx: Context) : View(ctx) {
             if (size > 28 * density) {
                 label.textSize = (if (st == Status.NOT_BUILT) 11f else 15f) * density
                 label.color = if (st == Status.NOT_BUILT) faint else text
-                c.drawText(r.code, clamp(lx, max(box.left, 0f) + 16 * density, min(box.right, width.toFloat()) - 16 * density),
-                    clamp(ly, max(box.top, 0f) + 20 * density, min(box.bottom, height.toFloat()) - 6 * density), label)
+                val tx = clamp(lx, max(box.left, 0f) + 16 * density, min(box.right, width.toFloat()) - 16 * density)
+                val ty = clamp(ly, max(box.top, 0f) + 20 * density, min(box.bottom, height.toFloat()) - 6 * density)
+                c.drawText(r.code, tx, ty, label)
+                if (hasChart(r.code) && size > 48 * density) {
+                    label.textSize = 10f * density
+                    label.color = text
+                    c.drawText("chart map", tx, ty + 13 * density, label)
+                }
             }
         }
         for ((p, name) in markers) {

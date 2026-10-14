@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val store by lazy { PackStore(this) }
+    private val maps by lazy { ChartMaps(this) }
     private var charts: ChartSet? = null
     private var chartsSig = ""
     private var catalog: List<AreaInfo> = emptyList()
@@ -219,6 +220,8 @@ class MainActivity : Activity() {
         super.onResume()
         // The background job may have updated or swapped packs
         if (store.signature() != chartsSig) { openCharts(); checkTrip() }
+        // Chart map downloads may have finished, or a map was deleted in Files
+        worker.execute { maps.reconcile(); ui.post { regionsChanged?.invoke() } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -566,10 +569,8 @@ class MainActivity : Activity() {
             catalog.filter { !it.deprecated && installed(it.id) != null }.map { it.bbox }
         }).ifEmpty { catalog.filter { !it.deprecated }.map { it.bbox } }
         if (boxes.isNotEmpty()) map.fit(doubleArrayOf(boxes.minOf { it[0] }, boxes.minOf { it[1] }, boxes.maxOf { it[2] }, boxes.maxOf { it[3] }))
-        map.onRegionTap = { r ->
-            val a = areaFor(r.code)
-            if (a == null) toast("NCDS region ${r.code} has no route planning data yet.") else areaAction(a.id)
-        }
+        map.onRegionTap = { r -> regionCard(r.code) }
+        map.hasChart = { code -> maps.get(code)?.state == ChartMaps.State.READY }
         root.addView(map, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f))
 
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(16)) }
@@ -600,13 +601,35 @@ class MainActivity : Activity() {
                 rows.addView(TextView(this).apply {
                     text = "${c?.name ?: have?.areaName ?: id}\n$state"
                     setPadding(0, dp(10), 0, dp(10))
-                    setOnClickListener { areaAction(id) }
+                    setOnClickListener { c?.ncds?.let { regionCard(it) } ?: areaAction(id) }
                 })
             }
+            // Chart maps for OsmAnd
+            rows.addView(label("Chart maps for OsmAnd"))
+            val entries = maps.all().values.sortedBy { it.key }
+            if (entries.isEmpty()) rows.addView(TextView(this).apply {
+                text = "NOAA's paper-chart style maps (NCDS), converted for OsmAnd: tap a region on the map to download one."
+            })
+            for (e in entries) rows.addView(TextView(this).apply {
+                text = (if (e.merged) "Combined regions " + e.codes.joinToString(" + ") else "Region ${e.key}") + "\n" + chartStatus(e)
+                setPadding(0, dp(10), 0, dp(10))
+                setOnClickListener { if (e.merged) chartCard(e.key) else regionCard(e.key) }
+            })
+            val ready = entries.filter { !it.merged && !it.mbtilesOnly && it.state == ChartMaps.State.READY }
+            if (ready.size >= 2) rows.addView(button("Combine chart maps for OsmAnd") { combineCharts(ready.map { it.key }) })
         }
         fill()
         regionsChanged = { fill() }
-        d.setOnDismissListener { regionsChanged = null }
+        // Live progress while chart maps download or convert
+        val tick = object : Runnable {
+            override fun run() {
+                if (!d.isShowing) return
+                if (maps.all().values.any { it.state != ChartMaps.State.READY && it.state != ChartMaps.State.FAILED }) fill()
+                ui.postDelayed(this, 2000)
+            }
+        }
+        ui.postDelayed(tick, 2000)
+        d.setOnDismissListener { regionsChanged = null; ui.removeCallbacks(tick) }
         root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         insetPadding(root)
         d.setContentView(root)
@@ -633,6 +656,156 @@ class MainActivity : Activity() {
             have != null -> "Installed: ${have.created.take(10)}. New: ${c!!.created.take(10)}."
             else -> "About %.0f MB.\n\n%s".format(c!!.size / 1e6, c.description)
         }).setNegativeButton("Cancel", null).show()
+    }
+
+    /** Chart map status line for the list and the card. */
+    private fun chartStatus(e: ChartMaps.Entry): String = when (e.state) {
+        ChartMaps.State.DOWNLOADING -> maps.progress(e)?.let { (got, total) ->
+            if (total > 0) "downloading: %.0f of %.0f MB (waits for Wi-Fi unless mobile data was allowed)".format(got / 1e6, total / 1e6)
+            else "download queued (waits for Wi-Fi unless mobile data was allowed)"
+        } ?: "downloading"
+        ChartMaps.State.DOWNLOADED, ChartMaps.State.CONVERTING -> "converting for OsmAnd..."
+        ChartMaps.State.MERGING -> "combining..."
+        ChartMaps.State.READY -> "ready: Download/${ChartMaps.SUBDIR}/${e.file} (%.0f MB)".format(e.size / 1e6) +
+            if (e.mbtilesOnly) " (.mbtiles, not converted)" else ""
+        ChartMaps.State.FAILED -> "failed: ${e.error}"
+    }
+
+    /** One NCDS region: its route planning data and its chart map for OsmAnd. */
+    private fun regionCard(code: String) {
+        val area = catalog.firstOrNull { it.ncds == code && !it.deprecated }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        val d = AlertDialog.Builder(this).setTitle(area?.name ?: "NCDS region $code").setView(ScrollView(this).apply { addView(box) })
+            .setNegativeButton("Close", null).create()
+        fun act(text: String, f: () -> Unit) = button(text) { d.dismiss(); f() }
+
+        box.addView(label("Route planning data"))
+        val have = area?.let { installed(it.id) }
+        box.addView(TextView(this).apply {
+            text = when {
+                area == null -> "Not available for this region yet."
+                have == null -> "Not downloaded. About %.0f MB.\n%s".format(area.size / 1e6, area.description)
+                hasUpdate(area) -> "Update available: NOAA data from ${area.created.take(10)} (you have ${have.created.take(10)})."
+                else -> "Up to date: NOAA data from ${have.created.take(10)}.\n${area.description}"
+            }
+        })
+        if (area != null && (have == null || hasUpdate(area)))
+            box.addView(act(if (have == null) "Download route data" else "Update route data") { ensureAuto { downloadAreas(listOf(area)) } })
+        if (have != null) box.addView(act("Delete route data") {
+            charts?.packs?.forEach { it.close() }
+            charts = null
+            store.delete(area!!.id)
+            openCharts()
+            checkTrip()
+        })
+
+        box.addView(label("Chart map for OsmAnd"))
+        val e = maps.get(code)
+        val status = TextView(this)
+        box.addView(status)
+        when (e?.state) {
+            null -> {
+                status.text = "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd. Checking the size..."
+                worker.execute {
+                    val size = try { maps.remoteSize(code) } catch (_: Exception) { -1L }
+                    ui.post {
+                        status.text = if (size > 0) "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd: " +
+                            "%.0f MB download, about %.0f MB free space needed while converting.".format(size / 1e6, 2.1 * size / 1e6)
+                        else "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd. Could not reach NOAA to check the size."
+                    }
+                }
+                box.addView(act("Download for OsmAnd") { startChart(code, mbtilesOnly = false) })
+                box.addView(act("Download the .mbtiles only") { startChart(code, mbtilesOnly = true) })
+            }
+            ChartMaps.State.READY -> {
+                status.text = chartStatus(e)
+                if (!e.mbtilesOnly) box.addView(act("Open in OsmAnd") { openChart(e) })
+                box.addView(act("Show in Files") { showFolder(ChartMaps.SUBDIR) })
+                box.addView(act("Delete chart map") { maps.delete(code); regionsChanged?.invoke() })
+            }
+            ChartMaps.State.FAILED -> {
+                status.text = chartStatus(e)
+                box.addView(act("Try again") { maps.cancel(code); startChart(code, e.mbtilesOnly) })
+                box.addView(act("Remove") { maps.cancel(code); regionsChanged?.invoke() })
+            }
+            else -> {
+                status.text = chartStatus(e)
+                if (e.state == ChartMaps.State.DOWNLOADING) box.addView(act("Cancel download") { maps.cancel(code); regionsChanged?.invoke() })
+            }
+        }
+        d.show()
+    }
+
+    /** A combined chart map's card. */
+    private fun chartCard(key: String) {
+        val e = maps.get(key) ?: return
+        val b = AlertDialog.Builder(this).setTitle("Combined chart map: regions " + e.codes.joinToString(" + ")).setMessage(chartStatus(e))
+        if (e.state == ChartMaps.State.READY) b.setPositiveButton("Open in OsmAnd") { _, _ -> openChart(e) }
+        b.setNeutralButton("Delete") { _, _ -> maps.delete(key); regionsChanged?.invoke() }
+        b.setNegativeButton("Close", null).show()
+    }
+
+    /** Check the size and space, ask Wi-Fi or mobile data, then hand the download to Android. */
+    private fun startChart(code: String, mbtilesOnly: Boolean) {
+        status.text = "Checking region $code's chart map..."
+        worker.execute {
+            val size = try { maps.remoteSize(code) } catch (e: Exception) {
+                ui.post { status.text = "Could not reach NOAA: ${e.message}" }
+                return@execute
+            }
+            val need = (2.1 * size).toLong()
+            val free = maps.freeBytes()
+            ui.post {
+                status.text = ""
+                if (free < need) {
+                    AlertDialog.Builder(this).setTitle("Not enough space")
+                        .setMessage("Region $code's chart map is %.0f MB; downloading and converting it needs about %.0f MB free, and %.0f MB is free.".format(size / 1e6, need / 1e6, free / 1e6))
+                        .setPositiveButton("OK", null).show()
+                    return@post
+                }
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2) // for "ready" notices; optional
+                fun go(mobile: Boolean) {
+                    maps.start(code, size, mbtilesOnly, mobile)
+                    status.text = "Region $code's chart map is downloading (see the notification); it is converted for OsmAnd when done, even if you close the app."
+                    regionsChanged?.invoke()
+                }
+                AlertDialog.Builder(this).setTitle("Region $code chart map, %.0f MB".format(size / 1e6))
+                    .setMessage("Android downloads it in the background and resumes after interruptions." +
+                        if (mbtilesOnly) " The .mbtiles file is saved to Download/${ChartMaps.SUBDIR}." else " Then it is converted and saved to Download/${ChartMaps.SUBDIR} for OsmAnd.")
+                    .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
+                    .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
+                    .setNegativeButton("Cancel", null).show()
+            }
+        }
+    }
+
+    /** Pick the ready regions to combine into one map (OsmAnd shows one overlay at a time). */
+    private fun combineCharts(codes: List<String>) {
+        if (Build.VERSION.SDK_INT < 30) { toast("Combining chart maps needs Android 11 or newer."); return }
+        val pick = BooleanArray(codes.size) { true }
+        AlertDialog.Builder(this).setTitle("Combine into one map for OsmAnd")
+            .setMultiChoiceItems(codes.map { "Region $it" }.toTypedArray(), pick) { _, k, on -> pick[k] = on }
+            .setPositiveButton("Combine") { _, _ ->
+                val sel = codes.filterIndexed { k, _ -> pick[k] }
+                if (sel.size < 2) { toast("Pick at least two regions."); return@setPositiveButton }
+                maps.requestMerge(sel)
+                status.text = "Combining regions ${sel.joinToString(" + ")} into one chart map..."
+                regionsChanged?.invoke()
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    /** Hand a chart map to OsmAnd; if it will not take it, show the folder. */
+    private fun openChart(e: ChartMaps.Entry) {
+        val uri = Uri.parse(e.uri ?: return)
+        val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/octet-stream").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        osmandPackage()?.let { i.setPackage(it) }
+        try {
+            startActivity(i)
+        } catch (_: Exception) {
+            toast("OsmAnd did not take it: tap ${e.file} in Files and pick OsmAnd.")
+            showFolder(ChartMaps.SUBDIR)
+        }
     }
 
     // ------------------------------------------------------------ places
@@ -786,46 +959,9 @@ class MainActivity : Activity() {
         }
     }
 
-    /**
-     * Write the GPX into Download/noaa-charts/routes via MediaStore and return
-     * (uri, file name). Re-saving a route updates this app's own copy. If the
-     * name is taken by a file the app does not own (e.g. from Termux or an
-     * earlier install), MediaStore would rename ours to "name.gpx (1)", which
-     * no longer ends in .gpx; instead pick name-2.gpx, name-3.gpx, ... and
-     * confirm MediaStore kept the name.
-     */
+    /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). */
     private fun saveGpx(r: Route): Pair<Uri, String> {
-        val rel = Environment.DIRECTORY_DOWNLOADS + "/" + ROUTES_DIR + "/"
-        val coll = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val ours = Regex(Regex.escape(r.name) + "(-\\d+)?\\.gpx")
-        var target: Pair<Uri, String>? = null
-        // Our own earlier copy of this route (only files this app created are visible)
-        contentResolver.query(coll, arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
-            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
-            arrayOf(rel, r.name + "%"), "${MediaStore.MediaColumns.DISPLAY_NAME} ASC")?.use { c ->
-            while (target == null && c.moveToNext()) {
-                val n = c.getString(1)
-                if (ours.matches(n)) target = Uri.withAppendedPath(coll, c.getLong(0).toString()) to n
-            }
-        }
-        if (target == null) {
-            for (k in 1..50) {
-                val fileName = if (k == 1) "${r.name}.gpx" else "${r.name}-$k.gpx"
-                val v = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, rel)
-                }
-                val uri = contentResolver.insert(coll, v) ?: continue
-                var actual: String? = null
-                contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) actual = c.getString(0)
-                }
-                if (actual == fileName) { target = uri to fileName; break }
-                contentResolver.delete(uri, null, null) // MediaStore renamed it: name taken, try the next
-            }
-        }
-        val (uri, name) = target ?: throw Exception("Could not create ${r.name}.gpx in Download")
+        val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
         contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r).toByteArray()) }
         return uri to name
     }
@@ -846,13 +982,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showFolder() {
-        val doc = "primary:" + Environment.DIRECTORY_DOWNLOADS + "/" + ROUTES_DIR
+    private fun showFolder(sub: String = ROUTES_DIR) {
+        val doc = "primary:" + Environment.DIRECTORY_DOWNLOADS + "/" + sub
         val uri = Uri.parse("content://com.android.externalstorage.documents/document/" + Uri.encode(doc))
         try {
             startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "vnd.android.document/directory"))
         } catch (_: Exception) {
-            toast("Open Files > Download > $ROUTES_DIR")
+            toast("Open Files > Download > $sub")
         }
     }
 
