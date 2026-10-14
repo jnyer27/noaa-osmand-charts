@@ -3,6 +3,7 @@ package com.jnyer27.noaaroute
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -17,11 +18,15 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -30,9 +35,6 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,7 +42,6 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     companion object {
-        const val PACK_BASE = "https://github.com/jnyer27/noaa-osmand-charts/releases/download/route-pack/"
         const val ROUTES_DIR = "noaa-charts/routes"
         val DEFAULT_PLACES = listOf(
             "Maryland Marina" to "39.32371, -76.39998",
@@ -55,13 +56,25 @@ class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
+    private val store by lazy { PackStore(this) }
     private var charts: ChartSet? = null
-    private var catalog: List<JSONObject> = emptyList()
+    private var chartsSig = ""
+    private var catalog: List<AreaInfo> = emptyList()
+    private val downloading = HashSet<String>()
+    private val failed = HashSet<String>() // automatic downloads skip these until a manual retry
+    private var regionsChanged: (() -> Unit)? = null
+    private var pendingFix: ((Location?) -> Unit)? = null
     private var route: Route? = null
     private var gpxUri: Uri? = null
 
     private lateinit var packStatus: TextView
     private lateinit var packButton: Button
+    private lateinit var notice: LinearLayout
+    private lateinit var noticeText: TextView
+    private lateinit var noticeButton: Button
+    private lateinit var needBox: LinearLayout
+    private lateinit var needText: TextView
+    private lateinit var needButton: Button
     private lateinit var start: EditText
     private lateinit var dest: EditText
     private lateinit var via: EditText
@@ -110,10 +123,16 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(8), dp(16), dp(24))
         }
         packStatus = TextView(this)
-        packButton = button("Chart areas") { showAreas() }
+        packButton = button("Regions") { showRegions() }
         col.addView(label("Charts"))
         col.addView(packStatus)
         col.addView(packButton)
+        noticeText = TextView(this)
+        noticeButton = button("Switch") {}
+        notice = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, dp(4), 0, 0) }
+        notice.addView(noticeText)
+        notice.addView(noticeButton)
+        col.addView(notice)
 
         start = field("LAT, LON or pick a place")
         col.addView(label("Start"))
@@ -136,6 +155,12 @@ class MainActivity : Activity() {
         col.addView(label("Name"))
         col.addView(name)
 
+        needText = TextView(this)
+        needButton = button("Download") {}
+        needBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, dp(12), 0, 0) }
+        needBox.addView(needText)
+        needBox.addView(needButton)
+        col.addView(needBox)
         planButton = button("Plan route") { plan() }
         col.addView(planButton)
         status = TextView(this).apply { setPadding(0, dp(8), 0, 0) }
@@ -154,29 +179,46 @@ class MainActivity : Activity() {
         col.addView(actions)
         col.addView(button("Manage places") { managePlaces() })
 
-        setContentView(ScrollView(this).apply {
-            addView(col)
-            // Android 15+ draws apps targeting SDK 35 edge to edge: keep the content out from
-            // under the status bar, camera cutout (it moves with orientation on foldables),
-            // navigation bar and keyboard (adjustResize no longer does it)
-            if (Build.VERSION.SDK_INT >= 35) {
-                clipToPadding = false
-                setOnApplyWindowInsetsListener { v, insets ->
-                    val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
-                    v.setPadding(b.left, b.top, b.right, b.bottom)
-                    insets
-                }
-            }
-        })
+        setContentView(ScrollView(this).apply { addView(col); insetPadding(this) })
 
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
         start.setText(prefs.getString("start", ""))
         dest.setText(prefs.getString("dest", ""))
         File(filesDir, "md-route-pack.bin").delete() // single-pack format from the first build
+        // The trip banner follows what is typed (a short pause first)
+        val tripCheck = Runnable { checkTrip() }
+        for (f in listOf(start, dest, via)) f.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: Editable?) { ui.removeCallbacks(tripCheck); ui.postDelayed(tripCheck, 500) }
+        })
+        PackStore.schedule(this, store.auto == true) // keeps the daily update job after app updates
+        catalog = store.cachedCatalog()
         openCharts()
         refreshCatalog(quiet = true)
         if (savedInstanceState == null) handleShared(intent)
+    }
+
+    /**
+     * Android 15+ draws apps targeting SDK 35 edge to edge: keep a screen's content out
+     * from under the status bar, camera cutout (it moves with orientation on foldables),
+     * navigation bar and keyboard (adjustResize no longer does it).
+     */
+    private fun insetPadding(v: View) {
+        if (Build.VERSION.SDK_INT < 35) return
+        (v as? ViewGroup)?.clipToPadding = false
+        v.setOnApplyWindowInsetsListener { view, insets ->
+            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
+            view.setPadding(b.left, b.top, b.right, b.bottom)
+            insets
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The background job may have updated or swapped packs
+        if (store.signature() != chartsSig) { openCharts(); checkTrip() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -299,141 +341,293 @@ class MainActivity : Activity() {
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
 
-    // ------------------------------------------------------------ chart areas
-
-    private fun areaDir() = File(filesDir, "areas").apply { mkdirs() }
+    // ------------------------------------------------------------ chart regions
 
     private fun openCharts() {
         charts?.packs?.forEach { it.close() }
         charts = null
         val packs = ArrayList<Pack>()
         val bad = ArrayList<String>()
-        for (f in areaDir().listFiles { f -> f.name.endsWith(".bin") }.orEmpty().sortedBy { it.name }) {
+        for (f in store.dir.listFiles { f -> f.name.endsWith(".bin") }.orEmpty().sortedBy { it.name }) {
             try { packs.add(Pack(f)) } catch (e: Exception) { bad.add(f.name); f.delete() }
         }
+        chartsSig = store.signature()
         charts = if (packs.isEmpty()) null else ChartSet(packs)
         packStatus.text = when {
-            packs.isEmpty() -> "No chart areas yet. Tap Chart areas and download one (a few MB, once, on Wi-Fi); planning then works offline."
-            else -> packs.joinToString("\n") { p -> "${p.areaName}: NOAA ENC built ${p.created.take(10)}" }
+            packs.isEmpty() -> "No chart regions yet. Tap Regions and download yours (a few MB, once); planning then works offline."
+            else -> "Charts: " + packs.joinToString { it.areaName.substringBefore(':') } +
+                " · NOAA data from " + packs.minOf { it.created }.take(10)
         } + (if (bad.isNotEmpty()) "\nRemoved damaged file(s): ${bad.joinToString()}" else "")
         updateBadge()
+        regionsChanged?.invoke()
     }
 
     private fun installed(id: String) = charts?.packs?.firstOrNull { it.areaId == id }
+    private fun installedIds() = charts?.packs.orEmpty().map { it.areaId }.toSet()
+    private fun hasUpdate(a: AreaInfo) = !a.deprecated && installed(a.id)?.let { a.created > it.created } == true
 
     private fun updateBadge() {
-        val updates = catalog.count { a -> installed(a.getString("id"))?.let { a.getString("created") > it.created } == true }
-        packButton.text = if (updates > 0) "Chart areas ($updates update${if (updates > 1) "s" else ""})" else "Chart areas"
+        val updates = catalog.count { hasUpdate(it) }
+        packButton.text = if (updates > 0) "Regions ($updates update${if (updates > 1) "s" else ""})" else "Regions"
     }
 
-    private fun httpGet(url: String): HttpURLConnection {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 20000
-        c.readTimeout = 60000
-        c.instanceFollowRedirects = true
-        if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for $url")
-        return c
-    }
-
-    /** Fetch catalog.json (list of published areas); quiet = no messages when offline. */
+    /** Fetch catalog.json (the last copy works offline); quiet = no messages when offline. */
     private fun refreshCatalog(quiet: Boolean, then: (() -> Unit)? = null) {
         worker.execute {
-            try {
-                val j = JSONObject(httpGet(PACK_BASE + "catalog.json").inputStream.bufferedReader().readText())
-                val a = j.getJSONArray("areas")
-                val list = (0 until a.length()).map { a.getJSONObject(it) }
-                ui.post { catalog = list; updateBadge(); then?.invoke() }
-            } catch (e: Exception) {
-                ui.post {
-                    if (!quiet) status.text = "Could not reach the chart catalog: ${e.message}"
-                    then?.invoke()
-                }
+            val list = try { store.fetchCatalog() } catch (e: Exception) {
+                if (!quiet) ui.post { status.text = "Could not reach the chart catalog (${e.message}); showing the last one." }
+                store.cachedCatalog()
+            }
+            ui.post {
+                catalog = list
+                if (store.dropReplaced(list)) openCharts()
+                updateBadge()
+                afterCatalog()
+                then?.invoke()
             }
         }
     }
 
-    private fun showAreas() {
-        status.text = "Checking chart areas..."
-        refreshCatalog(quiet = false) {
-            status.text = ""
-            val ids = (catalog.map { it.getString("id") } + charts?.packs.orEmpty().map { it.areaId }).distinct()
-            if (ids.isEmpty()) { toast("No chart areas available (offline?)"); return@refreshCatalog }
-            val labels = ids.map { id ->
-                val c = catalog.firstOrNull { it.getString("id") == id }
-                val have = installed(id)
-                val name = c?.getString("name") ?: have?.areaName ?: id
-                val state = when {
-                    have == null -> "not downloaded, %.1f MB".format((c?.getLong("size") ?: 0) / 1e6)
-                    c != null && c.getString("created") > have.created -> "UPDATE available (${c.getString("created").take(10)})"
-                    else -> "downloaded, built ${have.created.take(10)}"
+    /** Ask once whether to download and update regions automatically on Wi-Fi, then go on. */
+    private fun ensureAuto(then: () -> Unit) {
+        if (store.auto != null) { then(); return }
+        AlertDialog.Builder(this).setTitle("Automatic chart downloads")
+            .setMessage("Download and update chart regions automatically on Wi-Fi? NOAA publishes new data every week, " +
+                "and a trip that needs another region gets it without asking. You can change this on the Regions screen.")
+            .setPositiveButton("Yes") { _, _ -> store.auto = true; then() }
+            .setNegativeButton("No, ask me") { _, _ -> store.auto = false; then() }
+            .setCancelable(false).show()
+    }
+
+    /** Download packs one after another in the background, then reopen the charts. */
+    private fun downloadAreas(list: List<AreaInfo>, then: (() -> Unit)? = null) {
+        val todo = list.filter { it.id !in downloading }
+        if (todo.isEmpty()) return
+        downloading.addAll(todo.map { it.id })
+        packButton.isEnabled = false
+        worker.execute {
+            val errors = ArrayList<String>()
+            for (a in todo) {
+                try {
+                    store.download(a) { got, size ->
+                        ui.post { status.text = "Downloading ${a.shortName}: %.1f of %.1f MB".format(got / 1e6, size / 1e6) }
+                    }
+                    synchronized(failed) { failed.remove(a.id) }
+                } catch (e: Exception) {
+                    errors.add("${a.shortName}: ${e.message}")
+                    synchronized(failed) { failed.add(a.id) }
                 }
-                "$name\n$state" + (c?.optString("description")?.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: "")
             }
-            AlertDialog.Builder(this).setTitle("Chart areas")
-                .setItems(labels.toTypedArray()) { _, k -> areaAction(ids[k]) }
-                .setNegativeButton("Close", null).show()
+            ui.post {
+                downloading.removeAll(todo.map { it.id }.toSet())
+                store.dropReplaced(catalog)
+                openCharts()
+                packButton.isEnabled = true
+                status.text = if (errors.isEmpty()) todo.joinToString { it.shortName } + " ready." else "Chart download failed: ${errors.joinToString("; ")}"
+                afterCatalog() // the switch notice and the trip banner
+                then?.invoke()
+            }
         }
+    }
+
+    /** After each catalog fetch: the switch from a replaced area, and the first-launch question. */
+    private fun afterCatalog() {
+        val swap = Regions.replacements(catalog, installedIds()).entries.firstOrNull { it.value.isNotEmpty() }
+        if (swap == null) {
+            notice.visibility = View.GONE
+        } else {
+            val old = catalog.first { it.id == swap.key }
+            val names = swap.value.joinToString(" and ") { it.shortName }
+            val mb = swap.value.sumOf { it.size } / 1e6
+            if (store.auto == true && store.unmetered() && swap.value.none { it.id in failed }) {
+                status.text = "${old.name} is now $names: downloading them."
+                downloadAreas(swap.value)
+            } else {
+                noticeText.text = "${old.name} is now $names (NOAA's chart regions, about %.0f MB). The old area is removed once they are in.".format(mb)
+                noticeButton.text = "Switch"
+                noticeButton.setOnClickListener { ensureAuto { downloadAreas(swap.value) } }
+                notice.visibility = View.VISIBLE
+            }
+        }
+        if (charts == null && !prefs.getBoolean("welcomed", false) && catalog.any { !it.deprecated }) {
+            prefs.edit().putBoolean("welcomed", true).apply()
+            welcome()
+        }
+        checkTrip()
+    }
+
+    /** First launch: suggest the region where the phone is. */
+    private fun welcome() {
+        AlertDialog.Builder(this).setTitle("Where do you boat?")
+            .setMessage("Route planning needs NOAA chart data for your waters, a few MB per region. Find your region from your location, or pick it on the map.")
+            .setPositiveButton("Use my location") { _, _ ->
+                locate { loc ->
+                    if (loc == null) { status.text = "No location fix; pick your region on the map."; showRegions(); return@locate }
+                    val here = LatLon(loc.latitude, loc.longitude)
+                    val a = Regions.areaAt(here, catalog)
+                    if (a == null) {
+                        AlertDialog.Builder(this).setTitle("No region here yet")
+                            .setMessage("None of the published chart regions covers your position. Pick one on the map.")
+                            .setPositiveButton("Open map") { _, _ -> showRegions() }.setNegativeButton("Later", null).show()
+                    } else {
+                        AlertDialog.Builder(this).setTitle("You're in ${a.shortName}")
+                            .setMessage("${a.name}\n\n${a.description}\n\nAbout %.0f MB. Download it now?".format(a.size / 1e6))
+                            .setPositiveButton("Download") { _, _ -> ensureAuto { downloadAreas(listOf(a)) } }
+                            .setNeutralButton("Map") { _, _ -> showRegions() }
+                            .setNegativeButton("Later", null).show()
+                    }
+                }
+            }
+            .setNeutralButton("Pick on map") { _, _ -> showRegions() }
+            .setNegativeButton("Later", null).show()
+    }
+
+    /** Trip points typed so far (bad or empty fields are skipped). */
+    private fun tripPoints(): List<LatLon> {
+        val pts = ArrayList<LatLon>()
+        Coords.parse(start.text.toString())?.let { pts.add(it) }
+        via.text.toString().split(";").mapNotNullTo(pts) { Coords.parse(it) }
+        Coords.parse(dest.text.toString())?.let { pts.add(it) }
+        return pts
+    }
+
+    /** Banner above Plan route when the trip runs into regions not downloaded (or none at all). */
+    private fun checkTrip() {
+        val pts = tripPoints()
+        if (pts.size < 2 || catalog.isEmpty()) { needBox.visibility = View.GONE; return }
+        val have = installedIds()
+        val need = Regions.need(pts, catalog, have) { p -> charts?.covers(p.lat, p.lon) == true }
+        val todo = need.download.filter { it.id !in downloading }
+        when {
+            todo.isNotEmpty() && store.auto == true && store.unmetered() && todo.none { it.id in failed } -> {
+                needBox.visibility = View.GONE
+                status.text = "This trip needs " + todo.joinToString { it.shortName } + ": downloading."
+                downloadAreas(todo)
+            }
+            todo.isNotEmpty() -> {
+                val mb = todo.sumOf { it.size } / 1e6
+                needText.text = "This trip also needs " + todo.joinToString(" and ") { it.name } + " (about %.0f MB).".format(mb) +
+                    if (need.outside) " Part of it is outside every chart region, so planning will fail there." else ""
+                needButton.visibility = View.VISIBLE
+                needButton.setOnClickListener { ensureAuto { downloadAreas(todo) } }
+                needBox.visibility = View.VISIBLE
+            }
+            need.outside -> {
+                needText.text = "Part of this trip is outside every chart region this app has, so planning will fail there."
+                needButton.visibility = View.GONE
+                needBox.visibility = View.VISIBLE
+            }
+            else -> needBox.visibility = View.GONE
+        }
+    }
+
+    /** The Regions screen: NCDS region map, automatic downloads, and the list of packs. */
+    private fun showRegions() {
+        val d = Dialog(this, android.R.style.Theme_DeviceDefault_DayNight)
+        d.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(16), dp(8), dp(8), 0) }
+        top.addView(TextView(this).apply {
+            text = "Regions"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(button("Close") { d.dismiss() })
+        root.addView(top)
+        root.addView(TextView(this).apply {
+            text = "NOAA chart regions. Tap one to download, update or delete it."
+            setPadding(dp(16), 0, dp(16), dp(4))
+        })
+
+        val map = RegionMapView(this)
+        fun areaFor(code: String) = catalog.firstOrNull { it.ncds == code && !it.deprecated }
+        map.status = { code ->
+            val a = areaFor(code)
+            when {
+                a == null -> RegionMapView.Status.NOT_BUILT
+                installed(a.id) == null -> RegionMapView.Status.AVAILABLE
+                hasUpdate(a) -> RegionMapView.Status.UPDATE
+                else -> RegionMapView.Status.INSTALLED
+            }
+        }
+        map.labelAt = { code -> areaFor(code)?.bbox?.let { LatLon((it[1] + it[3]) / 2, (it[0] + it[2]) / 2) } }
+        val pts = tripPoints()
+        map.markers = listOfNotNull(
+            Coords.parse(start.text.toString())?.let { it to "Start" },
+            Coords.parse(dest.text.toString())?.let { it to "Destination" },
+        ) + listOfNotNull(lastFix()?.let { it to "You" })
+        // Fit the trip, else the downloaded regions, else what is published
+        val boxes = (pts.map { doubleArrayOf(it.lon - 0.5, it.lat - 0.5, it.lon + 0.5, it.lat + 0.5) }.ifEmpty {
+            catalog.filter { !it.deprecated && installed(it.id) != null }.map { it.bbox }
+        }).ifEmpty { catalog.filter { !it.deprecated }.map { it.bbox } }
+        if (boxes.isNotEmpty()) map.fit(doubleArrayOf(boxes.minOf { it[0] }, boxes.minOf { it[1] }, boxes.maxOf { it[2] }, boxes.maxOf { it[3] }))
+        map.onRegionTap = { r ->
+            val a = areaFor(r.code)
+            if (a == null) toast("NCDS region ${r.code} has no route planning data yet.") else areaAction(a.id)
+        }
+        root.addView(map, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f))
+
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(16)) }
+        val auto = CheckBox(this).apply {
+            text = "Download and update regions automatically on Wi-Fi"
+            isChecked = store.auto == true
+            setOnCheckedChangeListener { _, on -> store.auto = on }
+        }
+        list.addView(auto)
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        list.addView(rows)
+        fun fill() {
+            rows.removeAllViews()
+            map.invalidate()
+            val ids = (catalog.sortedBy { it.deprecated }.map { it.id } + charts?.packs.orEmpty().map { it.areaId }).distinct()
+            if (ids.isEmpty()) rows.addView(TextView(this).apply { text = "No chart regions available (offline?)" })
+            for (id in ids) {
+                val c = catalog.firstOrNull { it.id == id }
+                val have = installed(id)
+                val state = when {
+                    c?.deprecated == true -> "replaced by " + c.replacedBy.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } +
+                        if (have != null) " (removed once they are downloaded)" else ""
+                    have == null -> "not downloaded, about %.0f MB".format((c?.size ?: 0) / 1e6)
+                    c != null && hasUpdate(c) -> "UPDATE available (${c.created.take(10)})"
+                    else -> "up to date, NOAA data from ${have.created.take(10)}"
+                }
+                if (c?.deprecated == true && have == null) continue
+                rows.addView(TextView(this).apply {
+                    text = "${c?.name ?: have?.areaName ?: id}\n$state"
+                    setPadding(0, dp(10), 0, dp(10))
+                    setOnClickListener { areaAction(id) }
+                })
+            }
+        }
+        fill()
+        regionsChanged = { fill() }
+        d.setOnDismissListener { regionsChanged = null }
+        root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        insetPadding(root)
+        d.setContentView(root)
+        d.show()
+        refreshCatalog(quiet = false) // statuses may be stale; fill() runs again via openCharts
     }
 
     private fun areaAction(id: String) {
-        val c = catalog.firstOrNull { it.getString("id") == id }
+        val c = catalog.firstOrNull { it.id == id }
         val have = installed(id)
-        val b = AlertDialog.Builder(this).setTitle(c?.getString("name") ?: have?.areaName ?: id)
-        if (c != null && (have == null || c.getString("created") > have.created))
-            b.setPositiveButton(if (have == null) "Download" else "Update") { _, _ -> downloadArea(c) }
+        val b = AlertDialog.Builder(this).setTitle(c?.name ?: have?.areaName ?: id)
+        if (c != null && !c.deprecated && (have == null || hasUpdate(c)))
+            b.setPositiveButton(if (have == null) "Download" else "Update") { _, _ -> ensureAuto { downloadAreas(listOf(c)) } }
         if (have != null) b.setNeutralButton("Delete") { _, _ ->
             charts?.packs?.forEach { it.close() }
             charts = null
-            File(areaDir(), "$id.bin").delete()
+            store.delete(id)
             openCharts()
+            checkTrip()
         }
         b.setMessage(when {
-            have != null && (c == null || c.getString("created") <= have.created) -> "Up to date (built ${have.created.take(10)})."
-            have != null -> "Installed: ${have.created.take(10)}. New: ${c!!.getString("created").take(10)}."
-            else -> "%.1f MB download. Covers: %s".format(c!!.getLong("size") / 1e6, c.optString("description"))
+            c?.deprecated == true -> "Replaced by NOAA's chart regions " + c.replacedBy.joinToString(" and ") { r -> catalog.firstOrNull { it.id == r }?.shortName ?: r } + "."
+            have != null && (c == null || !hasUpdate(c)) -> "Up to date: NOAA data from ${have.created.take(10)}." + (c?.let { "\n\n${it.description}" } ?: "")
+            have != null -> "Installed: ${have.created.take(10)}. New: ${c!!.created.take(10)}."
+            else -> "About %.0f MB.\n\n%s".format(c!!.size / 1e6, c.description)
         }).setNegativeButton("Cancel", null).show()
-    }
-
-    private fun downloadArea(meta: JSONObject) {
-        val id = meta.getString("id")
-        packButton.isEnabled = false
-        worker.execute {
-            try {
-                val size = meta.getLong("size")
-                val part = File(areaDir(), "$id.part")
-                val md = MessageDigest.getInstance("SHA-256")
-                httpGet(PACK_BASE + meta.getString("file")).inputStream.use { inp ->
-                    part.outputStream().use { out ->
-                        val buf = ByteArray(1 shl 16)
-                        var got = 0L
-                        var last = 0L
-                        while (true) {
-                            val r = inp.read(buf)
-                            if (r < 0) break
-                            out.write(buf, 0, r)
-                            md.update(buf, 0, r)
-                            got += r
-                            if (got - last > 500_000) {
-                                last = got
-                                ui.post { status.text = "Downloading ${meta.getString("name")}: %.1f of %.1f MB".format(got / 1e6, size / 1e6) }
-                            }
-                        }
-                    }
-                }
-                val sha = md.digest().joinToString("") { "%02x".format(it) }
-                if (sha != meta.getString("sha256")) { part.delete(); throw Exception("download check failed, try again") }
-                ui.post {
-                    charts?.packs?.forEach { it.close() }
-                    charts = null
-                    part.renameTo(File(areaDir(), "$id.bin"))
-                    openCharts()
-                    status.text = "${meta.getString("name")} ready (built ${meta.getString("created").take(10)})."
-                    packButton.isEnabled = true
-                }
-            } catch (e: Exception) {
-                ui.post { status.text = "Chart download failed: ${e.message}"; packButton.isEnabled = true }
-            }
-        }
     }
 
     // ------------------------------------------------------------ places
@@ -490,19 +684,24 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------ location
 
     private fun useHere() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1)
-            return
-        }
-        val lm = getSystemService(LocationManager::class.java)
         status.text = "Getting GPS fix..."
-        val done = { loc: Location? ->
+        locate { loc ->
             if (loc == null) status.text = "No location fix. Turn on Location or type a position."
             else {
                 start.setText(Coords.format(LatLon(loc.latitude, loc.longitude)))
                 status.text = "Start set to current location (accuracy %.0f m).".format(loc.accuracy)
             }
         }
+    }
+
+    /** One current fix (asks for the permission first if needed); null when there is none. */
+    private fun locate(done: (Location?) -> Unit) {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            pendingFix = done
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 1)
+            return
+        }
+        val lm = getSystemService(LocationManager::class.java)
         val provider = if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) LocationManager.GPS_PROVIDER else LocationManager.NETWORK_PROVIDER
         try {
             if (Build.VERSION.SDK_INT >= 30) {
@@ -512,20 +711,32 @@ class MainActivity : Activity() {
                 lm.requestSingleUpdate(provider, { done(it) }, Looper.getMainLooper())
             }
         } catch (e: SecurityException) {
-            status.text = "Location permission missing."
+            done(null)
         }
+    }
+
+    /** Last known position, without asking for anything (for the region map's "You"). */
+    private fun lastFix(): LatLon? {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+        val lm = getSystemService(LocationManager::class.java)
+        return try {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).firstNotNullOfOrNull { lm.getLastKnownLocation(it) }
+                ?.let { LatLon(it.latitude, it.longitude) }
+        } catch (_: Exception) { null }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) useHere()
-        else status.text = "Location permission denied; type the start position instead."
+        val then = pendingFix ?: return
+        pendingFix = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) locate(then)
+        else { status.text = "Location permission denied; type a position instead."; then(null) }
     }
 
     // ------------------------------------------------------------ planning
 
     private fun plan() {
-        val p = charts ?: run { toast("Download a chart area first (Chart areas)."); return }
+        val p = charts ?: run { toast("Download a chart region first (Regions)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
         val b = Coords.parse(dest.text.toString()) ?: run { toast("Destination must be LAT, LON"); return }
         val vias = via.text.toString().split(";").filter { it.isNotBlank() }.map {
