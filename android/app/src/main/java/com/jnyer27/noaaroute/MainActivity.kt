@@ -620,11 +620,17 @@ class MainActivity : Activity() {
         }
         fill()
         regionsChanged = { fill() }
-        // Live progress while chart maps download or convert
+        // Live progress while chart maps download or convert, and the change to ready or
+        // failed (the background job makes it, so redraw whenever any status changed: the
+        // last change of a merge left the list at "adding regions..." before)
         val tick = object : Runnable {
+            var last = ""
             override fun run() {
                 if (!d.isShowing) return
-                if (maps.all().values.any { it.state != ChartMaps.State.READY && it.state != ChartMaps.State.FAILED }) fill()
+                val all = maps.all().values
+                val now = all.joinToString { "${it.key}:${it.state}" }
+                if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING }) fill()
+                last = now
                 ui.postDelayed(this, 2000)
             }
         }
