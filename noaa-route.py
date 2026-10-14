@@ -1575,10 +1575,10 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
 
 def refine_guide(pt, overview_res, ctx):
     """A guide point moved to real channel water: the nearest full-detail cell charted at
-    least the safe depth, usable, not a pier/marker/snag cell nor in a hazard buffer,
-    nearness to danger only a tie-breaker (a hard "not hugging danger" rule skipped every
-    cell of the narrow ICW behind Masonboro Island and picked the Atlantic across the
-    island). An overview cell counts as water when a sliver of
+    least the safe depth, usable, not a pier/marker/snag cell; nearness to danger and being
+    in a hazard buffer only tie-breakers (as hard rules they skipped every cell of the
+    narrow ICW behind Masonboro Island, all within its bank soundings' buffers, and picked
+    the Atlantic across the island). An overview cell counts as water when a sliver of
     channel runs through it, so its center can lie in shallow sound beside the ICW
     (Masonboro Sound). Unchanged when there is no such water nearby."""
     g = Grid.around(pt[0], pt[1], max(overview_res, 300.0), PIECE_RES)
@@ -1586,8 +1586,8 @@ def refine_guide(pt, overview_res, ctx):
     r0, c0 = g.cell(*pt)
     best = None
     for i in range(g.w * g.h):
-        if G["ok"][i] and G["nav"][i] == SAFE and not G["pier"][i] and not G["soft"][i]:
-            dd = math.hypot(i // g.w - r0, i % g.w - c0) + 0.5 * G["prox"][i]
+        if G["ok"][i] and G["nav"][i] == SAFE and not G["pier"][i]:
+            dd = math.hypot(i // g.w - r0, i % g.w - c0) + 0.5 * G["prox"][i] + (2 if G["soft"][i] else 0)
             if best is None or dd < best[0]:
                 best = (dd, i)
     return g.latlon(best[1]) if best else pt
