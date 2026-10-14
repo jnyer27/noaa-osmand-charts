@@ -1195,16 +1195,17 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
             # the first or last leg cut across land or piers unchecked.
             cp, cq = grid.cell(*p), grid.cell(*q)
             cp, cq = cp[0] * grid.w + cp[1], cq[0] * grid.w + cq[1]
-            head, tail = cp != idx[0], cq != idx[-1]
+            # A guide point (np_/nq None) just starts or ends at the water found for it
+            head, tail = np_ is not None and cp != idx[0], nq is not None and cq != idx[-1]
             if len(idx) == 1 and not (head or tail):
                 wps, idx = [p, p], idx * 2  # both ends in one cell
             if head:
                 wps, idx = [p] + wps, [cp] + idx
-            else:
+            elif np_ is not None or cp == idx[0]:
                 wps[0] = p
             if tail:
                 wps, idx = wps + [q], idx + [cq]
-            else:
+            elif nq is not None or cq == idx[-1]:
                 wps[-1] = q
             legs = report_legs(grid, wps, idx, G["nav"], G["flags"], ctx.cells, ctx.ext, G["use"], ctx.work, ctx.seen)
             for l in legs:

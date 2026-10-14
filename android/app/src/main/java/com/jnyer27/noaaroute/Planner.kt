@@ -130,8 +130,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
                        val pier: BooleanArray)
 
-    private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double): Grid {
-        val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM)
+    private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
+        val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
         val n = a.n
         val w = a.w
         val h = a.h
@@ -756,11 +756,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // the first or last leg cut across land or piers unchecked.
                 val cp = a.cell(p)
                 val cq = a.cell(q)
-                val head = cp != idx.first()
-                val tail = cq != idx.last()
+                // A guide point (np/nq null) just starts or ends at the water found for it
+                val head = np != null && cp != idx.first()
+                val tail = nq != null && cq != idx.last()
                 if (idx.size == 1 && !head && !tail) { wps.add(p); idx = intArrayOf(idx[0], idx[0]) }
-                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else wps[0] = p
-                if (tail) { wps.add(q); idx += cq } else wps[wps.size - 1] = q
+                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else if (np != null || cp == idx.first()) wps[0] = p
+                if (tail) { wps.add(q); idx += cq } else if (nq != null || cq == idx.last()) wps[wps.size - 1] = q
                 val ls = legs(a, g, wps, idx, c.seen).toMutableList()
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])
@@ -799,76 +800,81 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
-            c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})")
-            val g = buildGrid(a, c.depthM, c.airM, c.bufM)
-            val ends = IntArray(2)
-            for ((k, pt) in listOf(p, q).withIndex()) {
-                val fa = areaAround(pt, 4000.0)
-                val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
-                var (s, _) = snap(fa, fg, pt)
-                val enc0 = enclosure(fa, fg, s)
-                if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
-                    // Cut off within the detail window: use the nearest water that leads out of it
-                    val border = (0 until fa.n).filter { i ->
+            // A coarse overview can break up a narrow canal: before widening (which makes the
+            // grid coarser still), retry with any clear 20 m cell keeping its block open
+            for (optimistic in if (a.f > 1) listOf(false, true) else listOf(false)) {
+                c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})" + if (optimistic) ", keeping narrow channels" else "")
+                val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
+                val ends = IntArray(2)
+                for ((k, pt) in listOf(p, q).withIndex()) {
+                    val fa = areaAround(pt, 4000.0)
+                    val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+                    var (s, _) = snap(fa, fg, pt)
+                    val enc0 = enclosure(fa, fg, s)
+                    if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
+                        // Cut off within the detail window: use the nearest water that leads out of it
+                        val border = (0 until fa.n).filter { i ->
+                            val r = i / fa.w
+                            val col = i % fa.w
+                            fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
+                        }.toIntArray()
+                        val out = region(fa, fg.ok, border)
+                        nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
+                    }
+                    // Everything reachable from the point within the detail window is usable on the overview
+                    val seen = BooleanArray(fa.n)
+                    val stack = IntArray(fa.n)
+                    var sp = 0
+                    stack[sp++] = s
+                    seen[s] = true
+                    while (sp > 0) {
+                        val i = stack[--sp]
+                        val ci = a.cell(fa.latlon(i))
+                        g.ok[ci] = true
+                        if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
                         val r = i / fa.w
                         val col = i % fa.w
-                        fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
-                    }.toIntArray()
-                    val out = region(fa, fg.ok, border)
-                    nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
-                }
-                // Everything reachable from the point within the detail window is usable on the overview
-                val seen = BooleanArray(fa.n)
-                val stack = IntArray(fa.n)
-                var sp = 0
-                stack[sp++] = s
-                seen[s] = true
-                while (sp > 0) {
-                    val i = stack[--sp]
-                    val ci = a.cell(fa.latlon(i))
-                    g.ok[ci] = true
-                    if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
-                    val r = i / fa.w
-                    val col = i % fa.w
-                    for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
-                                         if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
-                        if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                        for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
+                                             if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
+                            if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
+                        }
                     }
+                    ends[k] = a.cell(fa.latlon(s))
                 }
-                ends[k] = a.cell(fa.latlon(s))
-            }
-            val path = astar(a, g, ends[0], ends[1])
-            if (path != null) {
-                // Cumulative distance along the overview path
-                val cum = DoubleArray(path.size)
-                for (k in 1 until path.size) cum[k] = cum[k - 1] + distanceM(a.latlon(path[k - 1]), a.latlon(path[k]))
-                val total = cum.last()
-                val n = max(1, ceil(total / 18000.0).toInt())
-                val out = ArrayList<LatLon>()
-                var from = 0
-                for (k in 1 until n) {
-                    val target = total * k / n
-                    var j = from
-                    while (j < path.size - 1 && cum[j] < target) j++
-                    // Prefer a nearby path cell in open, safe water
-                    val reach = max(1, (2000 / a.res).toInt())
-                    var best = j
-                    for (d in 0..reach) {
-                        val cand = listOf(j + d, j - d).firstOrNull { it in (from + 1) until path.size - 1 &&
-                            g.nav[path[it]].toInt() == SAFE && g.prox[path[it]].toInt() == 0 }
-                        if (cand != null) { best = cand; break }
+                val path = astar(a, g, ends[0], ends[1])
+                if (path != null) {
+                    // Cumulative distance along the overview path
+                    val cum = DoubleArray(path.size)
+                    for (k in 1 until path.size) cum[k] = cum[k - 1] + distanceM(a.latlon(path[k - 1]), a.latlon(path[k]))
+                    val total = cum.last()
+                    val n = max(1, ceil(total / 18000.0).toInt())
+                    val out = ArrayList<LatLon>()
+                    var from = 0
+                    for (k in 1 until n) {
+                        val target = total * k / n
+                        var j = from
+                        while (j < path.size - 1 && cum[j] < target) j++
+                        // Prefer a nearby path cell in open, safe water
+                        val reach = max(1, (2000 / a.res).toInt())
+                        var best = j
+                        for (d in 0..reach) {
+                            val cand = listOf(j + d, j - d).firstOrNull { it in (from + 1) until path.size - 1 &&
+                                g.nav[path[it]].toInt() == SAFE && g.prox[path[it]].toInt() == 0 }
+                            if (cand != null) { best = cand; break }
+                        }
+                        if (cum[best] < 4000 || total - cum[best] < 4000) continue
+                        out.add(a.latlon(path[best]))
+                        from = best
                     }
-                    if (cum[best] < 4000 || total - cum[best] < 4000) continue
-                    out.add(a.latlon(path[best]))
-                    from = best
+                    return out to a.res
                 }
-                return out to a.res
-            }
-            val enc = listOf(enclosure(a, g, ends[0]), enclosure(a, g, ends[1]))
-            val closed = (0..1).filter { !enc[it].edge }
-            if (closed.isNotEmpty() || attempt == widths.size - 1) {
-                val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].cells }
-                throw noRoute(c, a, g, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", if (e == 0) p else q, enc[e])
+                if (!optimistic && a.f > 1) continue
+                val enc = listOf(enclosure(a, g, ends[0]), enclosure(a, g, ends[1]))
+                val closed = (0..1).filter { !enc[it].edge }
+                if (closed.isNotEmpty() || attempt == widths.size - 1) {
+                    val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].cells }
+                    throw noRoute(c, a, g, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", if (e == 0) p else q, enc[e])
+                }
             }
             c.progress("No route inside this area, widening the search")
         }
