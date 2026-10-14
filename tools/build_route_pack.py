@@ -324,6 +324,30 @@ def features(gpkgs, layer):
                 yield f, geom.Clone()
 
 
+# The app plans for safe depths under 40 ft (12.19 m); deeper charted water is all the same to it
+DEEP_M = 12.5
+COARSE_M = 0.3
+
+
+def depth_key(d1, d2, kind, step=None):
+    """Depth table key (drval1, drval2, kind), folded where the app's planner cannot tell
+    ranges apart (Planner.classify): any drying depth area (drval1 < 0) is too shallow,
+    depths from DEEP_M down are deep enough for any boat, and a dredged area is judged by
+    its drval1 alone. A region has to fit 255 keys (one byte per grid cell). With step,
+    both values are rounded DOWN to it: shallower, so never less cautious."""
+    if kind == 1:
+        d2 = None
+    if kind == 0 and d1 is not None and d1 < 0:
+        return (-0.1, None, 0)
+    if d1 is not None and d1 >= DEEP_M:
+        return (DEEP_M, None, kind)
+    if d2 is not None and d2 >= DEEP_M:
+        d2 = None
+    if step:
+        d1, d2 = (None if v is None else round(math.floor(v / step + 1e-9) * step, 2) for v in (d1, d2))
+    return (None if d1 is None else round(d1, 2), None if d2 is None else round(d2, 2), kind)
+
+
 def dm(v):
     return int(min(253, max(0, round(v * 10)))) + 1
 
@@ -336,6 +360,7 @@ def build(cells, grid, work):
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
     depth_table = [None]  # index 0 = no water
     depth_index = {}
+    coarsened = 0
     notes = []
 
     def inside(e):
@@ -363,11 +388,14 @@ def build(cells, grid, work):
         depth_feats = []
         for kind, layer in ((0, "DEPARE"), (1, "DRGARE")):
             for f, geom in features(gp, layer):
-                key = (fnum(f, "DRVAL1"), fnum(f, "DRVAL2"), kind)
-                key = tuple(None if v is None else round(v, 2) for v in key[:2]) + (kind,)
+                key = depth_key(fnum(f, "DRVAL1"), fnum(f, "DRVAL2"), kind)
+                if key not in depth_index and len(depth_table) >= 256:
+                    key = depth_key(fnum(f, "DRVAL1"), fnum(f, "DRVAL2"), kind, COARSE_M)
+                    coarsened += 1
                 if key not in depth_index:
                     if len(depth_table) >= 256:
-                        raise SystemExit("More than 255 distinct depth ranges")
+                        raise SystemExit("More than 255 distinct depth ranges, even rounded down to "
+                                         f"{COARSE_M} m")
                     depth_index[key] = len(depth_table)
                     depth_table.append(list(key))
                 depth_feats.append((geom, depth_index[key]))
@@ -447,6 +475,8 @@ def build(cells, grid, work):
         planes[CABLECLR] = np.where(cc > 0, cc, planes[CABLECLR])
         planes[FLAGS] |= flags
 
+    if coarsened:
+        log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
 
 
