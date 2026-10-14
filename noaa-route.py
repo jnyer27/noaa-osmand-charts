@@ -29,7 +29,10 @@ Options:
                  line. The NOAA Route app's chart regions are the same.
   -r METERS      Grid resolution in meters (default: auto, 10 m for short
                  trips up to 60 m for long ones)
-  -b METERS      Buffer around hazards in meters (default: 60)
+  -b METERS      Buffer around hazards in meters (default: 60). Over water
+                 charted at least -d deep (a dredged channel) the buffer is used
+                 only where there is no other way, and such legs are flagged;
+                 elsewhere it is never entered
   -u             Check NOAA for newer ENC data before planning
   -O             Open the routes folder in the Files app when done; tap the
                  GPX there and pick OsmAnd (termux-open crashes OsmAnd on GPX)
@@ -123,15 +126,27 @@ ROUNDING_M = 0.05
 SHORE_M = 100.0
 K_MIN = 5
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span,
-# 6 = pier or seawall line)
+# 6 = pier or seawall line, 7 = submerged snag or pile of unknown depth)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
-NO_PASS, SPAN_OK, PIER = 4, 5, 6
-NFLAGS = 6
+NO_PASS, SPAN_OK, PIER, SNAG = 4, 5, 6, 7
+NFLAGS = 7
 # Piers and seawalls (SLCONS) are lines over charted water, often between a slip and
 # open water. As walls they sealed marinas and narrow bridge spans (fenders) on a
 # 10-20 m grid, so they are passable at this cost multiple and count as danger for
 # the shore proximity cost: routes go around them and only cross one to reach a slip.
 PIER_COST = 50.0
+# The -b hazard buffer over water charted at least the safe depth is usable at this cost
+# multiple (on top of the proximity cost): routes keep well clear of an isolated hazard
+# when there is room, but a dredged channel past one stays open (Adams Creek Canal on the
+# ICW was shut by 60 m buffers around submerged piles at its edge)
+SOFT_COST = 5.0
+SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
+# Snags and stumps (OBSTRN CATOBS 1, always submerged, depth unknown: old pilings) over
+# water charted at least the safe depth are passable at this cost: piles charted 2-7 m
+# inside the 27 m dredged ICW channel in Adams Creek Canal share its single 20 m grid
+# cell. Wrecks, rocks and other obstructions stay walls.
+SNAG_COST = 50.0
+SNAG_NOTE = "passes charted piles or snags: check"
 PIER_NOTE = "runs along or across charted piers or seawalls: check"
 # S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
 OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
@@ -556,7 +571,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # Foul ground (CATOBS 7) is safe to navigate over, only bad for anchoring: a hazard
         # only with a charted depth that is too shallow (unknown-depth foul ground around
         # the Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
-        ("OBSTRN", f"(VALSOU IS NULL AND (CATOBS IS NULL OR CATOBS <> 7)) OR VALSOU < {hz}", HAZARD, True),
+        # Snags (CATOBS 1, WATLEV 3, unknown depth) go to their own flag band, below
+        ("OBSTRN", f"(VALSOU IS NULL AND (CATOBS IS NULL OR (CATOBS <> 7 AND (CATOBS <> 1 OR WATLEV IS NULL OR WATLEV <> 3)))) OR VALSOU < {hz}", HAZARD, True),
         ("WRECKS", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("UWTROC", f"VALSOU IS NULL OR VALSOU < {hz}", HAZARD, True),
         ("SOUNDG", f"DEPTH < {d}", HAZARD, False),
@@ -609,6 +625,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # bulkheaded channel keeps its middle
         if "SLCONS" in have:
             raster(src, "SLCONS", 1, None, False, [PIER], ft)
+        if "OBSTRN" in have:
+            raster(src, "OBSTRN", 1, "VALSOU IS NULL AND CATOBS = 1 AND WATLEV = 3", True, [SNAG], ft)
         if air_m and "CBLOHD" in have:
             raster(src, "CBLOHD", 1, f"VERCLR IS NULL OR VERCLR < {air_m}", True, [NO_PASS], ft)
 
@@ -649,7 +667,9 @@ def _grow(mask, offsets):
 
 def prepare(grid, nav, flags, hazard_buf_m):
     """Usable cells, step costs and danger proximity, as whole-array numpy operations.
-    Returns (ok bytearray, cost array('f'), prox bytearray, pier bytearray) for the search code."""
+    Returns (ok, cost array('f'), prox, pier, soft) for the search code: the bytearrays
+    ok, prox, pier (costly cells a leg may not cut across: piers, seawalls, passable
+    snags) and soft (a hazard buffer usable at a cost)."""
     h, w = grid.h, grid.w
     navA = np.frombuffer(bytes(nav), np.uint8).reshape(h, w)
     nopass = np.frombuffer(flags[NO_PASS - 1], np.uint8).reshape(h, w) > 0
@@ -658,11 +678,22 @@ def prepare(grid, nav, flags, hazard_buf_m):
     # (all-touched, so often two cells thick) bridge deck
     spanok = _grow(spanok, [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)])
     ok = ((navA == SAFE) | (navA == MARGINAL)) & ~(nopass & ~spanok)
+    snag = ok & (np.frombuffer(flags[SNAG - 1], np.uint8).reshape(h, w) > 0)
+    ok &= ~(snag & (navA != SAFE))  # a snag where the water may be too shallow is a wall
+    snag &= ok
 
-    # Hazard buffer
+    # Hazard buffer. Over water charted at least the safe depth (a dredged channel, deep
+    # open water) only the hazard's own cell is a wall and the buffer costs SOFT_COST: the
+    # 27 m dredged ICW channel in Adams Creek Canal passes submerged piles at its edge, which
+    # any wider wall closes on a 20 m grid. Where the depth area spans the safe depth (the
+    # 0-6 ft band for a 6 ft boat) the whole buffer still blocks: shoal soundings there are
+    # real warnings (the 6 ft Maryland Marina reference route must stay refused).
     rad = buffer_cells(hazard_buf_m, grid.res)
     disc = [(dr, dc) for dr in range(-rad, rad + 1) for dc in range(-rad, rad + 1) if dr * dr + dc * dc <= rad * rad]
-    ok &= ~_grow(navA == HAZARD, disc)
+    full = _grow((navA == HAZARD) | snag, disc)
+    ok &= ~(full & (navA != SAFE))
+    snag &= ok
+    soft = ok & full & ~snag
 
     # Distance (cells, capped at K) to the nearest unusable cell. Steps alternate
     # 8- and 4-neighbor growth (octagonal distance, close to straight-line): with
@@ -672,7 +703,7 @@ def prepare(grid, nav, flags, hazard_buf_m):
     square = cross + [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     dist = np.full((h, w), K, np.uint8)
     pier = ok & (np.frombuffer(flags[PIER - 1], np.uint8).reshape(h, w) > 0)
-    reach = ~ok | pier
+    reach = ~ok | pier | snag
     dist[reach] = 0
     for d in range(1, K):
         reach = _grow(reach, square if d % 2 else cross)
@@ -681,11 +712,13 @@ def prepare(grid, nav, flags, hazard_buf_m):
     prox = np.where(ok, K - dist, 0).astype(np.uint8)           # 0 in open water, up to K-1 next to danger
     c = (1.0 + 2.4 / (K - 1) * prox) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
     c = np.where(pier, c * PIER_COST, c)
+    c = np.where(soft, c * SOFT_COST, c)
+    c = np.where(snag, c * SNAG_COST, c)
     cost = np.where(ok, c, np.inf).astype(np.float32)
     cost_arr = array("f")
     cost_arr.frombytes(cost.tobytes())
     return (bytearray(ok.astype(np.uint8).tobytes()), cost_arr, bytearray(prox.tobytes()),
-            bytearray(pier.astype(np.uint8).tobytes()))
+            bytearray((pier | snag).astype(np.uint8).tobytes()), bytearray(soft.astype(np.uint8).tobytes()))
 
 
 WALLS = {"shallow": "water shallower than your -d depth",
@@ -872,17 +905,18 @@ def pier_steps(grid, cells, pier):
     return n
 
 
-def simplify(grid, path, ok, nav, prox, pier):
+def simplify(grid, path, ok, nav, prox, pier, soft=None):
     """Drop path points while the straight line stays in water no shallower, no
     closer to danger and over no more pier or seawall lines than the cells the
-    planned path itself used."""
+    planned path itself used, and through no more of a hazard buffer's outer half."""
     K = prox_reach(grid.res)
+    soft = soft or bytes(len(ok))
 
-    def fits(a, b, maxp, nmarg, npier):
+    def fits(a, b, maxp, nmarg, npier, nsoft):
         # One level of grid staircase tolerance, but never into the two rings
         # nearest danger unless the path itself went there
         lim = maxp + 1 if maxp + 1 <= K - 3 else maxp
-        m, corners = 0, []
+        m, sf, corners = 0, 0, []
         cells = line_cells(grid, path[a], path[b], corners)
         if not all(ok[i] for i in corners):
             return False
@@ -896,6 +930,10 @@ def simplify(grid, path, ok, nav, prox, pier):
             if nav[i] == MARGINAL:
                 m += 1
                 if m > nmarg + 1:
+                    return False
+            if soft[i]:
+                sf += 1
+                if sf > nsoft + 1:
                     return False
         return pier_steps(grid, cells, pier) <= npier
 
@@ -911,18 +949,21 @@ def simplify(grid, path, ok, nav, prox, pier):
     a = 0
     maxp = px(path[0])
     nmarg = 1 if nav[path[0]] == MARGINAL else 0
+    nsoft = soft[path[0]]
     j = 1
     while j < len(path):
         p2 = max(maxp, px(path[j]))
         m2 = nmarg + (nav[path[j]] == MARGINAL)
-        if j == a + 1 or fits(a, j, p2, m2, pc[j] - pc[a] + pier[path[a]]):
-            maxp, nmarg = p2, m2
+        s2 = nsoft + soft[path[j]]
+        if j == a + 1 or fits(a, j, p2, m2, pc[j] - pc[a] + pier[path[a]], s2):
+            maxp, nmarg, nsoft = p2, m2, s2
             j += 1
         else:
             a = j - 1
             keep.append(a)
             maxp = max(px(path[a]), px(path[j]))
             nmarg = (nav[path[a]] == MARGINAL) + (nav[path[j]] == MARGINAL)
+            nsoft = soft[path[a]] + soft[path[j]]
     if keep[-1] != len(path) - 1:
         keep.append(len(path) - 1)
     return [path[k] for k in keep]
@@ -1025,14 +1066,18 @@ def shallowest_near(work, use, a, b, within_m=100):
     return None
 
 
-def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_before=None):
+def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_before=None, soft=None):
     legs = []
     seen_before = seen_before if seen_before is not None else set()
 
     class Pier:  # pier or seawall over usable-depth water, as in prepare()
         def __getitem__(self, i):
             return flags[PIER - 1][i] and nav[i] in (SAFE, MARGINAL)
-    pier = Pier()
+
+    class Snag:  # passable snag, as in prepare()
+        def __getitem__(self, i):
+            return flags[SNAG - 1][i] and nav[i] == SAFE
+    pier, snag = Pier(), Snag()
     for k in range(len(wps_idx) - 1):
         a, b = wps_idx[k], wps_idx[k + 1]
         lc = line_cells(grid, a, b)
@@ -1058,12 +1103,18 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_b
             seen = seen_before | {n for l in legs for n in l["notes"]}  # report each area once, where first entered
             notes += [s for s in names if s not in seen]
         on_pier = pier_steps(grid, lc, pier) > 0
+        on_snag = pier_steps(grid, lc, snag) > 0
+        if on_snag and not (legs and legs[-1].get("snag")):
+            notes.insert(0, SNAG_NOTE)
         if on_pier and not (legs and legs[-1].get("pier")):
             notes.insert(0, PIER_NOTE)  # once per stretch of such legs
+        near = bool(soft) and sum(1 for i in lc if soft[i]) >= 2  # one edge cell is grid noise
+        if near and not (legs and legs[-1].get("soft")):
+            notes.insert(0, SOFT_NOTE)
         d = distance_m(wps_ll[k], wps_ll[k + 1])
         low = shallowest_near(work, use, wps_ll[k], wps_ll[k + 1]) if marg else None
         legs.append({"dist": d, "brg": bearing(wps_ll[k], wps_ll[k + 1]),
-                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes, "pier": on_pier})
+                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes, "pier": on_pier, "soft": near, "snag": on_snag})
     return legs
 
 
@@ -1143,8 +1194,8 @@ def build(grid, ctx, draft_m=None):
         die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Add -v points closer together.")
     nav, flags, use = build_rasters(grid, ctx.cells, ctx.ext, draft_m if draft_m is not None else ctx.draft_m,
                                     ctx.air_m, ctx.work)
-    ok, cost, prox, pier = prepare(grid, nav, flags, ctx.a.buf)
-    return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox, "pier": pier,
+    ok, cost, prox, pier, soft = prepare(grid, nav, flags, ctx.a.buf)
+    return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox, "pier": pier, "soft": soft,
             "rad": buffer_cells(ctx.a.buf, grid.res)}
 
 
@@ -1295,7 +1346,7 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
                         ctx.moved.add(n)
                     break
         if path:
-            idx = simplify(grid, path, ok, G["nav"], G["prox"], G["pier"])
+            idx = simplify(grid, path, ok, G["nav"], G["prox"], G["pier"], G["soft"])
             wps = [grid.latlon(i) for i in idx]
             # An end that was moved to usable water (snapped or cut off) keeps that
             # water as its own waypoint; replacing it by the end point itself made
@@ -1314,7 +1365,7 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
                 wps, idx = wps + [q], idx + [cq]
             elif nq is not None or cq == idx[-1]:
                 wps[-1] = q
-            legs = report_legs(grid, wps, idx, G["nav"], G["flags"], ctx.cells, ctx.ext, G["use"], ctx.work, ctx.seen)
+            legs = report_legs(grid, wps, idx, G["nav"], G["flags"], ctx.cells, ctx.ext, G["use"], ctx.work, ctx.seen, G["soft"])
             for l in legs:
                 ctx.seen.update(l["notes"])
             if head:
@@ -1380,7 +1431,7 @@ def guide_points(p, q, np_, nq, ctx):
                 best = j
                 for d in range(reach_cells + 1):
                     cand = [x for x in (j + d, j - d) if frm < x < len(path) - 1 and
-                            G["nav"][path[x]] == SAFE and G["prox"][path[x]] == 0]
+                            G["nav"][path[x]] == SAFE and G["prox"][path[x]] == 0 and not G["soft"][path[x]]]
                     if cand:
                         best = cand[0]
                         break
