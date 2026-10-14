@@ -481,11 +481,6 @@ def channel_gates(marks, fairways, dredged):
         out.append((back(x + ux * start, y + uy * start), back(x + ux * end, y + uy * end)))
     return out
 
-PIER_NOTE = "runs along or across charted piers or seawalls: check"
-# S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
-OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
-OPENING_SQL = " OR ".join(f"CATBRG LIKE '%\"{c}\"%'" for c in OPENING)
-
 
 def exterior_rings(geom):
     """Exterior rings [(lon, lat), ...] of a polygon or multipolygon."""
