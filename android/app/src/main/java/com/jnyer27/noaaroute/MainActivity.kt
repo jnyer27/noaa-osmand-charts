@@ -20,6 +20,7 @@ import android.provider.MediaStore
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -153,7 +154,20 @@ class MainActivity : Activity() {
         col.addView(actions)
         col.addView(button("Manage places") { managePlaces() })
 
-        setContentView(ScrollView(this).apply { addView(col) })
+        setContentView(ScrollView(this).apply {
+            addView(col)
+            // Android 15+ draws apps targeting SDK 35 edge to edge: keep the content out from
+            // under the status bar, camera cutout (it moves with orientation on foldables),
+            // navigation bar and keyboard (adjustResize no longer does it)
+            if (Build.VERSION.SDK_INT >= 35) {
+                clipToPadding = false
+                setOnApplyWindowInsetsListener { v, insets ->
+                    val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
+                    v.setPadding(b.left, b.top, b.right, b.bottom)
+                    insets
+                }
+            }
+        })
 
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
