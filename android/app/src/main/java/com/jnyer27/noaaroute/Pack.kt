@@ -102,6 +102,8 @@ class Pack(file: File) : AutoCloseable {
         const val P_CABLECLR = 5
         /** HAZARD plane value for a pier or seawall line without a hazard (older apps read it as 25.4 m deep) */
         const val HZ_PIER = 255
+        /** CABLECLR plane value without the CABLE flag: the cell's only hazard is a snag or stump */
+        const val SNAG_MARK = 255
         const val F_STRUCT = 1
         const val F_PROHIB = 2
         const val F_DECK = 4

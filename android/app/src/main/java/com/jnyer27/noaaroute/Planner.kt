@@ -54,6 +54,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // them and only cross one to reach a slip.
         private const val PIER_COST = 50f
         private const val PIER_NOTE = "runs along or across charted piers or seawalls: check"
+        // The hazard buffer over water charted at least the safe depth is usable at this cost
+        // (on top of the proximity cost); elsewhere it blocks. Snags and stumps (the pack's
+        // SNAG_MARK: always submerged, unknown depth, old pilings) in such water are passable
+        // at SNAG_COST: piles charted inside the 27 m dredged ICW channel in Adams Creek
+        // Canal share its single 20 m cell. Wrecks, rocks and other obstructions stay walls.
+        private const val SOFT_COST = 5f
+        private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
+        private const val SNAG_COST = 50f
+        private const val SNAG_NOTE = "passes charted piles or snags: check"
 
         /** Proximity reach in cells for grid resolution res. */
         fun proxReach(res: Double) = max(K_MIN, ceil(SHORE_M / res).toInt())
@@ -126,9 +135,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     // ------------------------------------------------------------ grid
 
+    /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray)
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray)
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
@@ -141,13 +151,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val nav = ByteArray(n)
         val nopass = BooleanArray(n)
         val spanok = BooleanArray(n)
+        val snag = BooleanArray(n)
         for (i in 0 until n) {
             val fl = planes[Pack.P_FLAGS][i].toInt() and 0xff
             val hzv = planes[Pack.P_HAZARD][i].toInt() and 0xff
             val sv = planes[Pack.P_SOUND][i].toInt() and 0xff
+            snag[i] = hzv == 1 && fl and Pack.F_CABLE == 0 && (planes[Pack.P_CABLECLR][i].toInt() and 0xff) == Pack.SNAG_MARK
             nav[i] = when {
                 fl and Pack.F_STRUCT != 0 -> STRUCT
-                hzv != 0 && hzv != Pack.HZ_PIER && (hzv - 1) / 10.0 < hz -> HAZARD
+                hzv != 0 && hzv != Pack.HZ_PIER && !snag[i] && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
                 else -> planes[Pack.P_DEPTH][i].toInt()
@@ -173,27 +185,39 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             (v == SAFE || v == MARGINAL) && !(nopass[i] && !spanWide[i])
         }
 
-        // Hazard buffer
-        // Round down so a coarser grid never inflates the buffer (60 m on a 40 m grid
-        // is 1 cell, not 2: rounding up closed the C&D Canal)
+        // Snags in usable water are buffered like any hazard; one where the water may be
+        // too shallow is also a wall, as before
+        val snagAll = BooleanArray(n) { snag[it] && ok[it] }
+        for (i in 0 until n) if (snagAll[i] && nav[i].toInt() != SAFE) ok[i] = false
+
+        // Hazard buffer: over water charted at least the safe depth only the hazard's own
+        // cell is a wall and the buffer costs SOFT_COST; elsewhere the whole buffer blocks
+        // (shoal soundings in the 0-6 ft band are real warnings: the 6 ft Maryland Marina
+        // reference route must stay refused). Round down so a coarser grid never inflates
+        // the buffer (60 m on a 40 m grid is 1 cell, not 2: rounding up closed the C&D Canal).
         val rad = max(1, floor(bufM / a.res + 0.25).toInt())
         val disc = ArrayList<IntArray>()
         for (dr in -rad..rad) for (dc in -rad..rad) if (dr * dr + dc * dc <= rad * rad) disc.add(intArrayOf(dr, dc))
-        for (i in 0 until n) if (nav[i].toInt() == HAZARD) {
+        val full = BooleanArray(n)
+        for (i in 0 until n) if (nav[i].toInt() == HAZARD || snagAll[i]) {
             val r = i / w
             val c = i % w
             for (o in disc) {
                 val rr = r + o[0]
                 val cc = c + o[1]
-                if (rr in 0 until h && cc in 0 until w) ok[rr * w + cc] = false
+                if (rr in 0 until h && cc in 0 until w) full[rr * w + cc] = true
             }
         }
+        for (i in 0 until n) if (full[i] && nav[i].toInt() != SAFE) ok[i] = false
+        for (i in 0 until n) snag[i] = snagAll[i] && ok[i]
+        val soft = BooleanArray(n) { ok[it] && full[it] && !snag[it] }
 
         // Distance (cells, capped at k) to the nearest unusable cell. Steps alternate
         // 8- and 4-neighbor growth (octagonal distance, close to straight-line): with
         // 4-neighbor steps alone, water diagonal off a headland looked 1.4x farther away.
         val k = proxReach(a.res)
-        val pier = BooleanArray(n) { ok[it] && (planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER }
+        // Costly cells a leg may not cut across, which count as danger for proximity
+        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it]) }
         val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
@@ -231,10 +255,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             prox[i] = p.toByte()
             var c = 1f + pc * p
             if (nav[i].toInt() == MARGINAL) c *= 4f
-            if (pier[i]) c *= PIER_COST
+            if (pier[i] && !snag[i]) c *= PIER_COST
+            if (snag[i]) c *= SNAG_COST
+            if (soft[i]) c *= SOFT_COST
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft)
     }
 
     // ------------------------------------------------------------ search
@@ -553,11 +579,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun simplify(a: Area, g: Grid, path: IntArray): IntArray {
         fun marg(i: Int) = g.nav[i].toInt() == MARGINAL
         fun px(i: Int) = if (g.pier[i]) 0 else g.prox[i].toInt() // a pier cell is next to danger by definition
-        fun fits(p: Int, q: Int, maxp: Int, nmarg: Int, npier: Int): Boolean {
+        fun fits(p: Int, q: Int, maxp: Int, nmarg: Int, npier: Int, nsoft: Int): Boolean {
             // One level of grid staircase tolerance, but never into the two rings
             // nearest danger unless the path itself went there
             val lim = if (maxp + 1 <= g.k - 3) maxp + 1 else maxp
             var m = 0
+            var sf = 0
             val corners = ArrayList<Int>()
             val cells = lineCells(a, path[p], path[q], corners)
             if (corners.any { !g.ok[it] }) return false
@@ -566,6 +593,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (g.pier[i]) continue // counted below
                 if (g.prox[i] > lim) return false
                 if (marg(i)) { m++; if (m > nmarg + 1) return false }
+                if (g.soft[i]) { sf++; if (sf > nsoft + 1) return false }
             }
             return pierSteps(a, cells) { g.pier[it] } <= npier
         }
@@ -577,17 +605,20 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         var s = 0
         var maxp = px(path[0])
         var nmarg = if (marg(path[0])) 1 else 0
+        var nsoft = if (g.soft[path[0]]) 1 else 0
         var j = 1
         while (j < path.size) {
             val p2 = max(maxp, px(path[j]))
             val m2 = nmarg + if (marg(path[j])) 1 else 0
-            if (j == s + 1 || fits(s, j, p2, m2, pc[j] - pc[s] + if (g.pier[path[s]]) 1 else 0)) {
-                maxp = p2; nmarg = m2; j++
+            val s2 = nsoft + if (g.soft[path[j]]) 1 else 0
+            if (j == s + 1 || fits(s, j, p2, m2, pc[j] - pc[s] + if (g.pier[path[s]]) 1 else 0, s2)) {
+                maxp = p2; nmarg = m2; nsoft = s2; j++
             } else {
                 s = j - 1
                 keep.add(s)
                 maxp = max(px(path[s]), px(path[j]))
                 nmarg = (if (marg(path[s])) 1 else 0) + (if (marg(path[j])) 1 else 0)
+                nsoft = (if (g.soft[path[s]]) 1 else 0) + (if (g.soft[path[j]]) 1 else 0)
             }
         }
         if (keep.last() != path.size - 1) keep.add(path.size - 1)
@@ -637,6 +668,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
         val every = max(1, (500 / a.res).toInt())
         var prevPier = false
+        var prevSnag = false
+        var prevSoft = false
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
             var marg = lc.count { g.nav[it].toInt() == MARGINAL }
@@ -661,6 +694,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             } > 0
             if (onPier && !prevPier) notes.add(0, PIER_NOTE) // once per stretch of such legs
             prevPier = onPier
+            val onSnag = pierSteps(a, lc) { g.snag[it] } > 0
+            if (onSnag && !prevSnag) notes.add(0, SNAG_NOTE)
+            prevSnag = onSnag
+            val near = lc.count { g.soft[it] } >= 2 // one edge cell is grid noise
+            if (near && !prevSoft) notes.add(0, SOFT_NOTE)
+            prevSoft = near
             val d = distanceM(wps[k], wps[k + 1])
             val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))

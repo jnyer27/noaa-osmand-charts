@@ -678,9 +678,10 @@ def prepare(grid, nav, flags, hazard_buf_m):
     # (all-touched, so often two cells thick) bridge deck
     spanok = _grow(spanok, [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)])
     ok = ((navA == SAFE) | (navA == MARGINAL)) & ~(nopass & ~spanok)
-    snag = ok & (np.frombuffer(flags[SNAG - 1], np.uint8).reshape(h, w) > 0)
-    ok &= ~(snag & (navA != SAFE))  # a snag where the water may be too shallow is a wall
-    snag &= ok
+    # Snags in usable water are buffered like any hazard; one where the water may be too
+    # shallow is also a wall, as before
+    snag_all = ok & (np.frombuffer(flags[SNAG - 1], np.uint8).reshape(h, w) > 0)
+    ok &= ~(snag_all & (navA != SAFE))
 
     # Hazard buffer. Over water charted at least the safe depth (a dredged channel, deep
     # open water) only the hazard's own cell is a wall and the buffer costs SOFT_COST: the
@@ -690,9 +691,9 @@ def prepare(grid, nav, flags, hazard_buf_m):
     # real warnings (the 6 ft Maryland Marina reference route must stay refused).
     rad = buffer_cells(hazard_buf_m, grid.res)
     disc = [(dr, dc) for dr in range(-rad, rad + 1) for dc in range(-rad, rad + 1) if dr * dr + dc * dc <= rad * rad]
-    full = _grow((navA == HAZARD) | snag, disc)
+    full = _grow((navA == HAZARD) | snag_all, disc)
     ok &= ~(full & (navA != SAFE))
-    snag &= ok
+    snag = snag_all & ok
     soft = ok & full & ~snag
 
     # Distance (cells, capped at K) to the nearest unusable cell. Steps alternate

@@ -48,7 +48,12 @@ Planes (0 always means "nothing here"):
             bit 6 RESNOTE  restricted area with a navigation rule (reported)
             bit 7 BRIDGE   any bridge part (reported)
   4 SPANCLR shortest span clearance here, 0.5 m units (1-255)
-  5 CABLECLR shortest cable clearance, 0.5 m units (1-255), 0 unknown
+  5 CABLECLR shortest cable clearance, 0.5 m units (1-255), 0 unknown. Where FLAGS
+            has no CABLE bit, 255 (SNAG_MARK) marks a cell whose only hazard is a
+            snag or stump (OBSTRN CATOBS 1, always submerged, unknown depth): its
+            HAZARD value stays 1, so apps from before this mark keep it a wall,
+            while newer apps let a route through it at a high cost over water
+            charted deep enough (piles at the edge of a narrow dredged channel).
 
 File layout:
   "NRPK2\\n", u32 header length, header JSON (UTF-8), then for each tile in
@@ -94,6 +99,7 @@ NPLANES = 6
 DEPTH, HAZARD, SOUND, FLAGS, SPANCLR, CABLECLR = range(NPLANES)
 STRUCT, PROHIB, DECK, SPAN, OPENING, CABLE, RESNOTE, BRIDGE = (1 << b for b in range(8))
 HZ_PIER = 255  # HAZARD plane: shoreline construction, no hazard
+SNAG_MARK = 255  # CABLECLR plane without the CABLE flag: the cell's hazard is only a snag
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
@@ -407,7 +413,7 @@ def build(cells, grid, work):
         planes[DEPTH][land] = 0
 
         # Hazards and soundings, shallowest wins
-        hz = []
+        hz, snags = [], []
         for layer in ("OBSTRN", "WRECKS", "UWTROC"):
             for f, geom in features(gp, layer):
                 v = fnum(f, "VALSOU")
@@ -416,9 +422,20 @@ def build(cells, grid, work):
                 # Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
                 if v is None and layer == "OBSTRN" and fnum(f, "CATOBS") == 7:
                     continue
-                hz.append((geom, 1 if v is None else dm(v)))
-        h = burn(grid, hz, all_touched=True, merge="min")
+                if v is None and layer == "OBSTRN" and fnum(f, "CATOBS") == 1 and fnum(f, "WATLEV") == 3:
+                    snags.append((geom, 1))
+                else:
+                    hz.append((geom, 1 if v is None else dm(v)))
+        # Cells with a real hazard before this band (not a snag, not a pier mark)
+        prior_real = (planes[HAZARD] != 0) & (planes[HAZARD] != HZ_PIER) & (planes[CABLECLR] != SNAG_MARK)
+        h_real = burn(grid, hz, all_touched=True, merge="min")
+        sn = burn(grid, snags, all_touched=True) > 0
+        h = np.where(sn & (h_real == 0), 1, h_real).astype(np.uint8)
         planes[HAZARD] = np.where((h > 0) & ((planes[HAZARD] == 0) | (h < planes[HAZARD])), h, planes[HAZARD])
+        # Snag mark only where a snag is the cell's only hazard
+        # (not under a cable from an earlier band: CABLECLR is its clearance there)
+        planes[CABLECLR][sn & (h_real == 0) & ~prior_real & ((planes[FLAGS] & CABLE) == 0)] = SNAG_MARK
+        planes[CABLECLR][(h_real > 0) & (planes[CABLECLR] == SNAG_MARK)] = 0
         # Piers, seawalls, jetties, breakwaters: one cell wide (not all touched) so a
         # bulkheaded channel keeps its middle; only where no hazard is charted
         pier = burn(grid, [(geom, 1) for f, geom in features(gp, "SLCONS")]) > 0
@@ -477,6 +494,8 @@ def build(cells, grid, work):
             notes.append(note("cable", band, geom, name=fstr(f, "OBJNAM") or "overhead cable", clr=clr))
         flags |= np.where(burn(grid, cab, all_touched=True) > 0, CABLE, 0).astype(np.uint8)
         cc = burn(grid, cabclr, all_touched=True, merge="min")
+        # A cable of unknown clearance over a snag mark: the plane is the cable's again (0)
+        planes[CABLECLR][((flags & CABLE) != 0) & (cc == 0) & (planes[CABLECLR] == SNAG_MARK)] = 0
         planes[CABLECLR] = np.where(cc > 0, cc, planes[CABLECLR])
         planes[FLAGS] |= flags
 

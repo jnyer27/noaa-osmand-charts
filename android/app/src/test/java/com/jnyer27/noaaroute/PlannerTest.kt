@@ -47,14 +47,15 @@ class PlannerTest {
         return writePack(planes, notes, onlyTileRow)
     }
 
-    private fun writePack(planes: Array<ByteArray>, notes: String, onlyTileRow: Int? = null): File {
+    private fun writePack(planes: Array<ByteArray>, notes: String, onlyTileRow: Int? = null,
+                          depthTable: String = "[null,[2.0,3.6,0]]"): File {
         val rows = if (onlyTileRow == null) 0 until 2 else onlyTileRow..onlyTileRow
         val pNorth = north - rows.first * 256 * dlat
         val header = """{"format":"NRPK","version":2,"created":"2026-01-01T00:00:00Z","states":["TEST"],
             "area":{"id":"t${onlyTileRow ?: ""}","name":"Test ${onlyTileRow ?: ""}","bbox":[$west,${north - size * dlat},${west + size * dlon},$north]},
             "tx0":$gtx0,"ty0":${gty0 + rows.first},
             "west":$west,"north":$pNorth,"dlat":$dlat,"dlon":$dlon,"res":$res,"width":$size,"height":${rows.count() * 256},
-            "tile":256,"planes":6,"depth_table":[null,[2.0,3.6,0]],
+            "tile":256,"planes":6,"depth_table":$depthTable,
             "notes":$notes}""".trimIndent().replace("\n", "")
         val hb = header.toByteArray()
         val tiles = ArrayList<ByteArray?>()
@@ -214,6 +215,51 @@ class PlannerTest {
             val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(250, 290), cellCenter(250, 310)), 3.0, null)
             assertTrue("crossed directly (%.0f m)".format(r.totalNm * Planner.NM), r.totalNm * Planner.NM < 600.0)
             assertTrue("pier note", r.legs.any { l -> l.notes.any { it.contains("piers or seawalls") } })
+        }
+    }
+
+    /**
+     * Land with a one-cell channel (col 300, rows 100-400), like the 27 m dredged ICW
+     * channel in Adams Creek Canal on the 20 m grid, and one obstruction of unknown depth
+     * in it at row 250: a snag (pack SNAG_MARK) or not. Depth index 1 = 2.0-3.6 m (deep
+     * enough for 3 ft), 2 = 0-1.8 m (spans 3 ft).
+     */
+    private fun channelPack(depthIndex: Int, snagMark: Boolean): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 100..400) planes[Pack.P_DEPTH][r * size + 300] = depthIndex.toByte()
+        planes[Pack.P_HAZARD][250 * size + 300] = 1
+        if (snagMark) planes[Pack.P_CABLECLR][250 * size + 300] = Pack.SNAG_MARK.toByte()
+        return writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")
+    }
+
+    private fun planChannel(pack: File): Route = Pack(pack).use { p ->
+        Planner(ChartSet(listOf(p))).plan("t", listOf(cellCenter(110, 300), cellCenter(390, 300)), 3.0, null)
+    }
+
+    @Test
+    fun passesSnagInDeepEnoughChannelAndSaysSo() {
+        val r = planChannel(channelPack(1, snagMark = true))
+        assertTrue("straight up the channel", r.totalNm * Planner.NM in 5500.0..5800.0)
+        assertTrue("snag note", r.legs.any { l -> l.notes.any { it.contains("piles or snags") } })
+    }
+
+    @Test
+    fun otherObstructionsStayWalls() {
+        try {
+            planChannel(channelPack(1, snagMark = false))
+            fail("a wreck or rock of unknown depth must still close the channel")
+        } catch (e: PlanException) {
+            assertTrue(e.message, e.message!!.contains("No route"))
+        }
+    }
+
+    @Test
+    fun snagWhereWaterMayBeTooShallowIsAWall() {
+        try {
+            planChannel(channelPack(2, snagMark = true))
+            fail("a snag in the 0-6 ft band must still close the channel")
+        } catch (e: PlanException) {
+            assertTrue(e.message, e.message!!.contains("No route"))
         }
     }
 
