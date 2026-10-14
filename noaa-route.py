@@ -22,7 +22,11 @@ Options:
                  charted clearance are avoided (default: not checked)
   -n NAME        Route name and file name (default: route)
   -o DIR         Output folder (default: ~/storage/downloads/noaa-charts/routes)
-  -s STATES      NOAA ENC sets to use, comma separated (default: MD)
+  -s SETS        Charts to use, comma separated (default: MD): NOAA state sets
+                 (MD, VA, DE, ...) or NOAA Chart Display Service region codes
+                 (04, 05, ...): a region fetches every active chart cell that
+                 covers it from NOAA's catalog, so it never stops at a state
+                 line. The NOAA Route app's chart regions are the same.
   -r METERS      Grid resolution in meters (default: auto, 10 m for short
                  trips up to 60 m for long ones)
   -b METERS      Buffer around hazards in meters (default: 60)
@@ -79,6 +83,26 @@ from xml.sax.saxutils import escape
 HOME = os.path.expanduser("~")
 ENC_DIR = os.path.join(HOME, ".noaa-enc")
 ENC_URL = "https://charts.noaa.gov/ENCs/{}_ENCs.zip"
+CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
+# NOAA Chart Display Service regions (W, S, E, N), from its ncds_tilecache_metadata layer
+NCDS = {
+    "01a": (-76.68, 42.80, -69.15, 45.50), "01b": (-69.15, 42.80, -67.30, 45.50), "01c": (-67.30, 42.80, -64.95, 45.50),
+    "02a": (-76.68, 41.10, -71.08, 42.80), "02b": (-71.08, 41.10, -64.95, 42.80), "03": (-76.68, 39.73, -64.95, 41.10),
+    "04": (-77.81, 38.23, -64.95, 39.73), "05": (-77.81, 35.50, -64.95, 38.23), "06": (-82.20, 32.54, -64.95, 35.50),
+    "07": (-82.20, 28.10, -66.70, 32.54), "08": (-80.60, 23.10, -66.70, 28.10), "09": (-80.60, 8.64, -64.20, 23.10),
+    "10": (-89.07, 17.60, -80.60, 28.10), "11": (-89.07, 28.10, -82.20, 33.93), "12": (-92.46, 29.33, -89.07, 33.93),
+    "13": (-92.46, 17.60, -89.07, 29.33), "14": (-98.29, 17.60, -92.46, 33.93), "15": (-83.90, 41.10, -76.68, 42.80),
+    "16": (-83.93, 42.80, -76.68, 47.20), "17a": (-88.93, 43.80, -83.90, 46.00), "17b": (-88.93, 41.38, -83.90, 43.80),
+    "18": (-92.70, 46.00, -83.90, 49.46), "19a": (-123.50, 15.00, -116.17, 33.78), "19b": (-123.50, 33.78, -113.91, 37.17),
+    "19c": (-123.50, 37.17, -116.17, 39.05), "19d": (-144.00, 15.00, -123.50, 39.05), "20a": (-144.00, 39.05, -116.17, 44.70),
+    "20b": (-129.92, 44.70, -116.20, 47.01), "20c": (-129.92, 47.01, -116.33, 60.33), "21": (-138.09, 44.70, -129.92, 52.49),
+    "22a": (-138.09, 52.49, -129.92, 55.78), "22b": (-138.09, 55.78, -129.92, 56.83), "23a": (-138.09, 56.83, -129.92, 57.73),
+    "23b": (-138.09, 57.73, -129.92, 61.25), "24a": (-148.80, 44.70, -138.09, 61.58), "24b": (-152.76, 44.70, -148.80, 61.58),
+    "25a": (-159.00, 44.70, -152.76, 61.58), "25b": (-165.75, 44.70, -159.00, 61.58), "26a": (-173.40, 44.70, -165.75, 61.58),
+    "26b": (-180.00, 44.70, -173.40, 61.58), "27": (-180.00, 61.58, -134.00, 81.60), "28a": (-180.00, 15.00, -162.68, 44.70),
+    "28b": (-162.68, 15.00, -144.00, 44.70), "29": (-180.00, -17.56, -154.00, 15.00), "30": (165.67, 47.87, 180.00, 68.00),
+    "31a": (131.05, 0.00, 154.08, 26.00), "31b": (154.08, 0.00, 173.53, 26.00),
+}
 S57_OPTS = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON"
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
@@ -261,8 +285,70 @@ def current_location():
 
 # ---------------------------------------------------------------- ENC data
 
+def region_code(s):
+    """'04', 'ncds_04' or '19A' -> '04' / '19a' when it is an NCDS region, else None."""
+    m = re.fullmatch(r"(?:NCDS_)?(\d\d[A-D]?)", s.upper())
+    return m.group(1).lower() if m and m.group(1).lower() in NCDS else None
+
+
+def update_region(code, check):
+    """Fetch the active cells covering an NCDS region from NOAA's ENC catalog (each
+    cell's zip holds its base edition and updates). Returns True if new data arrived."""
+    import concurrent.futures
+    import xml.etree.ElementTree as ET
+    cat = os.path.join(ENC_DIR, "ENCProdCat.xml")
+    week = 7 * 24 * 3600
+    if check or not os.path.isfile(cat) or time.time() - os.path.getmtime(cat) > week:
+        log("Checking NOAA's ENC catalog")
+        if subprocess.run(["curl", "-fsSL", "--retry", "3", "--connect-timeout", "30", "-o", cat + ".part",
+                           CATALOG_URL]).returncode == 0:
+            os.replace(cat + ".part", cat)
+        elif not os.path.isfile(cat):
+            die(f"could not download {CATALOG_URL}")
+    w, s, e, n = NCDS[code]
+    want = []
+    for c in ET.parse(cat).getroot().iter("cell"):
+        if c.findtext("status") != "Active":
+            continue
+        v = [(float(x.findtext("long")), float(x.findtext("lat"))) for x in c.iter("vertex")]
+        if v and min(a for a, _ in v) < e and max(a for a, _ in v) > w and min(b for _, b in v) < n and max(b for _, b in v) > s:
+            want.append((c.findtext("name"), c.findtext("zipfile_location"), c.findtext("zipfile_datetime") or ""))
+    cdir = os.path.join(ENC_DIR, "cells")
+    os.makedirs(cdir, exist_ok=True)
+    stale = [x for x in want if not os.path.isfile(os.path.join(cdir, x[0], ".stamp")) or
+             open(os.path.join(cdir, x[0], ".stamp")).read() != x[2]]
+    if stale:
+        log(f"Region {code}: downloading {len(stale)} of {len(want)} chart cells")
+
+        def one(x):
+            name, url, stamp = x
+            d = os.path.join(cdir, name)
+            z = d + ".zip"
+            if subprocess.run(["curl", "-fsSL", "--retry", "3", "--connect-timeout", "30", "-o", z, url]).returncode != 0:
+                return name
+            if os.path.isdir(d):
+                shutil.rmtree(d)
+            with zipfile.ZipFile(z) as zf:
+                zf.extractall(d)
+            os.remove(z)
+            with open(os.path.join(d, ".stamp"), "w") as f:
+                f.write(stamp)
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(6) as ex:
+            bad = [b for b in ex.map(one, stale) if b]
+        if bad:
+            log(f"Region {code}: {len(bad)} cell(s) failed to download, using what is there: {', '.join(bad[:5])}")
+    with open(os.path.join(cdir, f"ncds_{code}.json"), "w") as f:
+        json.dump([x[0] for x in want], f)
+    return bool(stale)
+
+
 def update_enc(state, check):
     """Download/refresh one NOAA ENC set. Returns True if new data arrived."""
+    code = region_code(state)
+    if code:
+        return update_region(code, check)
     os.makedirs(os.path.join(ENC_DIR, "dl"), exist_ok=True)
     zpath = os.path.join(ENC_DIR, "dl", f"{state}_ENCs.zip")
     sdir = os.path.join(ENC_DIR, state)
@@ -308,6 +394,18 @@ def extract(zpath, sdir):
 def find_cells(states):
     cells = {}
     for st in states:
+        code = region_code(st)
+        if code:  # the cells NOAA's catalog lists for the region
+            cdir = os.path.join(ENC_DIR, "cells")
+            try:
+                names = json.load(open(os.path.join(cdir, f"ncds_{code}.json")))
+            except (OSError, ValueError):
+                names = []
+            for name in names:
+                p = os.path.join(cdir, name, "ENC_ROOT", name, name + ".000")
+                if name not in cells and os.path.isfile(p):
+                    cells[name] = p
+            continue
         for root, _, files in os.walk(os.path.join(ENC_DIR, st)):
             for f in files:
                 if f.endswith(".000") and f[:-4] not in cells:
