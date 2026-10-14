@@ -164,6 +164,8 @@ If GDAL then fails with `libOpenEXR... not found`, also run `pkg install openexr
 
 The first run downloads NOAA's ENC set for Maryland (about 32 MB) to `~/.noaa-enc/`. Add `-u` to check NOAA for newer data (they update weekly).
 
+Instead of state sets, `-s` takes NOAA Chart Display Service region codes, the same regions the app uses: `-s 04` (upper Chesapeake, C&D Canal, Delaware Bay), `-s 04,05` (the whole bay). A region fetches every active chart cell that covers it from NOAA's catalog (region 04: 266 cells, about 100 MB unpacked in `~/.noaa-enc/cells`), so it never stops at a state line the way the MD set stops at the Delaware border.
+
 ### Usage
 Easiest: run it with no options and answer the questions (start, destination, via points, draft, air draft, name, update check, open in OsmAnd):
 ```
@@ -187,7 +189,7 @@ Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 | `-a FEET` | Air draft; bridge spans and overhead cables with less charted clearance are avoided |
 | `-n NAME` | Route and file name (default `route`) |
 | `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts/routes`) |
-| `-s STATES` | ENC sets, comma separated (default `MD`; e.g. `MD,VA,DE`) |
+| `-s SETS` | Charts, comma separated (default `MD`): NOAA state sets (`MD,VA,DE`) or NCDS region codes (`04,05`) |
 | `-r METERS` | Grid resolution (default auto: 10 m for short trips, up to 60 m for long ones) |
 | `-b METERS` | Buffer around hazards (default 60) |
 | `-u` | Check NOAA for newer ENC data first |
@@ -243,14 +245,19 @@ Long trips (too large for a 20 m grid in one piece) are sketched on a coarse ove
 A self-contained Android version of the route planner: no Termux needed. Same rules and reports as `noaa-route.py`, ported to Kotlin, and much faster (under a second per route).
 
 - **Install:** download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) and open it (allow installs from your browser or file manager when Android asks). Later builds install over it as updates.
-- **Chart areas:** tap **Chart areas** and download the area(s) you boat in (a few MB each). The app then plans fully offline and joins neighboring areas for trips that cross between them. A GitHub Actions job rebuilds every area from NOAA's ENC data each Saturday; the button shows when updates are available. Available now: **Chesapeake Bay** (Susquehanna to the Virginia Capes, Potomac, Hampton Roads, the whole C&D Canal to Delaware City; built from the MD, VA and DE chart sets).
+- **Chart regions:** route planning data comes in NOAA Chart Display Service regions, the same numbered regions as the NCDS chart maps (`ncds_04`, `ncds_05`). Available now: **Region 04** (upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay and River to Wilmington, the NJ coast from Cape May to Barnegat, 4.5 MB) and **Region 05** (lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound, 4.4 MB). The app plans fully offline once a region is downloaded and joins regions for trips that cross between them.
+- **First launch:** the app asks **Where do you boat?** and finds your region from your location, or lets you pick it on the map.
+- **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline (works offline). Green = downloaded and up to date, amber = update available, dashed blue = available, faint gray = no route data yet. Tap a region to download, update or delete it; pinch to zoom, drag to pan, double-tap to zoom in. The list below the map shows the same, and the main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ...").
+- **Trips that need another region:** as soon as Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded (with its size and a **Download** button), or says when part of the trip is outside every region.
+- **Automatic downloads:** the first time you download, the app asks once whether to download and update regions automatically on Wi-Fi (change it on the Regions screen). If yes, a daily background job fetches NOAA's weekly rebuild of your regions on Wi-Fi only, and a trip that needs another region gets it without asking (on mobile data it still asks).
+- **Moving from Chesapeake Bay:** the older **Chesapeake Bay** area is replaced by regions 04 and 05. The app offers the switch (or does it on Wi-Fi with automatic downloads on) and removes the old area once both regions are in. It stays published until about mid-November 2026 for app versions without regions.
 - **Points:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places** (preloaded with a few Chesapeake spots; edit them under **Manage places**), or tap **Here** for the current GPS position.
 - **From other apps:** share a position to NOAA Route (in OsmAnd: tap a spot, then **Share > NOAA Route**; also works with map links, `geo:` links and plain coordinates), or share or open a GPX file with it. The app asks whether the position is the **Start**, **Destination**, a **Via point**, or should be **saved as a place** (the name is filled in when the share includes one; an existing place with the same name is updated). For a GPX file you pick a waypoint, use a route/track's first and last points as the trip, or save all its waypoints as places.
 - **Output:** the route report, and the GPX saved to `Download/noaa-charts/routes/`. **Open in OsmAnd** sends it directly; if OsmAnd will not open it, **Show routes folder in Files** and tap it there.
 
-How it works: areas are defined in `tools/areas.json` (NOAA state sets, bounds and reference routes). `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) turns each area's ENC charts into a 20 m grid of depth ranges, shallowest hazards and soundings, bridge/cable clearances and restricted-area notes, independent of any boat, on one global grid so areas line up. It checks every chart's depth units (meters) and records the sounding datum. Before publishing, the workflow runs every area's reference routes through the app's planner and publishes nothing if one fails. The app applies your depth and air draft at planning time. Long trips are first sketched on a coarse overview (with the water around each end worked out at full detail), then routed at full 20 m detail stretch by stretch between open-water guide points about every 18 km. The APK is built by `.github/workflows/android.yml` on every push to `android/`.
+How it works: areas are defined in `tools/areas.json`: NCDS regions (code and NOAA's region rectangle) plus reference routes. `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) takes every active cell in NOAA's ENC product catalog that covers a region, clips the pack to where approach and harbor charts exist (region 04's NCDS rectangle reaches 64.95 W, far offshore), and turns the charts into a 20 m grid of depth ranges, shallowest hazards and soundings, bridge/cable clearances and restricted-area notes, independent of any boat, on one global grid so areas line up. It checks every chart's depth units (meters) and records the sounding datum. Neighboring regions overlap by a row of tiles holding the same data, so trips across the seam plan as if it were one pack. Before publishing, the workflow runs every reference route through the app's planner (each area's own, and the regions together across their seam) and publishes nothing if one fails. Branch runs publish to a separate `route-pack-beta` pre-release that only APKs built from a branch read, for testing on a phone before merging. The app applies your depth and air draft at planning time. Long trips are first sketched on a coarse overview (with the water around each end worked out at full detail), then routed at full 20 m detail stretch by stretch between open-water guide points about every 18 km. The APK is built by `.github/workflows/android.yml` on every push to `android/`.
 
-**Adding an area:** add an entry to `tools/areas.json` with its NOAA state sets (`charts.noaa.gov/ENCs/<STATE>_ENCs.zip`), bbox and a few reference routes (including one that should fail), then run the Route pack workflow.
+**Adding a region:** add an entry to `tools/areas.json` with `"ncds"` (the code), `"ncds_bbox"` (NOAA's rectangle; the app's built-in table in `Regions.kt` has all 47), a name and description, plus reference routes (including one that should fail), then run the Route pack workflow. The coastline under the region map is built once by `tools/build_coastline.py` from Natural Earth data.
 
 ---
 
@@ -301,17 +308,18 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 | `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
 | `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` and the NOAA Route app |
 | `Download/noaa-charts/noaa-route.apk` | Latest app build copied here for installing (also on the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)) |
-| `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; re-downloads. Works offline once downloaded |
+| `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), single cells for NCDS regions (`cells/`, with NOAA's catalog `ENCProdCat.xml`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; re-downloads. Works offline once downloaded |
 | `~/.noaa-enc/route-defaults.json` | Last draft and air draft, used as interview defaults |
 | `android/` | Android app source (Kotlin) |
-| `tools/build_route_pack.py`, `tools/areas.json` | Area pack builder and area definitions for the app (run on GitHub Actions) |
+| `tools/build_route_pack.py`, `tools/areas.json` | Region pack builder and region definitions for the app (run on GitHub Actions) |
+| `tools/build_coastline.py` | Makes the app's built-in coastline (`android/app/src/main/assets/coastline.bin`) from Natural Earth |
 | `~/.noaa-route-signing/` | App signing key and password (also stored as GitHub secrets). Back it up: without it, new builds cannot update the installed app |
 | `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources. If you delete the per-region files to save space, refresh later with `-f` (e.g. `noaa-charts.sh -f -M 03 04 05`), since their `.stamp` files say they are current |
 | `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
 
 ### Storage
 
-Typical sizes on the phone: merged NCDS map for regions 03-05 about 1.8 GB (each single region about 600 MB), an ECDIS map 10-150 MB plus its tile cache in `~/.noaa-ecdis`, `noaa-route.py` data in `~/.noaa-enc` about 600 MB for Maryland and Virginia, the app's chart area 5 MB. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
+Typical sizes on the phone: merged NCDS map for regions 03-05 about 1.8 GB (each single region about 600 MB), an ECDIS map 10-150 MB plus its tile cache in `~/.noaa-ecdis`, `noaa-route.py` data in `~/.noaa-enc` about 600 MB for Maryland and Virginia, the app's chart regions about 4.5 MB each. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
 
 ## Building the app
 
@@ -320,5 +328,7 @@ The APK is built, tested and signed by GitHub Actions on every push that changes
 ## Data sources
 - NOAA Chart Display Service MBTiles: https://distribution.charts.noaa.gov/ncds/
 - NOAA ECDIS Display Service: https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer
-- NOAA ENC downloads (route planner): https://charts.noaa.gov/ENCs/ENCs.shtml
+- NOAA ENC downloads (route planner): https://charts.noaa.gov/ENCs/ENCs.shtml and the ENC product catalog https://charts.noaa.gov/ENCs/ENCProdCat.xml
+- NCDS region rectangles: https://gis.charttools.noaa.gov/arcgis/rest/services/MarineChart_Services/ncds_tilecache_metadata/MapServer/0
+- Coastline under the app's region map: Natural Earth 1:10m land and lakes (public domain), https://www.naturalearthdata.com/
 - OsmAnd `.sqlitedb` format follows https://github.com/tarwirdur/mbtiles2osmand
