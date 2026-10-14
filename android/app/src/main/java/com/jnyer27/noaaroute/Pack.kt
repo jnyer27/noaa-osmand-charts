@@ -91,6 +91,16 @@ class Note(
  */
 class Pack(file: File) : AutoCloseable {
     companion object {
+        /**
+         * Decompressed tiles of every open pack, least recently used dropped first. One
+         * budget for all packs (160 tiles, about 63 MB): one cache per pack held up to
+         * 63 MB each, and with three or more packs a long trip ran out of memory.
+         */
+        private const val CACHE_TILES = 160
+        private val tileCache = object : LinkedHashMap<Pair<Pack, Int>, ByteArray?>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Pack, Int>, ByteArray?>) = size > CACHE_TILES
+        }
+
         const val M_PER_DEG = 111320.0
         const val FT = 0.3048
         const val NPLANES = 6
@@ -208,15 +218,12 @@ class Pack(file: File) : AutoCloseable {
         return tileData(tx, ty)
     }
 
-    private val cache = object : LinkedHashMap<Int, ByteArray?>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, ByteArray?>) = size > 160
-    }
-
     /** All 6 planes of one tile (plane-major), or null for an empty tile. */
     @Synchronized
     fun tileData(tx: Int, ty: Int): ByteArray? {
         val k = ty * tilesX + tx
-        if (cache.containsKey(k)) return cache[k]
+        val key = this to k
+        synchronized(tileCache) { if (tileCache.containsKey(key)) return tileCache[key] }
         val data = if (tileLen[k] == 0) null else {
             val comp = ByteArray(tileLen[k])
             raf.seek(tileOff[k])
@@ -234,9 +241,12 @@ class Pack(file: File) : AutoCloseable {
             require(got == out.size) { "Corrupt tile $tx,$ty" }
             out
         }
-        cache[k] = data
+        synchronized(tileCache) { tileCache[key] = data }
         return data
     }
 
-    override fun close() = raf.close()
+    override fun close() {
+        synchronized(tileCache) { tileCache.keys.removeAll { it.first === this } }
+        raf.close()
+    }
 }

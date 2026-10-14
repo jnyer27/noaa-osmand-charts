@@ -905,6 +905,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             // opened Carolina Beach Inlet, closed at 20 m for 5 ft. Worked out before the
             // overview grid exists, so the two big grids are never in memory together.
             val stamp = BooleanArray(a.n)
+            val boxes = ArrayList<Area>()
             val ends = IntArray(2)
             for ((k, pt) in listOf(p, q).withIndex()) {
                 for ((layer, half) in listOf(4000.0, APPROACH_M).withIndex()) {
@@ -938,6 +939,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                             if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
                         }
                     }
+                    boxes.add(fa)
                     if (layer == 0) ends[k] = a.cell(fa.latlon(s))
                 }
             }
@@ -949,6 +951,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (i in 0 until a.n) if (stamp[i]) {
                     g.ok[i] = true
                     if (g.cost[i] == Float.POSITIVE_INFINITY) g.cost[i] = 2f
+                }
+                // Inside a detail window the 20 m answer replaces the overview: overview cells
+                // wholly inside it that the end cannot reach are closed (a sampled 300 m cell
+                // bridged Carolina Beach Inlet, closed at 20 m for 5 ft, into the stamped ICW)
+                for (b in boxes) for (r in 0 until a.h) {
+                    val pr = a.r0 + r * a.f
+                    if (pr < b.r0 || pr + a.f > b.r0 + b.h * b.f) continue
+                    for (col in 0 until a.w) {
+                        val pc = a.c0 + col * a.f
+                        if (pc < b.c0 || pc + a.f > b.c0 + b.w * b.f) continue
+                        val i = r * a.w + col
+                        if (!stamp[i]) { g.ok[i] = false; g.cost[i] = Float.POSITIVE_INFINITY }
+                    }
                 }
                 val path = astar(a, g, ends[0], ends[1])
                 if (path != null) {

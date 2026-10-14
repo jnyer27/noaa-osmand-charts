@@ -1603,7 +1603,7 @@ def guide_points(p, q, np_, nq, ctx):
         log(f"Long trip: overview at {grid.res:.0f} m")
         G = build(grid, ctx)
         ok, cost = G["ok"], G["cost"]
-        ends = []
+        ends, boxes = [], []
         for pt in (p, q):
             # Two layers of detail drawn into the overview around each end: 4 km (the end
             # itself), and APPROACH_M, so the overview can see an inlet and the inside route
@@ -1635,9 +1635,26 @@ def guide_points(p, q, np_, nq, ctx):
                 costv = np.frombuffer(cost, np.float32)
                 okv[ci] = 1
                 costv[ci[np.isinf(costv[ci])]] = 2.0
+                boxes.append((fg, ci))
                 if layer == 0:
                     r0, c0 = grid.cell(*fg.latlon(s0))
                     ends.append(r0 * grid.w + c0)
+        # Inside a detail window the 20 m answer replaces the overview: overview cells wholly
+        # inside it that the end cannot reach are closed (a sampled overview cell bridged
+        # Carolina Beach Inlet, closed at 20 m for 5 ft, into the stamped ICW)
+        okv = np.frombuffer(ok, np.uint8).reshape(grid.h, grid.w)
+        costv = np.frombuffer(cost, np.float32).reshape(grid.h, grid.w)
+        stamped = np.zeros((grid.h, grid.w), bool)
+        for _, ci in boxes:
+            stamped.flat[ci] = True
+        top = grid.north - np.arange(grid.h) * grid.dlat
+        left = grid.west + np.arange(grid.w) * grid.dlon
+        for fg, _ in boxes:
+            rows = (top <= fg.north) & (top - grid.dlat >= fg.south)
+            cols = (left >= fg.west) & (left + grid.dlon <= fg.east)
+            inside = rows[:, None] & cols[None, :] & ~stamped
+            okv[inside] = 0
+            costv[inside] = np.inf
         path = astar(grid, cost, ends[0], ends[1], G["pier"])
         if path:
             cum = [0.0]
