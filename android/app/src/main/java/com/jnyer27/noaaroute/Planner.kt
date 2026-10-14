@@ -43,6 +43,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val HAZARD = 3
         const val STRUCT = 4
         const val SHALLOW = 5
+        /** Bit ChartSet.window adds to SAFE water inside a dredged area (a maintained channel). */
+        const val DREDGED = 0x40
+        // Inside a dredged channel deep enough for the boat, being near its edge is normal:
+        // the proximity cost is cut to this share and the hazard buffer's cost (bank
+        // soundings just outside the channel) to DREDGED_SOFT_COST. Otherwise every cell of
+        // a narrow channel cost up to 3.4 x 5 and Maryland Marina to Carolina Beach went
+        // 20 nm outside to the Cape Fear River instead of down the ICW.
+        private const val DREDGED_PROX = 0.25f
+        private const val DREDGED_SOFT_COST = 1.5f
         // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
         private const val SHORE_M = 100.0
         private const val K_MIN = 5
@@ -158,6 +167,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val nopass = BooleanArray(n)
         val spanok = BooleanArray(n)
         val snag = BooleanArray(n)
+        val dredged = BooleanArray(n)
         for (i in 0 until n) {
             val fl = planes[Pack.P_FLAGS][i].toInt() and 0xff
             val hzv = planes[Pack.P_HAZARD][i].toInt() and 0xff
@@ -168,8 +178,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 hzv != 0 && hzv != Pack.HZ_PIER && !snag[i] && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
-                else -> planes[Pack.P_DEPTH][i].toInt()
+                else -> planes[Pack.P_DEPTH][i].toInt() and DREDGED.inv()
             }.toByte()
+            dredged[i] = (planes[Pack.P_DEPTH][i].toInt() and DREDGED) != 0
             val span = fl and Pack.F_SPAN != 0
             val clr = (planes[Pack.P_SPANCLR][i].toInt() and 0xff) / 2.0
             if (fl and Pack.F_DECK != 0 || (span && clr < air)) nopass[i] = true
@@ -263,7 +274,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for (i in 0 until n) if (ok[i]) {
             val p = k - dist[i]
             prox[i] = p.toByte()
-            var c = 1f + pc * p
+            val inChannel = dredged[i] && nav[i].toInt() == SAFE
+            var c = 1f + pc * p * (if (inChannel) DREDGED_PROX else 1f)
             if (nav[i].toInt() == MARGINAL) c *= 4f
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
@@ -271,7 +283,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 snag[i] -> c *= SNAG_COST
                 gate[i] -> c *= GATE_COST
             }
-            if (soft[i]) c *= SOFT_COST
+            if (soft[i]) c *= if (inChannel) DREDGED_SOFT_COST else SOFT_COST
             cost[i] = c
         }
         return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft, gate)

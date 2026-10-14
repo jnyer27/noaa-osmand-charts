@@ -128,10 +128,16 @@ SHORE_M = 100.0
 K_MIN = 5
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span,
 # 6 = pier or seawall line, 7 = submerged snag or pile of unknown depth, 8 = channel
-# marker or its wrong side)
+# marker or its wrong side, 9 = dredged area deep enough)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
-NO_PASS, SPAN_OK, PIER, SNAG, GATE = 4, 5, 6, 7, 8
-NFLAGS = 8
+NO_PASS, SPAN_OK, PIER, SNAG, GATE, DREDGED = 4, 5, 6, 7, 8, 9
+NFLAGS = 9
+# Inside a dredged channel deep enough for the boat, being near its edge is normal: the
+# proximity cost is cut to this share and the hazard buffer's cost (bank soundings just
+# outside the channel) to DREDGED_SOFT_COST. Otherwise every cell of a narrow channel cost
+# up to 3.4 x 5 and long trips went outside rather than down the ICW.
+DREDGED_PROX = 0.25
+DREDGED_SOFT_COST = 1.5
 # Piers and seawalls (SLCONS) are lines over charted water, often between a slip and
 # open water. As walls they sealed marinas and narrow bridge spans (fenders) on a
 # 10-20 m grid, so they are passable at this cost multiple and count as danger for
@@ -797,6 +803,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
             raster(src, "SLCONS", 1, None, False, [PIER], ft)
         if "OBSTRN" in have:
             raster(src, "OBSTRN", 1, "VALSOU IS NULL AND CATOBS = 1 AND WATLEV = 3", True, [SNAG], ft)
+        if "DRGARE" in have:
+            raster(src, "DRGARE", 1, f"DRVAL1 >= {d}", False, [DREDGED], ft)
         if "BOYLAT" in have or "BCNLAT" in have:
             gj = band_gates(src, have, grid, work, band)
             if gj:
@@ -886,9 +894,10 @@ def prepare(grid, nav, flags, hazard_buf_m):
         dist[reach & (dist > d)] = d
 
     prox = np.where(ok, K - dist, 0).astype(np.uint8)           # 0 in open water, up to K-1 next to danger
-    c = (1.0 + 2.4 / (K - 1) * prox) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
+    channel = (np.frombuffer(flags[DREDGED - 1], np.uint8).reshape(h, w) > 0) & (navA == SAFE)
+    c = (1.0 + 2.4 / (K - 1) * prox * np.where(channel, DREDGED_PROX, 1.0)) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
     c = np.where(pier, c * PIER_COST, c)
-    c = np.where(soft, c * SOFT_COST, c)
+    c = np.where(soft, c * np.where(channel, DREDGED_SOFT_COST, SOFT_COST), c)
     c = np.where(snag, c * SNAG_COST, c)
     c = np.where(gate & ~pier, c * GATE_COST, c)
     cost = np.where(ok, c, np.inf).astype(np.float32)

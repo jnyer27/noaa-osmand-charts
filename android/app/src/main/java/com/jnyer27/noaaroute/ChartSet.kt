@@ -70,7 +70,13 @@ class ChartSet(val packs: List<Pack>) {
         val tx1 = min(width / t - 1, (c0 + w * f - 1) / t)
         for (ty in ty0..ty1) for (tx in tx0..tx1) {
             val (pack, d) = tileData(tx, ty) ?: continue
-            val lut = luts.getOrPut(pack) { ByteArray(256) { k -> Planner.classify(pack.depthTable.getOrNull(k), depthM - Planner.ROUNDING_M).toByte() } }
+            // Depth class per depth-table entry; a dredged area deep enough for depthM also
+            // gets Planner.DREDGED (0x40), so the planner can tell a maintained channel
+            val lut = luts.getOrPut(pack) { ByteArray(256) { k ->
+                val r = pack.depthTable.getOrNull(k)
+                val cls = Planner.classify(r, depthM - Planner.ROUNDING_M)
+                (if (cls == Planner.SAFE && r?.dredged == true) cls or Planner.DREDGED else cls).toByte()
+            } }
             val prA = max(ty * t, r0)
             val prB = min((ty + 1) * t, r0 + h * f)
             val pcA = max(tx * t, c0)
@@ -90,7 +96,7 @@ class ChartSet(val packs: List<Pack>) {
                     }
                     out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() or d[Pack.P_FLAGS * tt + ti].toInt()).toByte()
                     if (best != null) {
-                        val cls = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff].toInt()
+                        val cls = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff].toInt() and Planner.DREDGED.inv()
                         val hv = d[Pack.P_HAZARD * tt + ti].toInt() and 0xff
                         val sv = d[Pack.P_SOUND * tt + ti].toInt() and 0xff
                         val fl = d[Pack.P_FLAGS * tt + ti].toInt()
