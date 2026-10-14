@@ -382,10 +382,10 @@ def note(kind, band, geom, **attrs):
 
 # ---------------------------------------------------------------- output
 
-def write_pack(path, area, grid, planes, depth_table, notes, datums):
+def write_pack(path, area, grid, planes, depth_table, notes, datums, created):
     tw, th = grid.w // TILE, grid.h // TILE
     header = {
-        "format": "NRPK", "version": 2, "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "format": "NRPK", "version": 2, "created": created,
         "area": {"id": area["id"], "name": area["name"], "bbox": area["bbox"]},
         "source": [ENC_URL.format(s) for s in area["states"]], "states": area["states"],
         "sounding_datums": datums,
@@ -444,12 +444,16 @@ def main():
         if datums and datums != [12]:
             log(f"WARNING: sounding datums {datums}; 12 (MLLW) expected for US tidal waters")
         path = os.path.join(a.out, area["id"] + ".bin")
-        write_pack(path, area, grid, planes, depth_table, notes, datums)
+        # One timestamp for the pack header and its catalog entry: the app offers an
+        # update while the catalog's is later than the installed pack's, and separate
+        # timestamps (seconds apart) kept "update available" on forever
+        created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        write_pack(path, area, grid, planes, depth_table, notes, datums, created)
         data = open(path, "rb").read()
         catalog.append({"id": area["id"], "name": area["name"], "description": area.get("description", ""),
                         "bbox": area["bbox"], "states": area["states"], "file": area["id"] + ".bin",
                         "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                        "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "created": created,
                         "sounding_datums": datums})
     json.dump({"version": 2, "areas": catalog}, open(os.path.join(a.out, "catalog.json"), "w"), indent=1)
     log(f"Wrote catalog with {len(catalog)} area(s)")
