@@ -983,12 +983,14 @@ class MainActivity : Activity() {
             val t0 = System.currentTimeMillis()
             try {
                 val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M) { msg -> ui.post { status.text = msg } }
-                val (uri, savedAs) = saveGpx(r)
+                val used = usedPacks(p, r)
+                val datum = Pack.datumName(used.flatMap { it.datums })
+                val (uri, savedAs) = saveGpx(r, datum)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 ui.post {
                     route = r
                     gpxUri = uri
-                    result.text = Gpx.report(r, tripLines(a, vias, b), afterLines(p, r, sec), BUF_M)
+                    result.text = Gpx.report(r, tripLines(a, vias, b), afterLines(used, sec), BUF_M, datum)
                     status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format(sec) +
                         if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
                     actions.visibility = View.VISIBLE
@@ -1014,23 +1016,26 @@ class MainActivity : Activity() {
         return listOf("start: ${show(a)}") + vias.mapIndexed { k, v -> "via ${k + 1}: ${show(v)}" } + listOf("destination: ${show(b)}")
     }
 
-    /** Chart regions the route uses (with their build dates) and when it was planned. */
-    private fun afterLines(charts: ChartSet, r: Route, sec: Double): List<String> {
+    /** Chart regions the route passes through. */
+    private fun usedPacks(charts: ChartSet, r: Route): List<Pack> {
         // Sampled every ~1 km along the legs: a long leg can cross a region with no waypoint in it
         val samples = r.points.zipWithNext().flatMap { (p, q) ->
             val n = ceil(Planner.distanceM(p, q) / 1000.0).toInt().coerceAtLeast(1)
             (0 until n).map { k -> LatLon(p.lat + (q.lat - p.lat) * k / n, p.lon + (q.lon - p.lon) * k / n) }
         } + r.points.last()
-        val used = charts.packs.filter { pk -> samples.any { pk.covers(it.lat, it.lon) } }
-        return listOf(
-            "charts: " + used.joinToString(", ") { pk -> pk.areaName.substringBefore(":") + " (built ${pk.created.take(10)})" },
-            "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(sec))
+        return charts.packs.filter { pk -> samples.any { pk.covers(it.lat, it.lon) } }
     }
 
+    /** Chart regions the route uses (with their build dates) and when it was planned. */
+    private fun afterLines(used: List<Pack>, sec: Double): List<String> =
+        listOf(
+            "charts: " + used.joinToString(", ") { pk -> pk.areaName.substringBefore(":") + " (built ${pk.created.take(10)})" },
+            "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(sec))
+
     /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). */
-    private fun saveGpx(r: Route): Pair<Uri, String> {
+    private fun saveGpx(r: Route, datum: String): Pair<Uri, String> {
         val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
-        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r).toByteArray()) }
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum).toByteArray()) }
         return uri to name
     }
 

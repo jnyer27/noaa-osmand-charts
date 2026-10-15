@@ -15,12 +15,12 @@ object Gpx {
         return d
     }
 
-    fun write(r: Route): String {
+    fun write(r: Route, datum: String = "MLLW"): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
-        sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at MLLW from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt)))}</desc>\n")
+        sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt), datum))}</desc>\n")
         for ((k, p) in r.points.withIndex()) {
             val label = when (k) {
                 0 -> "Start"
@@ -38,15 +38,15 @@ object Gpx {
     /**
      * The route summary shown under Plan route. [trip]: lines naming the start, via points
      * and destination; [after]: lines after the settings (charts used, when planned);
-     * [bufM]: the hazard buffer, if it should be shown.
+     * [bufM]: the hazard buffer, if it should be shown; [datum]: what depths are charted to.
      */
-    fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null): String {
+    fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null, datum: String = "MLLW"): String {
         val sb = StringBuilder()
         val air = if (r.airFt != null) "air draft ${num(r.airFt)} ft" else "air draft not checked"
         sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\n", r.name, r.totalNm, r.points.size))
         for (t in trip) sb.append(t).append('\n')
-        sb.append(String.format(Locale.US, "depth %s ft (MLLW), %s%s, grid %.0f m%s\n",
-            num(r.depthFt), air, bufM?.let { String.format(Locale.US, ", hazard buffer %.0f m", it) } ?: "", r.resM,
+        sb.append(String.format(Locale.US, "depth %s ft (%s), %s%s, grid %.0f m%s\n",
+            num(r.depthFt), datum, air, bufM?.let { String.format(Locale.US, ", hazard buffer %.0f m", it) } ?: "", r.resM,
             r.guideM?.let { String.format(Locale.US, " (long trip, guided by a %.0f m overview)", it) } ?: ""))
         for (t in after) sb.append(t).append('\n')
         for (m in r.messages) sb.append(m).append('\n')

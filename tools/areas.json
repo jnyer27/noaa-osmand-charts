@@ -42,6 +42,41 @@
       "name": "Region 07: Southern South Carolina, Georgia and northeast Florida",
       "description": "Beaufort and Hilton Head, Savannah, the Georgia sea islands, Fernandina, Jacksonville and the St. Johns River, and the Florida coast to Cape Canaveral.",
       "ncds_bbox": [-82.2, 28.1, -66.7, 32.54]
+    },
+    {
+      "id": "ncds_02b",
+      "ncds": "02b",
+      "name": "Region 02b: Massachusetts and Cape Cod",
+      "description": "Buzzards Bay, the Elizabeth Islands, Martha's Vineyard and Nantucket, the Cape Cod Canal, Cape Cod Bay, Boston Harbor and Massachusetts Bay north to about Cape Ann.",
+      "ncds_bbox": [-71.08, 41.1, -64.95, 42.8]
+    },
+    {
+      "id": "ncds_08",
+      "ncds": "08",
+      "name": "Region 08: Southeast Florida",
+      "description": "The Indian River Lagoon south of Cape Canaveral, the Atlantic coast and ICW from Sebastian to Miami, Biscayne Bay, and the upper Keys to Key Largo.",
+      "ncds_bbox": [-80.6, 23.1, -66.7, 28.1]
+    },
+    {
+      "id": "ncds_10",
+      "ncds": "10",
+      "name": "Region 10: Southwest Florida and the Keys",
+      "description": "Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers and the Caloosahatchee, Naples, the Everglades coast, Florida Bay, and the Keys from Islamorada to Key West and the Dry Tortugas.",
+      "ncds_bbox": [-89.07, 17.6, -80.6, 28.1]
+    },
+    {
+      "id": "ncds_11",
+      "ncds": "11",
+      "name": "Region 11: Florida Big Bend to Mississippi Sound",
+      "description": "The Gulf coast from Tarpon Springs and the Big Bend to Apalachicola, Panama City, Destin, Pensacola, Mobile Bay and Mississippi Sound to Biloxi.",
+      "ncds_bbox": [-89.07, 28.1, -82.2, 33.93]
+    },
+    {
+      "id": "ncds_15",
+      "ncds": "15",
+      "name": "Region 15: Lake Erie",
+      "description": "Lake Erie's US shore from Toledo and the Bass Islands to Sandusky, Cleveland, Erie and Dunkirk, the Detroit River and Lake St. Clair. Great Lakes depths are charted to Low Water Datum, not MLLW.",
+      "ncds_bbox": [-83.9, 41.1, -76.68, 42.8]
     }
   ],
   "tests": [
@@ -66,6 +101,22 @@
     {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"], "nm": [73, 89]},
     {"name": "Wrightsville Beach to Southport (ICW)", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"], "nm": [30, 37]},
     {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [55, 77]},
-    {"name": "Fernandina to Jacksonville", "points": ["30.6720,-81.4670", "30.3220,-81.6600"], "depth": 4, "air": 10, "areas": ["ncds_07"], "nm": [40, 50]}
+    {"name": "Fernandina to Jacksonville", "points": ["30.6720,-81.4670", "30.3220,-81.6600"], "depth": 4, "air": 10, "areas": ["ncds_07"], "nm": [40, 50]},
+    {"name": "Newport to Cuttyhunk (02a to 02b)", "points": ["41.4850,-71.3250", "41.4250,-70.9250"], "depth": 4, "air": 10, "areas": ["ncds_02a", "ncds_02b"], "nm": [21, 28]},
+    {"name": "Cape Cod Canal: Cape Cod Bay to Buzzards Bay", "points": ["41.7780,-70.4900", "41.6850,-70.6900"], "depth": 4, "air": 10, "areas": ["ncds_02b"], "nm": [10, 14]},
+    {"name": "Hyannis to Nantucket", "points": ["41.6380,-70.2800", "41.2900,-70.0950"], "depth": 4, "air": 10, "areas": ["ncds_02b"], "nm": [22, 28]},
+    {"name": "Nantucket at 40 ft is boxed in", "points": ["41.6380,-70.2800", "41.2900,-70.0950"], "depth": 40, "air": 10, "fail": true, "areas": ["ncds_02b"]},
+    {"name": "Cocoa to Sebastian (Indian River, 07 to 08)", "points": ["28.3560,-80.7180", "27.8150,-80.4700"], "depth": 4, "air": 10, "areas": ["ncds_07", "ncds_08", "ncds_10"], "nm": [33, 40]},
+    {"name": "Fort Lauderdale to Miami", "points": ["26.0930,-80.1180", "25.7780,-80.1850"], "depth": 4, "air": 10, "areas": ["ncds_08"], "nm": [22, 28]},
+    {"name": "Dinner Key at 20 ft is boxed in", "points": ["25.7700,-80.1400", "25.7270,-80.2320"], "depth": 20, "air": 10, "fail": true, "areas": ["ncds_08"]},
+    {"name": "Key West to Marathon (Boot Key Harbor)", "points": ["24.5610,-81.8010", "24.7060,-81.1140"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [38, 47]},
+    {"name": "Tampa Bay: St. Petersburg to Tampa", "points": ["27.7700,-82.6250", "27.9400,-82.4550"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [15, 19]},
+    {"name": "Clearwater to Tarpon Springs (ICW, 10 to 11)", "points": ["27.9770,-82.8280", "28.1540,-82.7600"], "depth": 3, "air": 10, "areas": ["ncds_10", "ncds_11"], "nm": [17, 22]},
+    {"name": "Mobile Bay: Fairhope to the bay entrance off Fort Gaines", "points": ["30.5230,-87.9100", "30.2420,-88.0600"], "depth": 4, "air": 10, "areas": ["ncds_11"], "nm": [18, 23]},
+    {"name": "Pensacola to Mobile", "points": ["30.4060,-87.2130", "30.6900,-88.0380"], "depth": 4, "air": 10, "areas": ["ncds_11"], "nm": [68, 84]},
+    {"name": "Fairhope at 30 ft is boxed in", "points": ["30.5230,-87.9100", "30.2420,-88.0600"], "depth": 30, "air": 10, "fail": true, "areas": ["ncds_11"]},
+    {"name": "Lake Erie: Cleveland to Put-in-Bay", "points": ["41.5070,-81.7100", "41.6540,-82.8130"], "depth": 4, "air": 10, "areas": ["ncds_15"], "nm": [50, 58]},
+    {"name": "Detroit River: Detroit to Lake Erie", "points": ["42.3270,-83.0420", "41.9700,-83.1700"], "depth": 4, "air": 10, "areas": ["ncds_15"], "nm": [21, 26]},
+    {"name": "Put-in-Bay at 40 ft is boxed in", "points": ["41.5070,-81.7100", "41.6540,-82.8130"], "depth": 40, "air": 10, "fail": true, "areas": ["ncds_15"]}
   ]
 }
