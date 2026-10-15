@@ -57,12 +57,16 @@ jobs:
         run: |
           # main publishes to the route-pack release the app uses; a branch run publishes to
           # the route-pack-beta pre-release, which only APKs built from a branch read
+          version="build ${GITHUB_RUN_NUMBER}"
+          day="$(date -u +%Y-%m-%d)"
           if [ "$GITHUB_REF" = refs/heads/main ]; then
-            tag=route-pack; flags=""; title="Route packs (weekly)"
+            tag=route-pack; flags=""; title="Route packs $version ($day)"
           else
-            tag=route-pack-beta; flags="--prerelease"; title="Route packs (test builds from branches)"
+            tag=route-pack-beta; flags="--prerelease"; title="Route packs, test $version from ${GITHUB_REF_NAME} ($day)"
           fi
-          gh release view $tag >/dev/null 2>&1 || \
-            gh release create $tag $flags --title "$title" \
-              --notes "NOAA ENC area route packs for the NOAA Route app. Not for navigation."
+          notes="NOAA ENC area route packs for the NOAA Route app, $version, built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}. Not for navigation."
+          gh release view $tag >/dev/null 2>&1 || gh release create $tag $flags --title "$title" --notes "$notes"
           gh release upload $tag packs/*.bin packs/catalog.json --clobber
+          # Renamed rather than recreated like the app release: the app downloads packs from
+          # here at any time, and a delete/create would leave a moment with no files
+          gh release edit $tag --title "$title" --notes "$notes"
