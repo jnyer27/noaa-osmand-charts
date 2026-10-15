@@ -27,7 +27,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 ## Quick start
 
-1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (about 4-7 MB).
+1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (about 2-7 MB).
 2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd.
 3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
@@ -52,11 +52,18 @@ Route data comes in NOAA Chart Display Service regions. These are the same numbe
 | Region | Covers | Size |
 |---|---|---|
 | **02a** | Long Island Sound north of 41.1 N and its east end, the Hudson from Haverstraw to Troy, Connecticut and Rhode Island, Narragansett Bay | 4.8 MB |
+| **02b** | Buzzards Bay, Martha's Vineyard and Nantucket, the Cape Cod Canal, Cape Cod Bay, Boston Harbor and Massachusetts Bay | 2.0 MB |
 | **03** | New York Harbor and the lower Hudson, western Long Island Sound, Long Island's south shore, northern NJ, the Delaware River from Wilmington to Trenton | 6.7 MB |
 | **04** | Upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay, the NJ coast from Cape May to Barnegat | 4.4 MB |
 | **05** | Lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound | 4.2 MB |
 | **06** | Pamlico Sound and Hatteras, Beaufort and Morehead City, Wilmington, Myrtle Beach, Charleston, the Savannah River to Augusta | 3.6 MB |
 | **07** | Beaufort SC and Hilton Head, Savannah, the Georgia sea islands, Jacksonville and the St. Johns, the Florida coast to Cape Canaveral | 4.6 MB |
+| **08** | The Indian River south of Cape Canaveral, the Atlantic coast and ICW from Sebastian to Miami, Biscayne Bay, the upper Keys | 3.0 MB |
+| **10** | Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers, Naples, Florida Bay, the Keys from Islamorada to Key West and the Dry Tortugas | 4.7 MB |
+| **11** | The Gulf coast from Tarpon Springs and the Big Bend to Apalachicola, Panama City, Pensacola, Mobile Bay and Mississippi Sound to Biloxi | 4.4 MB |
+| **15** | Lake Erie from Toledo and the Bass Islands to Cleveland, Erie and Dunkirk, the Detroit River and Lake St. Clair | 1.7 MB |
+
+Region 15 (Lake Erie) depths are charted to the Great Lakes Low Water Datum, not MLLW, and the route report and GPX say so. Lake levels are usually above that datum, but they change with the season and with wind.
 
 - **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline that works offline. Green means downloaded and up to date, amber means an update is available, dashed blue means available, and faint gray means no route data yet. Tap a region to download, update or delete it. Pinch to zoom, drag to pan and double-tap to zoom in. The list below the map shows the same information, and the main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ...").
 - **Trips that need another region:** once Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded, with its size and a **Download** button. The banner also says when part of the trip is outside every region.
@@ -354,7 +361,7 @@ The script searches a box around your points. If the only way runs outside it (a
 | `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), single cells for NCDS regions (`cells/`, with NOAA's catalog `ENCProdCat.xml`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; it re-downloads. Works offline once downloaded |
 | `~/.noaa-enc/route-defaults.json` | Last depth and air draft, used as interview defaults |
 
-**Storage:** the app's chart regions are about 4.5 MB each. A single NCDS chart map is about 600 MB, and a merged map for regions 03-05 is about 1.8 GB. With the scripts, an ECDIS map is 10-150 MB plus its tile cache in `~/.noaa-ecdis`, and `noaa-route.py` data in `~/.noaa-enc` is about 600 MB for Maryland and Virginia. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
+**Storage:** the app's chart regions are about 2-7 MB each. A single NCDS chart map is about 600 MB, and a merged map for regions 03-05 is about 1.8 GB. With the scripts, an ECDIS map is 10-150 MB plus its tile cache in `~/.noaa-ecdis`, and `noaa-route.py` data in `~/.noaa-enc` is about 600 MB for Maryland and Virginia. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
 
 ## Data sources
 - NOAA ENC downloads (route data): https://charts.noaa.gov/ENCs/ENCs.shtml and the ENC product catalog https://charts.noaa.gov/ENCs/ENCProdCat.xml
