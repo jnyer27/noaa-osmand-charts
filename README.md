@@ -6,7 +6,12 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 **[Download the app (noaa-route.apk)](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)**
 
-<img src="docs/app-regions.jpg" alt="NOAA Route Regions screen: NOAA chart regions 02a to 05 on the built-in map with the trip's start and destination in the Chesapeake, and the region list showing each region up to date" width="420">
+<p>
+  <img src="docs/app-route.jpg" alt="NOAA Route main screen: a 26.5 nm route from Maryland Marina to Ego Alley, Annapolis, at 5 ft safe operating depth and 10 ft air draft, planned in 0.8 s, with the leg-by-leg report of courses, distances and notes on shallow stretches, shoal soundings and the Bay Bridge span clearance" width="360" align="top">
+  <img src="docs/app-regions.jpg" alt="NOAA Route Regions screen: NOAA chart regions 02a to 05 on the built-in map with the trip's start and destination in the Chesapeake, and the region list showing each region up to date" width="360" align="top">
+</p>
+
+*Left: Maryland Marina to Annapolis at 5 ft, 26.5 nm, planned offline in 0.8 s. Right: the Regions screen.*
 
 > **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
 
