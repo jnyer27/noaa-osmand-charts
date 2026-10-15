@@ -320,8 +320,8 @@ class PlannerTest {
     @Test
     fun datumNames() {
         assertEquals("MLLW", Pack.datumName(emptyList()))
-        assertEquals("MLLW", Pack.datumName(listOf(12, 12)))
+        assertEquals("MLLW", Pack.datumName(listOf(12, 24)))
         assertEquals("Low Water Datum", Pack.datumName(listOf(25)))
-        assertEquals("chart datum", Pack.datumName(listOf(12, 25)))
+        assertEquals("Low Water Datum", Pack.datumName(listOf(12, 24, 25)))
     }
 }

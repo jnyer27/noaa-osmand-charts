@@ -759,8 +759,8 @@ def main():
             grid = Grid(*area["bbox"])
         log(f"Grid {grid.w} x {grid.h} (tiles from {grid.tx0},{grid.ty0})")
         planes, depth_table, notes, datums = build(cells, grid, a.work)
-        if datums and datums not in ([12], [25]):
-            log(f"WARNING: sounding datums {datums}; 12 (MLLW) expected for US tidal waters, 25 (IGLD 1985, Low Water Datum) for the Great Lakes")
+        if datums and datums != [12]:
+            log(f"Note: sounding datums {datums}; the app reports Low Water Datum if 25 (Great Lakes, IGLD 1985) is among them, else MLLW")
         path = os.path.join(a.out, area["id"] + ".bin")
         # One timestamp for the pack header and its catalog entry: the app offers an
         # update while the catalog's is later than the installed pack's, and separate

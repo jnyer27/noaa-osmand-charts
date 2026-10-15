@@ -92,15 +92,12 @@ class Note(
 class Pack(file: File) : AutoCloseable {
     companion object {
         /**
-         * The name depths are charted to, for the report and GPX: MLLW for tidal waters (12,
-         * and packs from before the datum was recorded), Low Water Datum for the Great Lakes
-         * (25, IGLD 1985), "chart datum" for a mix or anything else.
+         * The name depths are charted to, for the report and GPX. A pack with Great Lakes
+         * charts (25, IGLD 1985) is charted to Low Water Datum; anything else to MLLW (12).
+         * Packs also hold a few cells with other codes (24 local datum in the NC sounds and
+         * the upper Hudson, 5 and 23 in Florida), which have always been reported as MLLW.
          */
-        fun datumName(codes: Collection<Int>): String = when {
-            codes.all { it == 12 } -> "MLLW"
-            codes.all { it == 25 } -> "Low Water Datum"
-            else -> "chart datum"
-        }
+        fun datumName(codes: Collection<Int>): String = if (25 in codes) "Low Water Datum" else "MLLW"
 
         /**
          * Decompressed tiles of every open pack, least recently used dropped first. One
