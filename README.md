@@ -6,6 +6,8 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 **[Download the app (noaa-route.apk)](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)**
 
+<img src="docs/app-regions.jpg" alt="NOAA Route Regions screen: NOAA chart regions 02a to 05 on the built-in map with the trip's start and destination in the Chesapeake, and the region list showing each region up to date" width="420">
+
 > **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
 
 The project began as a set of Termux scripts, which are kept in this repository as the [proof of concept](#proof-of-concept-the-termux-scripts) that the app grew from.
