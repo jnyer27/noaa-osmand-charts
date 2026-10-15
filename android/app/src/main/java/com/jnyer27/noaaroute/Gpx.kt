@@ -35,12 +35,20 @@ object Gpx {
         return sb.toString()
     }
 
-    fun report(r: Route): String {
+    /**
+     * The route summary shown under Plan route. [trip]: lines naming the start, via points
+     * and destination; [after]: lines after the settings (charts used, when planned);
+     * [bufM]: the hazard buffer, if it should be shown.
+     */
+    fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null): String {
         val sb = StringBuilder()
         val air = if (r.airFt != null) "air draft ${num(r.airFt)} ft" else "air draft not checked"
-        sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\ndepth %s ft (MLLW), %s, grid %.0f m%s\n",
-            r.name, r.totalNm, r.points.size, num(r.depthFt), air, r.resM,
+        sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\n", r.name, r.totalNm, r.points.size))
+        for (t in trip) sb.append(t).append('\n')
+        sb.append(String.format(Locale.US, "depth %s ft (MLLW), %s%s, grid %.0f m%s\n",
+            num(r.depthFt), air, bufM?.let { String.format(Locale.US, ", hazard buffer %.0f m", it) } ?: "", r.resM,
             r.guideM?.let { String.format(Locale.US, " (long trip, guided by a %.0f m overview)", it) } ?: ""))
+        for (t in after) sb.append(t).append('\n')
         for (m in r.messages) sb.append(m).append('\n')
         sb.append("\nLeg Course  Dist nm  Notes\n")
         for ((k, l) in r.legs.withIndex()) {

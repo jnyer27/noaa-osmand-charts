@@ -39,10 +39,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.ceil
 
 class MainActivity : Activity() {
     companion object {
         const val ROUTES_DIR = "noaa-charts/routes"
+        const val BUF_M = 60.0 // hazard buffer around shallow soundings and obstructions
         val DEFAULT_PLACES = listOf(
             "Maryland Marina" to "39.32371, -76.39998",
             "Hart-Miller Island beach" to "39.24700, -76.38800",
@@ -979,13 +982,14 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt) { msg -> ui.post { status.text = msg } }
+                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M) { msg -> ui.post { status.text = msg } }
                 val (uri, savedAs) = saveGpx(r)
+                val sec = (System.currentTimeMillis() - t0) / 1000.0
                 ui.post {
                     route = r
                     gpxUri = uri
-                    result.text = Gpx.report(r)
-                    status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format((System.currentTimeMillis() - t0) / 1000.0) +
+                    result.text = Gpx.report(r, tripLines(a, vias, b), afterLines(p, r, sec), BUF_M)
+                    status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format(sec) +
                         if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
@@ -998,6 +1002,29 @@ class MainActivity : Activity() {
                 ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true }
             }
         }
+    }
+
+    /** Start, via points and destination for the summary, with a saved place's name when one matches. */
+    private fun tripLines(a: LatLon, vias: List<LatLon>, b: LatLon): List<String> {
+        val named = places().mapNotNull { (n, pos) -> Coords.parse(pos)?.let { it to n } }
+        fun show(p: LatLon): String {
+            val n = named.firstOrNull { (q, _) -> abs(q.lat - p.lat) < 1e-5 && abs(q.lon - p.lon) < 1e-5 }?.second
+            return if (n != null) "$n (${Coords.format(p)})" else Coords.format(p)
+        }
+        return listOf("start: ${show(a)}") + vias.mapIndexed { k, v -> "via ${k + 1}: ${show(v)}" } + listOf("destination: ${show(b)}")
+    }
+
+    /** Chart regions the route uses (with their build dates) and when it was planned. */
+    private fun afterLines(charts: ChartSet, r: Route, sec: Double): List<String> {
+        // Sampled every ~1 km along the legs: a long leg can cross a region with no waypoint in it
+        val samples = r.points.zipWithNext().flatMap { (p, q) ->
+            val n = ceil(Planner.distanceM(p, q) / 1000.0).toInt().coerceAtLeast(1)
+            (0 until n).map { k -> LatLon(p.lat + (q.lat - p.lat) * k / n, p.lon + (q.lon - p.lon) * k / n) }
+        } + r.points.last()
+        val used = charts.packs.filter { pk -> samples.any { pk.covers(it.lat, it.lon) } }
+        return listOf(
+            "charts: " + used.joinToString(", ") { pk -> pk.areaName.substringBefore(":") + " (built ${pk.created.take(10)})" },
+            "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(sec))
     }
 
     /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). */

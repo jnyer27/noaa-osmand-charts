@@ -112,6 +112,13 @@ class PlannerTest {
             assertTrue("bridge span reported", r.legs.any { l -> l.notes.any { it.startsWith("Test Bridge span (clearance 33 ft)") } })
             val gpx = Gpx.write(r)
             assertTrue(gpx.contains("<rtept"))
+            // The summary names the trip's ends and settings
+            val text = Gpx.report(r, listOf("start: Home (1, 2)", "destination: 3, 4"), listOf("charts: Test"), 40.0)
+            val lines = text.lines()
+            assertTrue(text, lines[0].startsWith("t: "))
+            assertTrue(text, lines[1] == "start: Home (1, 2)" && lines[2] == "destination: 3, 4")
+            assertTrue(text, lines[3].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
+            assertTrue(text, lines[4] == "charts: Test")
         }
     }
 
