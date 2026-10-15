@@ -1,55 +1,186 @@
-# NOAA Charts for OsmAnd+ (Termux scripts)
+# NOAA Route: offline boat route planning for Android
 
-Two scripts that build offline NOAA nautical chart overlays for OsmAnd+ on Android, run from Termux, plus a route planner (`noaa-route.py`) that writes GPX routes from NOAA's vector chart data, and the same planner as a standalone Android app (`android/`).
+**NOAA Route** is an Android app that plans water routes for your boat from NOAA's official vector charts (ENC). You enter a start, a destination, your safe operating depth and air draft. It plans a route that stays in deep enough water, keeps off shoals, rocks and wrecks, passes channel markers on the correct side and only goes under bridges with enough clearance. Then it sends the route to OsmAnd+ as a GPX file. Once you have downloaded your chart region, the app plans fully offline, usually in under a second. Termux is not needed.
 
-| Script | Chart style | Source | Depths | Best for |
-|---|---|---|---|---|
-| `noaa-charts.sh` | Traditional paper chart (NCDS) | NOAA pre-built MBTiles regions | Feet | Familiar paper-chart look, whole regions in one download |
-| `noaa-ecdis-tiles.sh` | ECDIS / S-52 (same look as SiiTech) | NOAA ECDIS Display Service, tile by tile | Meters | Most current data, true buoy colors, custom areas |
+The app can also download NOAA's paper-chart style maps and convert them for OsmAnd+, so you get charts and routes from one place.
 
-Both produce an OsmAnd `.sqlitedb` raster map in `Download/noaa-charts/`.
+**[Download the app (noaa-route.apk)](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)**
 
-> **Not a certified navigation system.** These are raster renderings of NOAA ENC data for situational awareness. Keep official charts and your eyes on the water.
+> **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
+
+The project began as a set of Termux scripts, which are kept in this repository as the [proof of concept](#proof-of-concept-the-termux-scripts) that the app grew from.
 
 ---
 
-## One-time setup
+## Install
 
-1. Install Termux (from F-Droid or GitHub, not the Play Store version).
-2. Copy the scripts into a Termux folder, for example `~/downloads`, then:
+1. Download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) on your phone and open it. Allow installs from your browser or file manager when Android asks.
+2. Later builds install over it as updates.
+3. To view routes and charts on a map, install **OsmAnd+** and turn on **Menu > Plugins > Online maps**. Chart overlays will not draw without it.
+
+## Quick start
+
+1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (about 4-7 MB).
+2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd.
+3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables.
+4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
+5. Tap **Open in OsmAnd** to follow the route.
+
+## Features
+
+- **Depth-aware routing.** Routes stay on water charted at your safe operating depth wherever possible. Shallow stretches are flagged with their length and the shallowest nearby sounding. If no route exists, the app explains why: it names the limiting sounding or obstruction and its position, and gives the deepest depth setting that does work.
+- **Channel-aware routing.** Dredged channels are preferred. Lateral buoys and daybeacons are never passed on the wrong side, so "red right returning" holds in both directions.
+- **Bridges and cables.** Routes go only under navigation spans with a charted clearance, and only when that clearance covers your air draft. Opening bridges are reported with their closed clearance.
+- **Long trips.** Trips of 100+ nm (for example, the Chesapeake down the ICW to the Carolinas) are planned at 20 m detail end to end in seconds, and can cross between chart regions.
+- **Via points and places.** Add via points in order. Save and edit favorite spots under **Manage places**.
+- **Works with OsmAnd.** You can share a position from OsmAnd into the app (tap a spot, then **Share > NOAA Route**). Map links, `geo:` links, plain coordinates and GPX files also work. The app asks whether the shared point is the **Start**, **Destination**, a **Via point**, or should be **saved as a place**. For a GPX file, you can pick a waypoint, use a route or track's first and last points as the trip, or save all its waypoints as places.
+- **Weekly NOAA data.** Route data is rebuilt every week from NOAA's current charts, with Notices to Mariners corrections applied. The app can update your regions automatically on Wi-Fi.
+- **Chart maps for OsmAnd.** The app downloads NOAA's paper-chart style maps, converts them for OsmAnd and can combine several regions into one map.
+- **Fully offline once a region is downloaded.**
+
+## Chart regions
+
+Route data comes in NOAA Chart Display Service regions. These are the same numbered regions as NOAA's chart maps (`ncds_04`, `ncds_05`). Available now:
+
+| Region | Covers | Size |
+|---|---|---|
+| **02a** | Long Island Sound north of 41.1 N and its east end, the Hudson from Haverstraw to Troy, Connecticut and Rhode Island, Narragansett Bay | 4.8 MB |
+| **03** | New York Harbor and the lower Hudson, western Long Island Sound, Long Island's south shore, northern NJ, the Delaware River from Wilmington to Trenton | 6.7 MB |
+| **04** | Upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay, the NJ coast from Cape May to Barnegat | 4.4 MB |
+| **05** | Lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound | 4.2 MB |
+| **06** | Pamlico Sound and Hatteras, Beaufort and Morehead City, Wilmington, Myrtle Beach, Charleston, the Savannah River to Augusta | 3.6 MB |
+| **07** | Beaufort SC and Hilton Head, Savannah, the Georgia sea islands, Jacksonville and the St. Johns, the Florida coast to Cape Canaveral | 4.6 MB |
+
+- **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline that works offline. Green means downloaded and up to date, amber means an update is available, dashed blue means available, and faint gray means no route data yet. Tap a region to download, update or delete it. Pinch to zoom, drag to pan and double-tap to zoom in. The list below the map shows the same information, and the main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ...").
+- **Trips that need another region:** once Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded, with its size and a **Download** button. The banner also says when part of the trip is outside every region.
+- **Automatic downloads:** the first time you download a region, the app asks once whether to download and update regions automatically on Wi-Fi. You can change this on the Regions screen. If you say yes, a daily background job fetches NOAA's weekly rebuild of your regions on Wi-Fi only, and a trip that needs another region gets it without asking. On mobile data the app still asks first.
+- **Moving from Chesapeake Bay:** regions 04 and 05 replace the older **Chesapeake Bay** area. The app offers the switch, or makes it on its own on Wi-Fi if automatic downloads are on, and removes the old area once both regions are in. The Chesapeake Bay area is no longer published. App versions from before regions existed can download regions 04 and 05 from their list.
+
+## Chart maps for OsmAnd
+
+Tap any NOAA region on the Regions map to open its card. Besides the route data, the card offers NOAA's paper-chart style map of the region (NCDS):
+
+- **Download for OsmAnd** downloads the map with Android's download manager. You can choose Wi-Fi only or allow mobile data. The download resumes after interruptions and keeps going with the app closed. The app then converts the map to OsmAnd's format as `Download/noaa-charts/ncds_XX.sqlitedb`.
+- **Download the .mbtiles only** keeps NOAA's file as it is, for OpenCPN or other apps.
+- A converted map is about 1.7 times the size of NOAA's file, and converting needs about 2.8 times that size in free space. The app checks the space first. Ready maps open in OsmAnd or Files.
+- **Combine chart maps for OsmAnd:** OsmAnd shows one chart overlay at a time, so this merges two or more regions into one map (`ncds_04_05.sqlitedb`). Where regions overlap, the more detailed tile wins. A combined map's card can **Add regions** later: the new region is merged into the combined file in place and the file is renamed (`ncds_04_05_06.sqlitedb`). After that, the region's own map can be deleted.
+- OsmAnd keeps its own copy of an imported map. After adding regions, delete the old map in OsmAnd and import the new file. The app cannot amend combined maps that were made in Termux, because Android does not let one app open another app's files.
+
+## How the planner decides where you can go
+
+| Charted | Treatment |
+|---|---|
+| Depth area at least your depth (usually the 6 ft+ areas) | Used freely |
+| Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed. Soundings shallower than your depth are hazards. Legs through this band are flagged with the length in it and the shallowest charted sounding within 100 m |
+| Land, drying, unsurveyed or uncharted water | Never used |
+| Rocks, wrecks and obstructions shallower than your depth + 1 ft or of unknown depth, and soundings shallower than your depth | Avoided with a 60 m hazard buffer. Over water charted at least your depth (such as a dredged channel), only the hazard itself is a wall, and the buffer is used only where there is no other way. Such legs are flagged "passes near charted shoal soundings or obstructions: check". In water that may be shallower than your depth, the whole buffer is a wall. Foul ground (safe to navigate over, bad for anchoring) only counts if it has a charted depth that is too shallow |
+| Dredged channels charted at least your depth | Preferred. Being near the edge of a maintained channel is normal, so the keep-off-the-shore cost there is a quarter of the usual, and shoal soundings on a channel's banks cost far less. As a result, long trips take the ICW or the C&D Canal instead of going outside |
+| Channel markers (lateral buoys and daybeacons) | Never passed on the wrong side. Each mark gets a 100 m line pointing away from its channel: toward the nearest charted fairway or dredged area, or else toward the nearest opposite-color mark. This keeps both "red right returning" and "green right going out" whichever way you go. Routes cross such a line, or the mark itself, only when there is no other way, flagged "passes over or on the wrong side of a channel marker: check". The lines never run through a charted fairway or dredged area. A mark with no channel or partner nearby gets no line, and neither do junction (preferred channel) marks |
+| Submerged snags and piles of unknown depth (old pilings) | In water charted at least your depth, crossed only when there is no other way, flagged "passes charted piles or snags: check". An example is the piles charted at the edge of a narrow dredged channel, such as Adams Creek Canal on the ICW. Elsewhere, a wall with the buffer |
+| Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |
+| Piers, seawalls, jetties and breakwaters charted as lines (shoreline construction) | Crossed only when there is no other way, for example into a slip. They cost 50 times as much as normal water and count as shore for the keep-off cost. Legs that run along or across one are flagged "runs along or across charted piers or seawalls: check" |
+| Single charted piles | Not avoided, because a 20 m grid cell would close narrow channels. Keep a lookout |
+| Bridges | Passed only under spans with a charted clearance (the navigation spans), and only if that clearance covers your air draft. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance. Check the opening schedule |
+| Entry prohibited / area to be avoided | Never used |
+| Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
+
+Routes keep off the shore. The cost of a cell rises within about 100 m of land, shallow water, piers, structures and hazard buffers, up to 3.4 times next to them, so the route only goes close where it has to. When the route is straightened into long legs, no leg is moved into the two grid cells nearest danger unless the planned path itself went there, and no leg crosses more piers or seawalls than the path did. Inside marinas and narrow bulkheaded harbors (such as Ego Alley), the route still runs close to piers and walls, because there is no other water.
+
+Depths are compared with 5 cm of slack, because NOAA stores feet rounded to 0.1 m (the 6 ft line is 1.8 m, or 5.9 ft). NOAA's depth areas usually step 0 / 6 / 12 ft, so at a 3 ft depth setting most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
+
+A point on land or a dock is moved to the nearest usable water, and the report says how far. Sometimes that water is a pocket walled in only by land or structures, such as a marina basin behind a pier too thin for the grid. In that case the end moves up to 250 m to the nearest water that connects to the rest of the route, and the report says so. Either way, the route keeps that water as its own waypoint. The short leg between it and your point is marked "connects your point to usable water: not checked", because it may cross a dock or the shore, so steer it by eye.
+
+If a point is boxed in by shallow water, land, a hazard buffer, or a bridge or cable too low for your air draft, the planner stops and says which one. It names the shallowest sounding or obstruction responsible, with its position, and when depth is the limit, it gives the deepest setting that gets out. For example, Maryland Marina at 6 ft is blocked by soundings as shallow as 3.9 ft, and 5 ft works.
+
+Long trips are worked out at 20 m detail within 20 km of each end first, to settle which inlet and which creek. The ends are then joined across open water on a coarse overview, and the route is planned at full 20 m detail stretch by stretch between guide points, about every 18 km on open water and every 8 km near the ends.
+
+## Getting routes and charts into OsmAnd+
+
+- **Routes:** tap **Open in OsmAnd** after planning. If OsmAnd will not open the route, tap **Show routes folder in Files** and tap the `.gpx` there.
+- **Chart maps:** OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied. Open the `.sqlitedb` from the app's region card, or tap it in a file manager (Download > noaa-charts) and choose **Open with / Share > OsmAnd+**. Then go to **Configure map > Overlay map** (or **Underlay map**), select the chart, and slide the **transparency** control all the way right.
+- **Replacing a map after an update:** OsmAnd reads **the copy it made at import**, not the file in Download. After an update, go to **Maps & Resources > Local**, delete the old chart, and import the new file.
+- **Stacking maps:** use a large-area map as the **underlay** and a detailed home-waters map as the **overlay**. The sharper map shows on top wherever they overlap. You can also put an NCDS map and an ECDIS map in the two slots and flip between styles. **Watch the units when switching:** NCDS shows feet and ECDIS shows meters, so a "9" means 9 ft on one and 9 m on the other.
+
+### Reading the paper-chart (NCDS) style
+- **Depths are in feet.**
+- **A magenta teardrop is a light**, whatever its color. Read the color from the label: `Fl G 4s` is green, `Fl R 4s` is red.
+- **A black dot with a height (for example, "15ft") is a fixed beacon on a pile**, not a buoy.
+- Even numbers are red and odd numbers are green ("red right returning").
+
+## How it works
+
+Regions are defined in `tools/areas.json`: each NCDS region's code and NOAA's region rectangle, plus reference routes. Every week, `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) builds a route pack for each region:
+
+- It takes every active cell in NOAA's ENC product catalog that covers the region, with all of NOAA's update files applied. It clips the pack to where approach and harbor charts exist, since region 04's NCDS rectangle reaches 64.95 W, far offshore.
+- It turns the charts into a 20 m grid of depth ranges, shallowest hazards and soundings, bridge and cable clearances, channel-marker lines and restricted-area notes. The grid is independent of any boat and uses one global grid, so regions line up.
+- It checks every chart's depth units (meters) and records the sounding datum.
+- Neighboring regions overlap by a row of tiles that hold the same data, so trips across the seam plan as if the regions were one pack.
+
+Before publishing, the workflow runs every reference route through the app's planner (each region's own routes, and the regions together across their seams), and publishes nothing if one fails. Branch runs publish to a separate `route-pack-beta` pre-release that only APKs built from a branch read, for testing on a phone before merging. The app applies your depth and air draft at planning time.
+
+**Adding a region:** add an entry to `tools/areas.json` with `"ncds"` (the code), `"ncds_bbox"` (NOAA's rectangle; the app's built-in table in `Regions.kt` has all 47), a name and a description, plus reference routes (including one that should fail). Then run the Route pack workflow. The coastline under the region map is built once by `tools/build_coastline.py` from Natural Earth data.
+
+## Building the app
+
+The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`) and published as the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app). The phone needs no Android tools. The Kotlin planner core (`MiniJson`, `Pack`, `ChartSet`, `Planner`, `Gpx`, `Coords`, `Shared`, `Regions`) has no Android dependencies, so it can also be tested on the phone with `pkg install openjdk-17 kotlin` plus the junit 4.13.2 and hamcrest-core 1.3 jars (see CLAUDE.md). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
+
+---
+
+## Proof of concept: the Termux scripts
+
+Before the app, the whole idea was proven with three scripts run from Termux on the phone. They still work and are kept here as the reference implementation:
+
+| Script | What it does | App equivalent |
+|---|---|---|
+| `noaa-route.py` | Route planner from NOAA ENC charts, GPX output | The app's planner, which is a Kotlin port with the same rules and results that runs in seconds instead of minutes |
+| `noaa-charts.sh` | Downloads NOAA's paper-chart style (NCDS) region maps and converts them for OsmAnd | **Download for OsmAnd** and **Combine chart maps** on a region's card |
+| `noaa-ecdis-tiles.sh` | Builds an ECDIS / S-52 style map (the same look as SiiTech) for any bounding box, tile by tile from NOAA's live service | Not in the app yet. Use the script when you want the most current data or a custom area |
+
+Both chart scripts produce an OsmAnd `.sqlitedb` raster map in `Download/noaa-charts/`.
+
+| Chart style | Source | Depths | Best for |
+|---|---|---|---|
+| Traditional paper chart (NCDS) | NOAA pre-built MBTiles regions | Feet | Familiar paper-chart look, whole regions in one download |
+| ECDIS / S-52 | NOAA ECDIS Display Service, tile by tile | Meters | Most current data, true buoy colors, custom areas |
+
+### One-time setup
+
+1. Install Termux from F-Droid or GitHub, not the Play Store version.
+2. Copy the scripts into a Termux folder, for example `~/downloads`, then run:
    ```
    chmod +x noaa-charts.sh noaa-ecdis-tiles.sh
    ```
 3. Run either script once. It installs `curl` and `sqlite` if needed and asks for storage permission. Accept the Android prompt.
 4. Optional: install **Termux:API** so the scripts can hold a wake lock and keep the phone from sleeping during long downloads.
-5. In OsmAnd+, enable **Menu > Plugins > Online maps**. Overlays and underlays will not draw without it.
+5. In OsmAnd+, enable **Menu > Plugins > Online maps**.
 
----
+To import a map from Termux:
+```
+termux-open --chooser ~/storage/downloads/noaa-charts/<name>.sqlitedb
+```
+and choose **OsmAnd+**.
 
-## noaa-charts.sh (paper chart style)
+### noaa-charts.sh (paper chart style)
 
 Downloads one of NOAA's regional NCDS MBTiles files and converts it to OsmAnd format.
 
-### Usage
 ```
 ./noaa-charts.sh [options] REGION [REGION ...]
 ```
-`REGION` is the NCDS code, such as `04`, `ncds_04`, or `19a`. Find your code by tapping your area on the NOAA map: https://distribution.charts.noaa.gov/ncds/
+`REGION` is the NCDS code, such as `04`, `ncds_04`, or `19a`. To find your code, tap your area on the NOAA map: https://distribution.charts.noaa.gov/ncds/
 
-### Options
 | Flag | Meaning |
 |---|---|
 | `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts`) |
 | `-k` | Keep the original `.mbtiles` after conversion |
 | `-m` | MBTiles only, skip conversion (for OpenCPN or other apps) |
 | `-f` | Force re-download even if your copy is current |
-| `-M` | Merge all regions into one map named after them, e.g. `ncds_04_05.sqlitedb` |
+| `-M` | Merge all regions into one map named after them, for example `ncds_04_05.sqlitedb` |
 | `-S` | Keep regions as separate maps, do not merge |
 | `-i FILE` | Show info for a local `.mbtiles` or `.sqlitedb` |
 | `-l` | List known region codes |
 | `-h` | Help |
 
-### Examples
 ```
 ./noaa-charts.sh 04            # region 04 (covers the upper Chesapeake)
 ./noaa-charts.sh 04 05         # two regions
@@ -57,39 +188,25 @@ Downloads one of NOAA's regional NCDS MBTiles files and converts it to OsmAnd fo
 ./noaa-charts.sh -M 04 05      # two regions merged into ncds_04_05.sqlitedb
 ```
 
-### Merging regions
-With two or more regions and neither `-M` nor `-S`, the script asks before downloading (default: merge). When run without a terminal (cron, scripts) it does not ask and keeps the maps separate.
+**Merging regions:** with two or more regions and neither `-M` nor `-S`, the script asks before downloading (default: merge). When run without a terminal (cron, scripts), it does not ask and keeps the maps separate.
 
 - The merged file name lists every region, sorted: `04 05` and `05 04` both give `ncds_04_05.sqlitedb`.
-- The per-region `.sqlitedb` files are kept so a later update to one region can re-merge without downloading the others. Import only the merged file into OsmAnd.
-- The merged map is rebuilt only when a region changed (or with `-f`, or if it is missing).
+- The per-region `.sqlitedb` files are kept so that a later update to one region can re-merge without downloading the others. Import only the merged file into OsmAnd.
+- The merged map is rebuilt only when a region changed, with `-f`, or if it is missing.
 - Where regions overlap, the larger tile image wins (usually the one with more chart drawn, not a blank edge).
 - `-m` (MBTiles only) disables merging.
 
-### Updates
-Re-run the same command. The script compares NOAA's file date with your copy and only downloads when NOAA has published something newer.
+**Updates:** re-run the same command. The script compares NOAA's file date with your copy and only downloads when NOAA has published something newer. **Caveat:** NOAA says these files update weekly, but region 04 was last published in May 2024. If the script keeps reporting "up to date", the region itself is stale. Use the ECDIS script when currency matters.
 
-**Caveat:** NOAA says these files update weekly, but region 04 was last published in May 2024. If the script keeps reporting "up to date", the region itself is stale. Use the ECDIS script when currency matters.
-
-### Reading this chart style
-- **Depths are in feet.**
-- **Magenta teardrop = a light**, whatever its color. Read the color from the label: `Fl G 4s` is green, `Fl R 4s` is red.
-- **Black dot with a height (e.g. "15ft") = a fixed beacon on a pile**, not a buoy.
-- Even numbers are red, odd numbers are green ("red right returning").
-
----
-
-## noaa-ecdis-tiles.sh (ECDIS / SiiTech style)
+### noaa-ecdis-tiles.sh (ECDIS / SiiTech style)
 
 Requests tiles for a bounding box from NOAA's live ECDIS Display Service and packages them for OsmAnd. NOAA updates the underlying ENC data **every Friday afternoon**, including Notice to Mariners corrections.
 
-### Usage
 ```
 ./noaa-ecdis-tiles.sh [options]
 ```
-With no options it builds the Middle River / Hart-Miller Island area at zoom 10 to 16.
+With no options, it builds the Middle River / Hart-Miller Island area at zoom 10 to 16.
 
-### Options
 | Flag | Meaning |
 |---|---|
 | `-b W,S,E,N` | Bounding box in decimal degrees: West, South, East, North |
@@ -103,7 +220,6 @@ With no options it builds the Middle River / Hart-Miller Island area at zoom 10 
 | `-y` | Skip the confirmation prompt |
 | `-h` | Help |
 
-### Examples
 ```
 # Home waters at full detail (the default box)
 ./noaa-ecdis-tiles.sh
@@ -115,8 +231,7 @@ With no options it builds the Middle River / Hart-Miller Island area at zoom 10 
 ./noaa-ecdis-tiles.sh -b -76.50,38.95,-76.45,38.99 -z 12-16 -n annapolis
 ```
 
-### Choosing area and zoom
-Each zoom level roughly **quadruples** the tile count.
+**Choosing area and zoom:** each zoom level roughly **quadruples** the tile count.
 
 | Area | Zoom | Tiles | Rough time on Wi-Fi |
 |---|---|---|---|
@@ -124,10 +239,9 @@ Each zoom level roughly **quadruples** the tile count.
 | Northern Bay | 10-15 | ~7,900 | 30-60 min |
 | Northern Bay | 10-16 | ~31,000 | several hours |
 
-Recommended approach: a large area at zoom 15, plus small zoom-16 maps for the creeks and harbors you actually use. The script shows the tile count and asks before downloading, and warns above 20,000 tiles.
+A good approach is a large area at zoom 15, plus small zoom-16 maps for the creeks and harbors you actually use. The script shows the tile count and asks before downloading, and it warns above 20,000 tiles.
 
-### Refresh and resume (automatic)
-Each run prints the mode it chose:
+**Refresh and resume (automatic):** each run prints the mode it chose.
 
 | Situation | What it does |
 |---|---|
@@ -136,44 +250,33 @@ Each run prints the mode it chose:
 | Last run had failed tiles | **Resume**: retries only those |
 | No map yet | First build |
 
-Your existing map is protected: if a refresh ends with failed tiles, the old `.sqlitedb` is left untouched. Re-run the same command to finish, and the new map replaces the old one only when complete.
+Your existing map is protected. If a refresh ends with failed tiles, the old `.sqlitedb` is left untouched. Re-run the same command to finish; the new map replaces the old one only when it is complete.
 
-**Weekly routine:** run on a Saturday to catch Friday's NOAA update, then re-import into OsmAnd (see below).
+**Weekly routine:** run on a Saturday to catch Friday's NOAA update, then re-import into OsmAnd.
 ```
 ./noaa-ecdis-tiles.sh -y
 ./noaa-ecdis-tiles.sh -y -b -76.65,38.85,-75.95,39.62 -z 10-15 -n north_bay
 ```
 
-### Reading this chart style
-- **Depths are in meters.** The small subscript digit is the decimal: `3₃` = 3.3 m (about 10.8 ft), `0₉` = 0.9 m.
-- Buoys and beacons show their **actual colors and daymark shapes** (red triangle, green square). Light rings are colored by light color.
+**Reading this chart style:** depths are in meters. The small subscript digit is the decimal: `3₃` is 3.3 m (about 10.8 ft) and `0₉` is 0.9 m. Buoys and beacons show their actual colors and daymark shapes (red triangle, green square), and light rings are colored by light color.
 
----
+### noaa-route.py (route planner)
 
-## noaa-route.py (route planner, GPX output)
+The original route planner, in Python. It reads NOAA ENC vector charts with all of NOAA's update files applied, uses the same rules as the app (see [How the planner decides where you can go](#how-the-planner-decides-where-you-can-go)), and writes a GPX route for OsmAnd. Its results match the app's, but it takes 15-60 seconds for a trip within a bay region and 5-15 minutes for long trips (over roughly 40 nm), where the app takes seconds.
 
-Plans a route for your safe operating depth over NOAA ENC vector charts (the same data the ECDIS service draws, with all NOAA update files applied) and writes a GPX route for OsmAnd.
-
-> **Planning aid only.** Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before running it.
-
-### Setup
+**Setup:**
 ```
 pkg install gdal python-numpy
 ```
 If GDAL then fails with `libOpenEXR... not found`, also run `pkg install openexr`.
 
-The first run downloads NOAA's ENC set for Maryland (about 32 MB) to `~/.noaa-enc/`. Add `-u` to check NOAA for newer data (they update weekly).
+The first run downloads NOAA's ENC set for Maryland (about 32 MB) to `~/.noaa-enc/`. Add `-u` to check NOAA for newer data (they update weekly). Instead of state sets, `-s` takes NOAA Chart Display Service region codes, the same regions the app uses: `-s 04` (upper Chesapeake, C&D Canal, Delaware Bay) or `-s 04,05` (the whole bay). A region fetches every active chart cell that covers it from NOAA's catalog (region 04: 266 cells, about 100 MB unpacked in `~/.noaa-enc/cells`), so it never stops at a state line the way the MD set stops at the Delaware border.
 
-Instead of state sets, `-s` takes NOAA Chart Display Service region codes, the same regions the app uses: `-s 04` (upper Chesapeake, C&D Canal, Delaware Bay), `-s 04,05` (the whole bay). A region fetches every active chart cell that covers it from NOAA's catalog (region 04: 266 cells, about 100 MB unpacked in `~/.noaa-enc/cells`), so it never stops at a state line the way the MD set stops at the Delaware border.
-
-### Usage
-Easiest: run it with no options and answer the questions (start, destination, via points, draft, air draft, name, update check, open in OsmAnd):
+**Usage:** run it with no options and answer the questions (start, destination, via points, depth, air draft, name, update check, open in OsmAnd):
 ```
 python3 noaa-route.py
 ```
-Your last draft and air draft become the defaults, and at the end it prints the full command so you can repeat the same route without questions.
-
-Or give everything on the command line:
+Your last depth and air draft become the defaults, and at the end it prints the full command so you can repeat the same route without questions. Or give everything on the command line:
 ```
 python3 noaa-route.py -f LAT,LON -t LAT,LON -d DEPTH_FT [options]
 ```
@@ -182,11 +285,11 @@ Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 | Flag | Meaning |
 |---|---|
 | `-f LAT,LON` | Start (decimal degrees, west negative) |
-| `-l` | Start from the phone's current location (see below) |
+| `-l` | Start from the phone's current location (needs Termux:API, see below) |
 | `-t LAT,LON` | End |
 | `-v LAT,LON` | Via point, repeatable, visited in order |
-| `-d FEET` | Safe operating depth: the minimum charted depth you need, i.e. your draft plus margin (1.8 ft draft: use 3) |
-| `-a FEET` | Air draft; bridge spans and overhead cables with less charted clearance are avoided |
+| `-d FEET` | Safe operating depth: the minimum charted depth you need, which is your draft plus margin (1.8 ft draft: use 3) |
+| `-a FEET` | Air draft. Bridge spans and overhead cables with less charted clearance are avoided |
 | `-n NAME` | Route and file name (default `route`) |
 | `-o DIR` | Output folder (default `~/storage/downloads/noaa-charts/routes`) |
 | `-s SETS` | Charts, comma separated (default `MD`): NOAA state sets (`MD,VA,DE`) or NCDS region codes (`04,05`) |
@@ -195,14 +298,8 @@ Points can be typed as `39.2508,-76.4886` or `39.2508 N, 76.4886 W`.
 | `-u` | Check NOAA for newer ENC data first |
 | `-O` | Open the routes folder in the Files app when done; tap the GPX and pick OsmAnd+ |
 
-### Starting from where you are (`-l`)
-Uses `termux-location`. One-time setup:
-1. Install the **Termux:API** app (same source as Termux) and run `pkg install termux-api`.
-2. Android **Settings > Apps > Termux:API > Permissions > Location > Allow**, with **Use precise location** on.
+`-l` uses `termux-location`. One-time setup: install the **Termux:API** app (from the same source as Termux) and run `pkg install termux-api`, then go to Android **Settings > Apps > Termux:API > Permissions > Location > Allow** with **Use precise location** on. It tries GPS for up to 90 s, then the network location, and prints the fix and its accuracy.
 
-It tries GPS for up to 90 s, then the network location, and prints the fix and its accuracy.
-
-### Example
 ```
 # From here to Chesapeake City public dock
 python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
@@ -210,92 +307,10 @@ python3 noaa-route.py -l -t 39.5268,-75.8107 -d 3 -n here_to_chesapeake_city
 # Middle River to Annapolis, 3 ft safe operating depth
 python3 noaa-route.py -f 39.32,-76.40 -t 38.975,-76.482 -d 3 -n middle_river_annapolis
 ```
-Takes 15-60 seconds on the phone for a trip within a bay region; long trips (over roughly 40 nm) take 5-15 minutes because both ends are worked out at 20 m over 20 km and each stretch is rasterized separately. The Android app plans the same routes in seconds. It prints each leg's course and distance with notes, then writes the GPX to `Download/noaa-charts/routes/`.
 
-**Opening a route in OsmAnd:** use a file manager (Files app > Download > noaa-charts > routes), tap the `.gpx` and pick OsmAnd+. With `-O` (or answering yes in the interview) the planner opens that folder in Files for you. Do **not** use `termux-open` for GPX files: OsmAnd crashes on GPX shared from Termux (both view and send), though `.sqlitedb` maps import fine that way.
+The script searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice.
 
-### How it decides where you can go
-| Charted | Treatment |
-|---|---|
-| Depth area at least your depth (usually the 6 ft+ areas) | Used freely |
-| Depth area spanning your depth (NOAA's usual 0-6 ft band) | Used only when needed; soundings shallower than your depth are hazards. Legs through it are flagged with the length in that band and the shallowest charted sounding within 100 m |
-| Land, drying, unsurveyed or uncharted water | Never used |
-| Rocks, wrecks, obstructions shallower than your depth + 1 ft or of unknown depth, and soundings shallower than your depth | Avoided with the hazard buffer (`-b`, 60 m). Over water charted at least your depth (a dredged channel) only the hazard itself is a wall and the buffer is used only where there is no other way, flagged "passes near charted shoal soundings or obstructions: check"; in water that may be shallower than your depth the whole buffer is a wall. Foul ground (safe to navigate over, bad for anchoring) only counts with a charted depth that is too shallow |
-| Dredged channels charted at least your depth | Preferred: being near the edge of a maintained channel is normal, so the keep-off-the-shore cost there is a quarter of the usual, and shoal soundings on its banks cost far less (long trips take the ICW or the C&D instead of going outside) |
-| Channel markers (lateral buoys and daybeacons) | Never passed on the wrong side: each mark gets a 100 m line pointing away from its channel (toward the nearest charted fairway or dredged area, else the nearest opposite-color mark), so red right returning and green right going out both hold whichever way you go. Routes cross such a line, or the mark itself, only when there is no other way, flagged "passes over or on the wrong side of a channel marker: check". The lines never run through a charted fairway or dredged area, and a mark with no channel or partner nearby gets none. Junction (preferred channel) marks get none |
-| Submerged snags and piles of unknown depth (old pilings) | In water charted at least your depth: crossed only when there is no other way (piles charted at the edge of a narrow dredged channel, such as Adams Creek Canal on the ICW), flagged "passes charted piles or snags: check". Elsewhere a wall with the buffer |
-| Bridge piers and piers drawn as areas | Avoided, without the buffer (they are visible) |
-| Piers, seawalls, jetties and breakwaters charted as lines (shoreline construction) | Crossed only when there is no other way, e.g. into a slip (they cost 50 times normal water and count as shore for the keep-off cost). Legs that run along or across one are flagged "runs along or across charted piers or seawalls: check" |
-| Single charted piles | Not avoided: a grid cell is 10-60 m wide and would close narrow channels. Keep a lookout |
-| Bridges | Passed only under spans with a charted clearance (the navigation spans), and with `-a` only if it is enough. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance; check the opening schedule |
-| Entry prohibited / area to be avoided | Never used |
-| Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
-
-Routes keep off the shore: the cost of a cell rises within about 100 m of land, shallow water, piers, structures and hazard buffers (at least 5 grid cells on coarse grids), up to 3.4 times next to them, so the route only goes close where it has to. Straightening the route into long legs never brings a leg into the two grid cells nearest danger unless the planned path itself went there, and never over more piers or seawalls than the path crossed. Inside marinas and narrow bulkheaded harbors (Ego Alley) the route still runs close to piers and walls: there is no other water.
-
-Depths are compared with 5 cm of slack because NOAA stores feet rounded to 0.1 m (the 6 ft line is 1.8 m = 5.9 ft). NOAA's depth areas usually step 0 / 6 / 12 ft, so for a 3 ft depth most creeks fall in the flagged 0-6 ft band. The planner keeps those stretches as short as it can.
-
-A point on land or a dock is moved to the nearest usable water, and the output says how far. If that water is a pocket walled in only by land or structures (a marina basin behind a pier too thin for the grid), the end moves up to 250 m to the nearest water that connects to the rest of the route, and the output says so. Either way the route keeps that water as its own waypoint, and the short leg between it and your point is marked "connects your point to usable water: not checked": it may cross a dock or the shore, so steer it by eye.
-
-The planner searches a box around your points. If the only way runs outside it (around a point of land), it widens the box and tries again, up to twice. If a point is boxed in (by shallow water, land, a hazard buffer, or a bridge or cable too low for `-a`), it stops right away and says which, naming the shallowest sounding or obstruction responsible with its position, and, when depth is the limit, the deepest `-d` that gets out (e.g. Maryland Marina at `-d 6`: soundings as shallow as 3.9 ft, `-d 5` works).
-
-Long trips (too large for a 20 m grid in one piece) are worked out at 20 m within 20 km of each end first (which inlet, which creek), joined across open water on a coarse overview, then routed at 20 m stretch by stretch between guide points about every 18 km on open water and every 8 km near the ends. Same method as the app.
-
----
-
-## NOAA Route Android app
-
-A self-contained Android version of the route planner: no Termux needed. Same rules and reports as `noaa-route.py`, ported to Kotlin, and much faster (under a second per route).
-
-- **Install:** download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) and open it (allow installs from your browser or file manager when Android asks). Later builds install over it as updates.
-- **Chart regions:** route planning data comes in NOAA Chart Display Service regions, the same numbered regions as the NCDS chart maps (`ncds_04`, `ncds_05`). Available now:
-
-  | Region | Covers | Size |
-  |---|---|---|
-  | **02a** | Long Island Sound north of 41.1 N and its east end, the Hudson from Haverstraw to Troy, Connecticut and Rhode Island, Narragansett Bay | 4.8 MB |
-  | **03** | New York Harbor and the lower Hudson, western Long Island Sound, Long Island's south shore, northern NJ, the Delaware River from Wilmington to Trenton | 6.7 MB |
-  | **04** | Upper and mid Chesapeake, the Potomac to Washington, the C&D Canal, Delaware Bay, the NJ coast from Cape May to Barnegat | 4.4 MB |
-  | **05** | Lower Chesapeake, Hampton Roads, the Virginia coast, Albemarle Sound | 4.2 MB |
-  | **06** | Pamlico Sound and Hatteras, Beaufort and Morehead City, Wilmington, Myrtle Beach, Charleston, the Savannah River to Augusta | 3.6 MB |
-  | **07** | Beaufort SC and Hilton Head, Savannah, the Georgia sea islands, Jacksonville and the St. Johns, the Florida coast to Cape Canaveral | 4.6 MB |
- The app plans fully offline once a region is downloaded and joins regions for trips that cross between them.
-- **First launch:** the app asks **Where do you boat?** and finds your region from your location, or lets you pick it on the map.
-- **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline (works offline). Green = downloaded and up to date, amber = update available, dashed blue = available, faint gray = no route data yet. Tap a region to download, update or delete it; pinch to zoom, drag to pan, double-tap to zoom in. The list below the map shows the same, and the main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ...").
-- **Trips that need another region:** as soon as Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded (with its size and a **Download** button), or says when part of the trip is outside every region.
-- **Automatic downloads:** the first time you download, the app asks once whether to download and update regions automatically on Wi-Fi (change it on the Regions screen). If yes, a daily background job fetches NOAA's weekly rebuild of your regions on Wi-Fi only, and a trip that needs another region gets it without asking (on mobile data it still asks).
-- **Chart maps for OsmAnd:** tap any NOAA region on the Regions map for its card. Besides the route data it offers NOAA's paper-chart style map of the region (NCDS): **Download for OsmAnd** downloads it with Android's download manager (Wi-Fi only or mobile data too; it resumes and keeps going with the app closed) and converts it to OsmAnd's `.sqlitedb`, exactly as `noaa-charts.sh` does, into `Download/noaa-charts/ncds_XX.sqlitedb`; **Download the .mbtiles only** keeps NOAA's file as it is. A converted map is about 1.7x NOAA's file, and converting needs about 2.8x free; the app checks first. Ready maps open in OsmAnd or Files. OsmAnd shows one chart overlay at a time, so **Combine chart maps for OsmAnd** merges two or more regions into one map (`ncds_04_05.sqlitedb`, the more detailed tile wins where they overlap), and a combined map's card can **Add regions** later: the new region is merged into the combined file in place and the file renamed (`ncds_04_05_06.sqlitedb`), after which the region's own map can be deleted. OsmAnd keeps its own copy of an imported map: after adding regions, delete the old map in OsmAnd and import the new file. Combined maps made in Termux cannot be amended by the app (Android does not let it open other apps' files).
-- **Moving from Chesapeake Bay:** the older **Chesapeake Bay** area is replaced by regions 04 and 05. The app offers the switch (or does it on Wi-Fi with automatic downloads on) and removes the old area once both regions are in. The Chesapeake Bay area is no longer published; app versions from before regions can download regions 04 and 05 from their list.
-- **Points:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places** (preloaded with a few Chesapeake spots; edit them under **Manage places**), or tap **Here** for the current GPS position.
-- **From other apps:** share a position to NOAA Route (in OsmAnd: tap a spot, then **Share > NOAA Route**; also works with map links, `geo:` links and plain coordinates), or share or open a GPX file with it. The app asks whether the position is the **Start**, **Destination**, a **Via point**, or should be **saved as a place** (the name is filled in when the share includes one; an existing place with the same name is updated). For a GPX file you pick a waypoint, use a route/track's first and last points as the trip, or save all its waypoints as places.
-- **Output:** the route report, and the GPX saved to `Download/noaa-charts/routes/`. **Open in OsmAnd** sends it directly; if OsmAnd will not open it, **Show routes folder in Files** and tap it there.
-
-How it works: areas are defined in `tools/areas.json`: NCDS regions (code and NOAA's region rectangle) plus reference routes. `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) takes every active cell in NOAA's ENC product catalog that covers a region, clips the pack to where approach and harbor charts exist (region 04's NCDS rectangle reaches 64.95 W, far offshore), and turns the charts into a 20 m grid of depth ranges, shallowest hazards and soundings, bridge/cable clearances and restricted-area notes, independent of any boat, on one global grid so areas line up. It checks every chart's depth units (meters) and records the sounding datum. Neighboring regions overlap by a row of tiles holding the same data, so trips across the seam plan as if it were one pack. Before publishing, the workflow runs every reference route through the app's planner (each area's own, and the regions together across their seam) and publishes nothing if one fails. Branch runs publish to a separate `route-pack-beta` pre-release that only APKs built from a branch read, for testing on a phone before merging. The app applies your depth and air draft at planning time. Long trips are worked out at 20 m within 20 km of each end, joined across open water on a coarse overview, then routed at full 20 m detail stretch by stretch between guide points (about every 18 km on open water, 8 km near the ends). The APK is built by `.github/workflows/android.yml` on every push to `android/`.
-
-**Adding a region:** add an entry to `tools/areas.json` with `"ncds"` (the code), `"ncds_bbox"` (NOAA's rectangle; the app's built-in table in `Regions.kt` has all 47), a name and description, plus reference routes (including one that should fail), then run the Route pack workflow. The coastline under the region map is built once by `tools/build_coastline.py` from Natural Earth data.
-
----
-
-## Getting maps into OsmAnd+
-
-OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied.
-
-1. Import from Termux:
-   ```
-   termux-open --chooser ~/storage/downloads/noaa-charts/<name>.sqlitedb
-   ```
-   and choose **OsmAnd+**. Or tap the file in a file manager (Download > noaa-charts) and use **Open with / Share > OsmAnd+**.
-2. Go to **Configure map > Overlay map** (or **Underlay map**) and select the chart.
-3. Slide the **transparency** control all the way right for a fully visible chart.
-
-### Replacing a map after an update
-OsmAnd reads the **copy it made at import**, not the file in Download. After any refresh:
-1. **Maps & Resources > Local**, find the old chart, delete it.
-2. Import the new file as above.
-
-### Stacking maps
-Use the large-area map as the **underlay** and a detailed home-waters map as the **overlay**. The sharper map shows on top wherever they overlap. You can also put an NCDS map and an ECDIS map in the two slots and flip between styles.
-
-**Watch the units when switching:** NCDS shows feet, ECDIS shows meters. A "9" means 9 ft on one and 9 m on the other.
+**Opening a route in OsmAnd:** use a file manager (Files app > Download > noaa-charts > routes), tap the `.gpx` and pick OsmAnd+. With `-O` (or by answering yes in the interview), the planner opens that folder in Files for you. Do **not** use `termux-open` for GPX files: OsmAnd crashes on GPX shared from Termux (both view and send), though `.sqlitedb` maps import fine that way.
 
 ---
 
@@ -303,46 +318,38 @@ Use the large-area map as the **underlay** and a detailed home-waters map as the
 
 | Symptom | Fix |
 |---|---|
-| Download finishes, then "file missing" or "not a valid MBTiles" | Storage permission was granted mid-run. Run the command again. |
-| Chart imported but nothing shows | Check the Online maps plugin is on, the chart is selected, and transparency is not at the far left. |
-| Still blank after that | The area may not be covered. For NCDS, run `./noaa-charts.sh -i <file>` to check bounds, or try another region code. |
-| Changes not appearing after a refresh | Delete the old copy in OsmAnd's Local list and re-import. |
-| OsmAnd crashes when a GPX is opened from Termux | Known: open GPX routes from the Files app instead (`noaa-route.py -O` opens the folder). |
-| ECDIS run reports many failed tiles | NOAA's service may be updating (Friday afternoons) or down. Re-run later; it resumes. |
-| "No tiles downloaded" | Same as above, or no network. |
-| All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use the ECDIS map. |
-
----
+| Chart imported but nothing shows | Check that the Online maps plugin is on, the chart is selected, and transparency is not at the far left. |
+| Still blank after that | The area may not be covered. Check the region on the app's Regions map, or for a Termux-made NCDS map run `./noaa-charts.sh -i <file>` to check bounds. |
+| Changes not appearing after an update | Delete the old copy in OsmAnd's Local list and re-import. |
+| All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use an ECDIS map. |
+| OsmAnd will not open a route | Open it from the Files app instead (**Show routes folder in Files** in the app, `noaa-route.py -O` in Termux). |
+| Termux: download finishes, then "file missing" or "not a valid MBTiles" | Storage permission was granted mid-run. Run the command again. |
+| Termux: ECDIS run reports many failed tiles, or "No tiles downloaded" | NOAA's service may be updating (Friday afternoons) or down, or there is no network. Re-run later; it resumes. |
 
 ## Files and folders
 
 | Location | Contents |
 |---|---|
-| `Download/noaa-charts/*.sqlitedb` | Finished maps to import |
-| `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
-| `Download/noaa-charts/routes/*.gpx` | Routes from `noaa-route.py` and the NOAA Route app |
-| `Download/noaa-charts/noaa-route.apk` | Latest app build copied here for installing (also on the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)) |
-| `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), single cells for NCDS regions (`cells/`, with NOAA's catalog `ENCProdCat.xml`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; re-downloads. Works offline once downloaded |
-| `~/.noaa-enc/route-defaults.json` | Last draft and air draft, used as interview defaults |
-| `android/` | Android app source (Kotlin) |
+| `android/` | NOAA Route app source (Kotlin) |
 | `tools/build_route_pack.py`, `tools/areas.json` | Region pack builder and region definitions for the app (run on GitHub Actions) |
 | `tools/build_coastline.py` | Makes the app's built-in coastline (`android/app/src/main/assets/coastline.bin`) from Natural Earth |
+| `Download/noaa-charts/routes/*.gpx` | Routes from the app and from `noaa-route.py` |
+| `Download/noaa-charts/*.sqlitedb` | Finished chart maps to import into OsmAnd |
+| `Download/noaa-charts/noaa-route.apk` | Latest app build copied here for installing (also on the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)) |
 | `~/.noaa-route-signing/` | App signing key and password (also stored as GitHub secrets). Back it up: without it, new builds cannot update the installed app |
-| `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map (`-M`); the per-region files beside it are its sources. If you delete the per-region files to save space, refresh later with `-f` (e.g. `noaa-charts.sh -f -M 03 04 05`), since their `.stamp` files say they are current |
-| `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps (delete to force a re-check) |
+| `noaa-charts.sh`, `noaa-ecdis-tiles.sh`, `noaa-route.py` | Termux proof-of-concept scripts |
+| `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map from `noaa-charts.sh -M`; the per-region files beside it are its sources. If you delete the per-region files to save space, refresh later with `-f` (for example `noaa-charts.sh -f -M 03 04 05`), since their `.stamp` files say they are current |
+| `Download/noaa-charts/.ncds_XX.stamp` | NCDS update timestamps for `noaa-charts.sh` (delete to force a re-check) |
+| `~/.noaa-ecdis/<name>/` | ECDIS tile cache used for resume/retry (safe to delete) |
+| `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), single cells for NCDS regions (`cells/`, with NOAA's catalog `ENCProdCat.xml`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; it re-downloads. Works offline once downloaded |
+| `~/.noaa-enc/route-defaults.json` | Last depth and air draft, used as interview defaults |
 
-### Storage
-
-Typical sizes on the phone: merged NCDS map for regions 03-05 about 1.8 GB (each single region about 600 MB), an ECDIS map 10-150 MB plus its tile cache in `~/.noaa-ecdis`, `noaa-route.py` data in `~/.noaa-enc` about 600 MB for Maryland and Virginia, the app's chart regions about 4.5 MB each. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
-
-## Building the app
-
-The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`); the phone needs no Android tools. The Kotlin planner core has no Android dependencies, so it can also be tested on the phone with `pkg install openjdk-17 kotlin` plus the junit 4.13.2 and hamcrest-core 1.3 jars (see CLAUDE.md). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
+**Storage:** the app's chart regions are about 4.5 MB each. A single NCDS chart map is about 600 MB, and a merged map for regions 03-05 is about 1.8 GB. With the scripts, an ECDIS map is 10-150 MB plus its tile cache in `~/.noaa-ecdis`, and `noaa-route.py` data in `~/.noaa-enc` is about 600 MB for Maryland and Virginia. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
 
 ## Data sources
+- NOAA ENC downloads (route data): https://charts.noaa.gov/ENCs/ENCs.shtml and the ENC product catalog https://charts.noaa.gov/ENCs/ENCProdCat.xml
 - NOAA Chart Display Service MBTiles: https://distribution.charts.noaa.gov/ncds/
 - NOAA ECDIS Display Service: https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOnline/MapServer/exts/MaritimeChartService/MapServer
-- NOAA ENC downloads (route planner): https://charts.noaa.gov/ENCs/ENCs.shtml and the ENC product catalog https://charts.noaa.gov/ENCs/ENCProdCat.xml
 - NCDS region rectangles: https://gis.charttools.noaa.gov/arcgis/rest/services/MarineChart_Services/ncds_tilecache_metadata/MapServer/0
 - Coastline under the app's region map: Natural Earth 1:10m land and lakes (public domain), https://www.naturalearthdata.com/
-- OsmAnd `.sqlitedb` format follows https://github.com/tarwirdur/mbtiles2osmand
+- The OsmAnd `.sqlitedb` format follows https://github.com/tarwirdur/mbtiles2osmand
