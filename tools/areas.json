@@ -65,7 +65,7 @@
     {"name": "Maryland Marina to Carolina Beach (long trip at 5 ft: in at Masonboro, down the ICW, never in the sound)", "points": ["39.32371,-76.39998", "34.05312,-77.92213"], "depth": 5, "air": 10, "areas": ["ncds_04", "ncds_05", "ncds_06"], "nm": [395, 425], "avoid": [[34.1180, -77.8627, 150], [33.8800, -78.0000, 2000]]},
     {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"], "nm": [73, 89]},
     {"name": "Wrightsville Beach to Southport (ICW)", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"], "nm": [30, 37]},
-    {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [63, 77]},
+    {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [55, 77]},
     {"name": "Fernandina to Jacksonville", "points": ["30.6720,-81.4670", "30.3220,-81.6600"], "depth": 4, "air": 10, "areas": ["ncds_07"], "nm": [40, 50]}
   ]
 }

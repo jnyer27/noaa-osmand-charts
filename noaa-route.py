@@ -632,7 +632,7 @@ def band_vrt(work, band, names, cells):
 # ---------------------------------------------------------------- grid
 
 class Grid:
-    def __init__(self, pts, res, widen=1.0):
+    def __init__(self, pts, res, widen=1.0, align=None):
         lats = [p[0] for p in pts]
         lons = [p[1] for p in pts]
         span = max(max(lats) - min(lats), max(lons) - min(lons))
@@ -640,6 +640,18 @@ class Grid:
         latmid = (min(lats) + max(lats)) / 2
         padx = pad / math.cos(math.radians(latmid))
         self._box(min(lats) - pad, max(lats) + pad, min(lons) - padx, max(lons) + padx, res)
+        if align is not None:
+            # Grown out onto that grid's cell lattice: a long trip's 20 m grids all share
+            # one, or a one-cell gap (Carolina Beach Inlet at 5 ft) is open in one and shut
+            # in the next
+            south, east = self.south, self.east
+            self.res, self.dlat, self.dlon = align.res, align.dlat, align.dlon
+            self.north = align.north + math.ceil((self.north - align.north) / align.dlat) * align.dlat
+            self.west = align.west + math.floor((self.west - align.west) / align.dlon) * align.dlon
+            self.h = int(math.ceil((self.north - south) / self.dlat - 1e-9))
+            self.w = int(math.ceil((east - self.west) / self.dlon - 1e-9))
+            self.south = self.north - self.h * self.dlat
+            self.east = self.west + self.w * self.dlon
 
     @classmethod
     def around(cls, lat, lon, half_m, res, align=None):
@@ -1358,8 +1370,9 @@ def open_folder(path):
 
 OFF_WATER = "connects your point to usable water: not checked, use your eyes"
 CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
-APPROACH_M = 20000.0  # reach of the 20 m detail drawn into a long trip's overview around each end
-GUIDE_SPACING_M = 18000.0
+APPROACH_M = 20000.0  # a long trip's ends are worked out at 20 m this far out
+GUIDE_SPACING_M = 18000.0  # guide point spacing on a long trip's overview path
+FINE_GUIDE_M = 8000.0  # and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
 PIECE_RES = 20.0
 
 
@@ -1371,9 +1384,9 @@ class Ctx:
         self.messages, self.moved, self.seen = [], set(), set()
 
 
-def auto_grid(pts, widen, res=None, max_cells=5_000_000):
+def auto_grid(pts, widen, res=None, max_cells=5_000_000, align=None):
     if res:
-        return Grid(pts, res, widen)
+        return Grid(pts, res, widen, align)
     for res in (10, 15, 20, 30, 45, 60, 90, 120):
         g = Grid(pts, res, widen)
         if g.w * g.h <= max_cells:
@@ -1499,11 +1512,11 @@ def no_route(ctx, grid, G, who, pt, enc):
     die("\n".join(lines))
 
 
-def plan_piece(p, q, np_, nq, ctx, res=None):
+def plan_piece(p, q, np_, nq, ctx, res=None, align=None):
     """Route p to q on one full-detail window: (waypoints, legs)."""
     widths = (1.0, 2.5, 5.0)
     for attempt, widen in enumerate(widths):
-        grid = auto_grid([p, q], widen, res)
+        grid = auto_grid([p, q], widen, res, align=align)
         G = build(grid, ctx)
         ok = G["ok"]
         sp, mp = snap(grid, ok, *p)
@@ -1594,99 +1607,253 @@ def refine_guide(pt, overview_res, ctx):
     return g.latlon(best[1]) if best else pt
 
 
+def cost_field(grid, cost, start, pier=None):
+    """Cheapest cost from start to every cell it can reach, with astar's moves and costs,
+    and each cell's parent (toward start)."""
+    w, h, res = grid.w, grid.h, grid.res
+    INF = float("inf")
+    g = array("d", [INF]) * (w * h)
+    parent = array("i", [-1]) * (w * h)
+    closed = bytearray(w * h)
+    g[start] = 0.0
+    # Heap entries are plain ints, cost (1/64 units) above the cell number: a whole 4M-cell
+    # window as (cost, cell) tuples would take hundreds of MB
+    SH = 24
+    MASK = (1 << SH) - 1
+    heap = [start]
+    D2 = math.sqrt(2)
+    nbrs = ((-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+            (-1, -1, D2), (-1, 1, D2), (1, -1, D2), (1, 1, D2))
+    while heap:
+        i = heapq.heappop(heap) & MASK
+        if closed[i]:
+            continue
+        closed[i] = 1
+        r, c = divmod(i, w)
+        gi, ci = g[i], cost[i]
+        for dr, dc, step in nbrs:
+            rr, cc = r + dr, c + dc
+            if not (0 <= rr < h and 0 <= cc < w):
+                continue
+            j = rr * w + cc
+            cj = cost[j]
+            if cj == INF or closed[j]:
+                continue
+            cs = cj
+            if dr and dc:
+                o1, o2 = r * w + cc, rr * w + c
+                if cost[o1] == INF or cost[o2] == INF:
+                    continue
+                if pier is not None and (pier[o1] or pier[o2]):
+                    cs = max(cj, cost[o1] if pier[o1] else 0.0, cost[o2] if pier[o2] else 0.0)
+            ng = gi + step * res * (ci + cs) * 0.5
+            if ng < g[j]:
+                g[j] = ng
+                parent[j] = i
+                heapq.heappush(heap, (int(ng * 64) << SH) | j)
+    return g, parent
+
+
+def astar_ends(grid, cost, box, starts, goals, target):
+    """Overview A* from any of starts (cell -> cost of reaching it from the start) to any
+    of goals (cell -> cost from it to the end). Inside the ends' windows (box) the overview
+    only starts or ends: it never crosses them on its own coarse cells. Returns the
+    overview path and its total cost, or None."""
+    w, h, res = grid.w, grid.h, grid.res
+    n = w * h
+    gr, gc = divmod(target, w)
+    INF = float("inf")
+    cost = array("f", cost)
+    for i in list(starts) + list(goals):
+        if cost[i] == INF:
+            cost[i] = 2.0
+    done = n  # the end itself, reached from a goal cell
+    g = array("d", [INF]) * (n + 1)
+    parent = array("i", [-1]) * (n + 1)
+    closed = bytearray(n + 1)
+    heap = []
+    for i, v in starts.items():
+        g[i] = v
+        heapq.heappush(heap, (v + math.hypot(i // w - gr, i % w - gc) * res, i))
+    D2 = math.sqrt(2)
+    nbrs = ((-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+            (-1, -1, D2), (-1, 1, D2), (1, -1, D2), (1, 1, D2))
+    while heap:
+        _, i = heapq.heappop(heap)
+        if i == done:
+            break
+        if closed[i]:
+            continue
+        closed[i] = 1
+        gi = g[i]
+        if i not in starts and i in goals and gi + goals[i] < g[done]:
+            g[done] = gi + goals[i]
+            parent[done] = i
+            heapq.heappush(heap, (g[done], done))
+        if box[i] and i not in starts:
+            continue  # a goal cell inside a window: the path ends here
+        r, c = divmod(i, w)
+        ci = cost[i]
+        for dr, dc, step in nbrs:
+            rr, cc = r + dr, c + dc
+            if not (0 <= rr < h and 0 <= cc < w):
+                continue
+            j = rr * w + cc
+            # Into a window only to end there, and never from one window cell to another
+            if box[j] and (box[i] or j not in goals):
+                continue
+            cj = cost[j]
+            if cj == INF or closed[j]:
+                continue
+            if dr and dc and (cost[r * w + cc] == INF or cost[rr * w + c] == INF):
+                continue
+            ng = gi + step * res * (ci + cj) * 0.5
+            if ng < g[j]:
+                g[j] = ng
+                parent[j] = i
+                heapq.heappush(heap, (ng + math.hypot(rr - gr, cc - gc) * res, j))
+    if parent[done] == -1:
+        return None
+    path = [parent[done]]
+    while parent[path[-1]] != -1:
+        path.append(parent[path[-1]])
+    return path[::-1], g[done]
+
+
+def approach(pt, who, ctx, align=None):
+    """One end of a long trip worked out at full detail: everything reachable from it
+    within APPROACH_M, with the cheapest cost and path back to it. "fail" explains a
+    boxed-in end (called only if the trip turns out impossible)."""
+    fg = Grid.around(pt[0], pt[1], APPROACH_M, PIECE_RES, align)
+    F = build(fg, ctx)
+    s0 = snap(fg, F["ok"], *pt)[0]
+    enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+    if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
+        # Cut off within the window: use the nearest water that leads out of it
+        border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
+                  (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
+        hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
+        if hit:
+            s0 = hit[0]
+            enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+    cost, parent = cost_field(fg, F["cost"], s0, F["pier"])
+    fail = None if enc[1] else (lambda: no_route(ctx, fg, F, who, pt, enc))
+
+    def trace(i):
+        out = []
+        while i >= 0:
+            out.append(i)
+            i = parent[i]
+        return out
+    return {"fg": fg, "cost": np.frombuffer(cost, np.float64), "trace": trace, "fail": fail}
+
+
 def guide_points(p, q, np_, nq, ctx):
-    """Long legs: open-water guide points about every GUIDE_SPACING_M along a coarse
-    overview route, with each end's full-detail reachable water stamped in first."""
+    """Long legs: plan on a coarse overview grid, then return guide points along that path;
+    each stretch between them is routed at full detail by plan_piece. Around each end
+    (APPROACH_M) the overview does not plan at all: it may only end on an overview cell
+    holding water reachable from the end at 20 m, at that water's real cost, and the guide
+    points there follow the 20 m path. Drawing the 20 m water into the overview instead let
+    a cell of ocean (reachable by Masonboro Inlet) sit next to a cell of sound (reachable
+    down the ICW): the overview walked across Pleasure Island, and the last stretch, at
+    20 m, could not follow it."""
+    log("Long trip: working out both ends at 20 m")
+    ap = approach(p, label(np_, p), ctx)
+    aq = approach(q, label(nq, q), ctx, align=ap["fg"])
+    ends = (ap, aq)
+    # Both ends inside each other's windows: the cheapest meeting in 20 m water
+    fp, fq = ap["fg"], aq["fg"]
+    meet = (math.inf, -1, -1)
+    ip = np.flatnonzero(np.isfinite(ap["cost"]))
+    rq = ip // fp.w + int(round((fq.north - fp.north) / fp.dlat))
+    cq = ip % fp.w + int(round((fp.west - fq.west) / fp.dlon))
+    inq = (rq >= 0) & (rq < fq.h) & (cq >= 0) & (cq < fq.w)
+    if inq.any():
+        jq = rq[inq] * fq.w + cq[inq]
+        tot = ap["cost"][ip[inq]] + aq["cost"][jq]
+        k = int(np.argmin(tot))
+        if np.isfinite(tot[k]):
+            meet = (float(tot[k]), int(ip[inq][k]), int(jq[k]))
     widths = (1.0, 2.5, 5.0)
     for attempt, widen in enumerate(widths):
         grid = auto_grid([p, q], widen)
         log(f"Long trip: overview at {grid.res:.0f} m")
         G = build(grid, ctx)
-        ok, cost = G["ok"], G["cost"]
-        ends, boxes = [], []
-        for pt in (p, q):
-            # Two layers of detail drawn into the overview around each end: 4 km (the end
-            # itself), and APPROACH_M, so the overview can see an inlet and the inside route
-            # to the end (Masonboro Inlet and the ICW, 17 km from Carolina Beach, were
-            # invisible on a coarse overview). Both at 20 m: at 40 m the 1-cell ICW channel
-            # can vanish and Carolina Beach Inlet, closed at 20 m for 5 ft, can open
-            for layer, half in enumerate((4000, APPROACH_M)):
-                res = PIECE_RES
-                fg = Grid.around(pt[0], pt[1], half, res)
-                F = build(fg, ctx)
-                hit0 = snap(fg, F["ok"], *pt, quiet=layer > 0)
-                if hit0 is None:
-                    continue
-                s0 = hit0[0]
-                enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
-                if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
-                    border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
-                              (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
-                    hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
-                    if hit:
-                        s0 = hit[0]
-                reach = np.flatnonzero(np.frombuffer(bytes(region(fg, F["ok"], [s0])), np.uint8))
-                lat = fg.north - (reach // fg.w + 0.5) * fg.dlat
-                lon = fg.west + (reach % fg.w + 0.5) * fg.dlon
-                rr = np.clip(((grid.north - lat) / grid.dlat).astype(np.int64), 0, grid.h - 1)
-                cc = np.clip(((lon - grid.west) / grid.dlon).astype(np.int64), 0, grid.w - 1)
-                ci = rr * grid.w + cc
-                okv = np.frombuffer(ok, np.uint8)
-                costv = np.frombuffer(cost, np.float32)
-                okv[ci] = 1
-                costv[ci[np.isinf(costv[ci])]] = 2.0
-                boxes.append((fg, ci))
-                if layer == 0:
-                    r0, c0 = grid.cell(*fg.latlon(s0))
-                    ends.append(r0 * grid.w + c0)
-        # Inside a detail window the 20 m answer replaces the overview: overview cells wholly
-        # inside it that the end cannot reach are closed (a sampled overview cell bridged
-        # Carolina Beach Inlet, closed at 20 m for 5 ft, into the stamped ICW)
-        okv = np.frombuffer(ok, np.uint8).reshape(grid.h, grid.w)
-        costv = np.frombuffer(cost, np.float32).reshape(grid.h, grid.w)
-        stamped = np.zeros((grid.h, grid.w), bool)
-        for _, ci in boxes:
-            stamped.flat[ci] = True
+        # Overview cells wholly inside an end's window, and per end the cheapest reachable
+        # 20 m cell in each of them
+        box = np.zeros((grid.h, grid.w), bool)
         top = grid.north - np.arange(grid.h) * grid.dlat
         left = grid.west + np.arange(grid.w) * grid.dlon
-        for fg, _ in boxes:
+        best = []
+        for e in ends:
+            fg = e["fg"]
             rows = (top <= fg.north) & (top - grid.dlat >= fg.south)
             cols = (left >= fg.west) & (left + grid.dlon <= fg.east)
-            inside = rows[:, None] & cols[None, :] & ~stamped
-            okv[inside] = 0
-            costv[inside] = np.inf
-        path = astar(grid, cost, ends[0], ends[1], G["pier"])
-        if path:
+            inside = rows[:, None] & cols[None, :]
+            box |= inside
+            idx = np.flatnonzero(np.isfinite(e["cost"]))
+            lat = fg.north - (idx // fg.w + 0.5) * fg.dlat
+            lon = fg.west + (idx % fg.w + 0.5) * fg.dlon
+            r = np.floor((grid.north - lat) / grid.dlat).astype(np.int64)
+            c = np.floor((lon - grid.west) / grid.dlon).astype(np.int64)
+            keep = (r >= 0) & (r < grid.h) & (c >= 0) & (c < grid.w)
+            idx, r, c = idx[keep], r[keep], c[keep]
+            keep = inside[r, c]
+            idx, oc = idx[keep], (r * grid.w + c)[keep]
+            order = np.argsort(e["cost"][idx], kind="stable")
+            ocs, first = np.unique(oc[order], return_index=True)
+            best.append(dict(zip(ocs.tolist(), idx[order][first].tolist())))
+        boxb = bytearray(box.ravel().astype(np.uint8).tobytes())
+        found = astar_ends(grid, G["cost"], boxb, {k: float(ap["cost"][v]) for k, v in best[0].items()},
+                           {k: float(aq["cost"][v]) for k, v in best[1].items()}, grid.cell(*q)[0] * grid.w + grid.cell(*q)[1])
+        # Points along the whole path, each with its overview cell (-1: a 20 m point)
+        pts, cells = [], []
+        if found and found[1] < meet[0]:
+            path = found[0]
+            for i in reversed(ap["trace"](best[0][path[0]])):
+                pts.append(fp.latlon(i)); cells.append(-1)
+            for oc in path[1:-1]:
+                pts.append(grid.latlon(oc)); cells.append(oc)
+            for i in aq["trace"](best[1][path[-1]]):
+                pts.append(fq.latlon(i)); cells.append(-1)
+        elif meet[1] >= 0:
+            for i in reversed(ap["trace"](meet[1])):
+                pts.append(fp.latlon(i)); cells.append(-1)
+            for i in aq["trace"](meet[2])[1:]:
+                pts.append(fq.latlon(i)); cells.append(-1)
+        if pts:
             cum = [0.0]
-            for k in range(1, len(path)):
-                cum.append(cum[-1] + distance_m(grid.latlon(path[k - 1]), grid.latlon(path[k])))
+            for k in range(1, len(pts)):
+                cum.append(cum[-1] + distance_m(pts[k - 1], pts[k]))
             total = cum[-1]
-            n = max(1, int(math.ceil(total / GUIDE_SPACING_M)))
-            out, frm = [], 0
             reach_cells = max(1, int(2000 / grid.res))
-            for k in range(1, n):
-                target = total * k / n
-                j = frm
-                while j < len(path) - 1 and cum[j] < target:
-                    j += 1
-                best = j
-                for d in range(reach_cells + 1):
-                    cand = [x for x in (j + d, j - d) if frm < x < len(path) - 1 and
-                            G["nav"][path[x]] == SAFE and G["prox"][path[x]] == 0 and not G["soft"][path[x]]]
-                    if cand:
-                        best = cand[0]
-                        break
-                if cum[best] < 4000 or total - cum[best] < 4000:
+            out, last, k = [], 0.0, 1
+            while k < len(pts) - 1:
+                fine = cells[k] < 0
+                if cum[k] - last < (FINE_GUIDE_M if fine else GUIDE_SPACING_M) or cum[k] < 4000 or total - cum[k] < 4000:
+                    k += 1
                     continue
-                out.append(refine_guide(grid.latlon(path[best]), grid.res, ctx))
-                frm = best
-            return out
-        encs = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in ends]
-        closed = [e for e in (0, 1) if not encs[e][1]]
-        if closed or attempt == len(widths) - 1:
-            e = closed[0] if closed else min((0, 1), key=lambda e: encs[e][0])
-            pt = p if e == 0 else q
-            no_route(ctx, grid, G, label(np_ if e == 0 else nq, pt) + f" (overview at {grid.res:.0f} m)", pt, encs[e])
+                if fine:
+                    out.append(pts[k])  # on the 20 m path itself: usable water reachable from the end
+                else:
+                    # Prefer a nearby overview cell in open, safe water
+                    for d in range(reach_cells + 1):
+                        cand = [x for x in (k + d, k - d) if 0 < x < len(pts) - 1 and cells[x] >= 0 and cum[x] > last and
+                                G["nav"][cells[x]] == SAFE and G["prox"][cells[x]] == 0 and not G["soft"][cells[x]]]
+                        if cand:
+                            k = cand[0]
+                            break
+                    out.append(refine_guide(pts[k], grid.res, ctx))
+                last = cum[k]
+                k += 1
+            return out, fp
+        for e in ends:
+            if e["fail"]:
+                e["fail"]()
+        if attempt == len(widths) - 1:
+            r0, c0 = grid.cell(*p)
+            no_route(ctx, grid, G, label(np_, p) + f" (overview at {grid.res:.0f} m)", p,
+                     enclosure(grid, G["ok"], G["nav"], G["flags"], r0 * grid.w + c0))
         log("No route inside this area, widening the search")
 
 
@@ -1696,12 +1863,13 @@ def plan(pts, ctx):
     for k in range(len(pts) - 1):
         p, q = pts[k], pts[k + 1]
         long_leg = not ctx.a.res and auto_grid([p, q], 1.0).res > PIECE_RES
-        chain = [p] + (guide_points(p, q, k + 1, k + 2, ctx) if long_leg else []) + [q]
+        guide, lattice = guide_points(p, q, k + 1, k + 2, ctx) if long_leg else ([], None)
+        chain = [p] + guide + [q]
         for j in range(len(chain) - 1):
             log(f"Routing leg {k + 1} of {len(pts) - 1}" + (f", stretch {j + 1} of {len(chain) - 1}" if len(chain) > 2 else ""))
             w, l, _ = plan_piece(chain[j], chain[j + 1], k + 1 if j == 0 else None,
                                  k + 2 if j == len(chain) - 2 else None, ctx,
-                                 PIECE_RES if long_leg else ctx.a.res)
+                                 PIECE_RES if long_leg else ctx.a.res, lattice)
             wps += w if not wps else w[1:]
             legs += l
     return wps, legs
