@@ -23,7 +23,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 1. Download `noaa-route.apk` from the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app) on your phone and open it. Allow installs from your browser or file manager when Android asks.
 2. Later builds install over it as updates.
-3. To view routes and charts on a map, install **OsmAnd+** and turn on **Menu > Plugins > Online maps**. Chart overlays will not draw without it.
+3. To view routes and charts on a map, install **OsmAnd+** and see [Using routes and charts in OsmAnd+](#using-routes-and-charts-in-osmand).
 
 ## Quick start
 
@@ -101,12 +101,15 @@ If a point is boxed in by shallow water, land, a hazard buffer, or a bridge or c
 
 Long trips are worked out at 20 m detail within 20 km of each end first, to settle which inlet and which creek. The ends are then joined across open water on a coarse overview, and the route is planned at full 20 m detail stretch by stretch between guide points, about every 18 km on open water and every 8 km near the ends.
 
-## Getting routes and charts into OsmAnd+
+## Using routes and charts in OsmAnd+
 
-- **Routes:** tap **Open in OsmAnd** after planning. If OsmAnd will not open the route, tap **Show routes folder in Files** and tap the `.gpx` there.
-- **Chart maps:** OsmAnd keeps maps in its own private folder, so maps are **imported**, not copied. Open the `.sqlitedb` from the app's region card, or tap it in a file manager (Download > noaa-charts) and choose **Open with / Share > OsmAnd+**. Then go to **Configure map > Overlay map** (or **Underlay map**), select the chart, and slide the **transparency** control all the way right.
-- **Replacing a map after an update:** OsmAnd reads **the copy it made at import**, not the file in Download. After an update, go to **Maps & Resources > Local**, delete the old chart, and import the new file.
-- **Stacking maps:** use a large-area map as the **underlay** and a detailed home-waters map as the **overlay**. The sharper map shows on top wherever they overlap. You can also put an NCDS map and an ECDIS map in the two slots and flip between styles. **Watch the units when switching:** NCDS shows feet and ECDIS shows meters, so a "9" means 9 ft on one and 9 m on the other.
+NOAA Route does the work: it downloads NOAA's chart for your region, converts it to OsmAnd's format and hands it over, and it plans routes and sends them to OsmAnd as GPX. Both work fully offline once downloaded, so do the downloads at home on Wi-Fi.
+
+1. **Get the chart.** In NOAA Route, tap **Regions**, tap your region, then **Download for OsmAnd**. The app downloads NOAA's chart, converts it and saves it as `Download/noaa-charts/ncds_XX.sqlitedb`. To show several regions at once, use **Combine chart maps for OsmAnd** to make one map from them.
+2. **Add it to OsmAnd.** Tap **Open in OsmAnd** on the region card. OsmAnd imports the chart as an offline map. Then select it as the overlay in OsmAnd's map settings (OsmAnd's Online maps plugin must be on to draw it). If you use OsmAnd's Boat profile, set the overlay while that profile is active, since each profile keeps its own map settings.
+3. **Send a route.** After planning, tap **Open in OsmAnd** to show and follow the route on the chart. If OsmAnd will not open it, tap **Show routes folder in Files** and tap the `.gpx` there.
+
+When NOAA publishes an update, download it again from the region card. OsmAnd keeps its own copy of an imported chart, so delete the old one in OsmAnd and import the new file.
 
 ### Reading the paper-chart (NCDS) style
 - **Depths are in feet.**
