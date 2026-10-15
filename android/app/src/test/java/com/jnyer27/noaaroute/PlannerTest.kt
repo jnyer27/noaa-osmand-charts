@@ -263,6 +263,33 @@ class PlannerTest {
         }
     }
 
+    /** Open water with a channel marker's wrong-side line (GATE_MARK) along row 250, cols [cols]. */
+    private fun gatePack(cols: IntRange): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (c in cols) planes[Pack.P_CABLECLR][250 * size + c] = Pack.GATE_MARK.toByte()
+        return writePack(planes, "[]")
+    }
+
+    @Test
+    fun goesAroundTheWrongSideOfAMarker() {
+        Pack(gatePack(300..320)).use { pack ->
+            // Straight up col 310 would cross the line; going round its end costs little
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(270, 310), cellCenter(230, 310)), 3.0, null)
+            assertTrue("went around (%.0f m)".format(r.totalNm * Planner.NM), r.totalNm * Planner.NM > 820.0)
+            assertTrue("no marker note", r.legs.none { l -> l.notes.any { it.contains("channel marker") } })
+        }
+    }
+
+    @Test
+    fun crossesTheWrongSideOnlyWhenItMustAndSaysSo() {
+        Pack(gatePack(0 until size)).use { pack ->
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(270, 310), cellCenter(230, 310)), 3.0, null)
+            assertTrue("crossed directly (%.0f m)".format(r.totalNm * Planner.NM), r.totalNm * Planner.NM < 900.0)
+            assertTrue("marker note", r.legs.any { l -> l.notes.any { it.contains("channel marker") } })
+        }
+    }
+
     @Test
     fun parsesCoordinates() {
         assertEquals(LatLon(39.25084, -76.48861), Coords.parse("39.25084° N, 76.48861° W"))

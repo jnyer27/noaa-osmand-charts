@@ -108,7 +108,8 @@ NCDS = {
 }
 S57_OPTS = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON"
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
-          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD"]
+          "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
+          "BOYLAT", "BCNLAT", "FAIRWY"]
 FT = 0.3048
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
@@ -126,10 +127,17 @@ ROUNDING_M = 0.05
 SHORE_M = 100.0
 K_MIN = 5
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span,
-# 6 = pier or seawall line, 7 = submerged snag or pile of unknown depth)
+# 6 = pier or seawall line, 7 = submerged snag or pile of unknown depth, 8 = channel
+# marker or its wrong side, 9 = dredged area deep enough)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
-NO_PASS, SPAN_OK, PIER, SNAG = 4, 5, 6, 7
-NFLAGS = 7
+NO_PASS, SPAN_OK, PIER, SNAG, GATE, DREDGED = 4, 5, 6, 7, 8, 9
+NFLAGS = 9
+# Inside a dredged channel deep enough for the boat, being near its edge is normal: the
+# proximity cost is cut to this share and the hazard buffer's cost (bank soundings just
+# outside the channel) to DREDGED_SOFT_COST. Otherwise every cell of a narrow channel cost
+# up to 3.4 x 5 and long trips went outside rather than down the ICW.
+DREDGED_PROX = 0.25
+DREDGED_SOFT_COST = 1.5
 # Piers and seawalls (SLCONS) are lines over charted water, often between a slip and
 # open water. As walls they sealed marinas and narrow bridge spans (fenders) on a
 # 10-20 m grid, so they are passable at this cost multiple and count as danger for
@@ -147,6 +155,131 @@ SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
 # cell. Wrecks, rocks and other obstructions stay walls.
 SNAG_COST = 50.0
 SNAG_NOTE = "passes charted piles or snags: check"
+# Lateral marks (buoys BOYLAT, daybeacons BCNLAT). A mark's channel side is the same
+# whichever way a boat goes, so red right returning (green right going out) is: never pass
+# between a mark and the water it guards. Each mark gets a "wrong side" line GATE_M long,
+# pointing away from its channel (from the side of the nearest fairway or dredged area
+# within CHANNEL_M, else toward the nearest opposite-colour mark within PAIR_M); crossing
+# it, or the mark's own cell, costs GATE_COST like a pier and is flagged.
+GATE_M = 100.0
+CHANNEL_M = 150.0
+PAIR_M = 400.0
+GATE_COST = 50.0
+GATE_NOTE = "passes over or on the wrong side of a channel marker: check"
+
+
+def channel_gates(marks, fairways, dredged):
+    """Wrong-side lines of lateral marks. marks: [(lon, lat, catlam)], catlam 1 = port-hand
+    (green in the US), 2 = starboard-hand (red), 3/4 = preferred channel (no line).
+    fairways, dredged: lists of exterior rings [(lon, lat), ...]. Returns
+    [((lon, lat), (lon, lat))]: from each mark GATE_M away from its channel, kept out of
+    fairways and dredged areas (a wrong guess can never block a charted channel)."""
+    if not marks:
+        return []
+    lat0 = sum(m[1] for m in marks) / len(marks)
+    kx, ky = 111320.0 * math.cos(math.radians(lat0)), 111320.0
+    to = lambda lon, lat: (lon * kx, lat * ky)
+    back = lambda x, y: (x / kx, y / ky)
+    rings = [[[to(*p) for p in r] for r in group if len(r) >= 3] for group in (fairways, dredged)]
+    # Bounding boxes, so each mark only looks at channels near it (a region has thousands)
+    boxes = [[(min(p[0] for p in r), min(p[1] for p in r), max(p[0] for p in r), max(p[1] for p in r)) for r in g] for g in rings]
+
+    def near(g, x, y, m):
+        return [r for r, b in zip(rings[g], boxes[g]) if b[0] - m <= x <= b[2] + m and b[1] - m <= y <= b[3] + m]
+    pts = [(to(lon, lat), cat) for lon, lat, cat in marks]
+
+    def inside(x, y, ring):
+        c = False
+        for i in range(len(ring)):
+            (x1, y1), (x2, y2) = ring[i - 1], ring[i]
+            if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+                c = not c
+        return c
+
+    def nearest(x, y, ring):
+        best = None
+        for i in range(len(ring)):
+            (ax, ay), (bx, by) = ring[i - 1], ring[i]
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy or 1e-9
+            t = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+            px, py = ax + t * dx, ay + t * dy
+            d = math.hypot(x - px, y - py)
+            if best is None or d < best[0]:
+                best = (d, px, py, dx, dy)
+        return best
+
+    def nearest_side(x, y, ring):
+        """Nearest of the ring's long edges (its sides, not its end caps): (distance,
+        edge dx, dy, edge midpoint)."""
+        segs = [(ring[i - 1], ring[i]) for i in range(len(ring))]
+        lens = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in segs]
+        if not lens:
+            return None
+        long_ = min(60.0, 0.3 * max(lens))
+        best = None
+        for (a, b), L in zip(segs, lens):
+            if L < long_:
+                continue
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            t = max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / (L * L)))
+            d = math.hypot(x - a[0] - t * dx, y - a[1] - t * dy)
+            if best is None or d < best[0]:
+                best = (d, dx, dy, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        return best
+
+    out = []
+    for (x, y), cat in pts:
+        if cat not in (1, 2):
+            continue
+        v = None
+        for g in (0, 1):
+            cand = [(nearest_side(x, y, r), r) for r in near(g, x, y, CHANNEL_M)]
+            cand = [(n, r) for n, r in cand if n is not None and n[0] <= CHANNEL_M]
+            if not cand:
+                continue
+            (d, dx, dy, mx, my), ring = min(cand, key=lambda c: c[0][0])
+            # Perpendicular to the channel's side, pointing into the channel (an end cap
+            # would point along the channel and block its own entrance)
+            L = math.hypot(dx, dy) or 1.0
+            n = (-dy / L, dx / L)
+            v = n if inside(mx + 3 * n[0], my + 3 * n[1], ring) else (-n[0], -n[1])
+            break
+        if v is None:
+            opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
+            opp = [o for o in opp if o[0] <= PAIR_M]
+            if opp:
+                _, ox, oy = min(opp)
+                v = (ox - x, oy - y)
+        if v is None:
+            continue
+        L = math.hypot(*v)
+        if L == 0:
+            continue
+        ux, uy = -v[0] / L, -v[1] / L
+        # The line never runs through a charted fairway or dredged area: it stops where
+        # one begins (a wrong guess can then never block a charted channel); a mark inside
+        # its channel starts the line where it leaves the channel
+        all_rings = near(0, x, y, GATE_M) + near(1, x, y, GATE_M)
+        start, end, t = None, None, 0.0
+        while t <= GATE_M:
+            px, py = x + ux * t, y + uy * t
+            inch = any(inside(px, py, r) for r in all_rings)
+            if not inch and start is None:
+                start = t
+            elif inch and start is not None:
+                end = t - 5
+                break
+            t += 5
+        if start is None:
+            continue
+        end = GATE_M if end is None else end
+        if end - start < 30:
+            continue
+        out.append((back(x + ux * start, y + uy * start), back(x + ux * end, y + uy * end)))
+    return out
+
+
 PIER_NOTE = "runs along or across charted piers or seawalls: check"
 # S-57 CATBRG values for bridges that open: opening, swing, lifting, bascule, drawbridge, transporter
 OPENING = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
@@ -499,7 +632,7 @@ def band_vrt(work, band, names, cells):
 # ---------------------------------------------------------------- grid
 
 class Grid:
-    def __init__(self, pts, res, widen=1.0):
+    def __init__(self, pts, res, widen=1.0, align=None):
         lats = [p[0] for p in pts]
         lons = [p[1] for p in pts]
         span = max(max(lats) - min(lats), max(lons) - min(lons))
@@ -507,6 +640,18 @@ class Grid:
         latmid = (min(lats) + max(lats)) / 2
         padx = pad / math.cos(math.radians(latmid))
         self._box(min(lats) - pad, max(lats) + pad, min(lons) - padx, max(lons) + padx, res)
+        if align is not None:
+            # Grown out onto that grid's cell lattice: a long trip's 20 m grids all share
+            # one, or a one-cell gap (Carolina Beach Inlet at 5 ft) is open in one and shut
+            # in the next
+            south, east = self.south, self.east
+            self.res, self.dlat, self.dlon = align.res, align.dlat, align.dlon
+            self.north = align.north + math.ceil((self.north - align.north) / align.dlat) * align.dlat
+            self.west = align.west + math.floor((self.west - align.west) / align.dlon) * align.dlon
+            self.h = int(math.ceil((self.north - south) / self.dlat - 1e-9))
+            self.w = int(math.ceil((east - self.west) / self.dlon - 1e-9))
+            self.south = self.north - self.h * self.dlat
+            self.east = self.west + self.w * self.dlon
 
     @classmethod
     def around(cls, lat, lon, half_m, res, align=None):
@@ -545,6 +690,49 @@ class Grid:
     def latlon(self, i):
         r, c = divmod(i, self.w)
         return self.north - (r + 0.5) * self.dlat, self.west + (c + 0.5) * self.dlon
+
+
+def band_gates(src, have, grid, work, band):
+    """Lateral marks and their wrong-side lines in one band's charts, as a GeoJSON file
+    for gdal_rasterize (layer "gates"), or None if there are none."""
+    m = 0.003  # marks and channels just outside the grid still matter at its edge
+    spat = [repr(grid.west - m), repr(grid.south - m), repr(grid.east + m), repr(grid.north + m)]
+
+    def feats(layer):
+        if layer not in have:
+            return []
+        t = run(["ogr2ogr", "-f", "GeoJSON", "/vsistdout/", src, layer, "-spat", *spat], capture=True)
+        try:
+            return json.loads(t).get("features", [])
+        except ValueError:
+            return []
+
+    def rings(fs):
+        out = []
+        for f in fs:
+            g = f.get("geometry") or {}
+            if g.get("type") == "Polygon":
+                out.append([tuple(p[:2]) for p in g["coordinates"][0]])
+            elif g.get("type") == "MultiPolygon":
+                out += [[tuple(p[:2]) for p in poly[0]] for poly in g["coordinates"]]
+        return out
+
+    marks = []
+    for layer in ("BOYLAT", "BCNLAT"):
+        for f in feats(layer):
+            g = f.get("geometry") or {}
+            if g.get("type") == "Point":
+                marks.append((g["coordinates"][0], g["coordinates"][1], (f.get("properties") or {}).get("CATLAM") or 0))
+    if not marks:
+        return None
+    lines = channel_gates(marks, rings(feats("FAIRWY")), rings(feats("DRGARE")))
+    fc = {"type": "FeatureCollection", "name": "gates", "features":
+          [{"type": "Feature", "properties": {}, "geometry": {"type": "LineString", "coordinates": [list(a), list(b)]}} for a, b in lines] +
+          [{"type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [lon, lat]}} for lon, lat, _ in marks]}
+    path = os.path.join(work, f"gates{band}.geojson")
+    with open(path, "w") as f:
+        json.dump(fc, f)
+    return path
 
 
 def build_rasters(grid, cells, ext, draft_m, air_m, work):
@@ -627,6 +815,12 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
             raster(src, "SLCONS", 1, None, False, [PIER], ft)
         if "OBSTRN" in have:
             raster(src, "OBSTRN", 1, "VALSOU IS NULL AND CATOBS = 1 AND WATLEV = 3", True, [SNAG], ft)
+        if "DRGARE" in have:
+            raster(src, "DRGARE", 1, f"DRVAL1 >= {d}", False, [DREDGED], ft)
+        if "BOYLAT" in have or "BCNLAT" in have:
+            gj = band_gates(src, have, grid, work, band)
+            if gj:
+                raster(gj, "gates", 1, None, False, [GATE], ft)
         if air_m and "CBLOHD" in have:
             raster(src, "CBLOHD", 1, f"VERCLR IS NULL OR VERCLR < {air_m}", True, [NO_PASS], ft)
 
@@ -704,22 +898,25 @@ def prepare(grid, nav, flags, hazard_buf_m):
     square = cross + [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     dist = np.full((h, w), K, np.uint8)
     pier = ok & (np.frombuffer(flags[PIER - 1], np.uint8).reshape(h, w) > 0)
-    reach = ~ok | pier | snag
+    gate = ok & (np.frombuffer(flags[GATE - 1], np.uint8).reshape(h, w) > 0) & ~snag
+    reach = ~ok | pier | snag | gate
     dist[reach] = 0
     for d in range(1, K):
         reach = _grow(reach, square if d % 2 else cross)
         dist[reach & (dist > d)] = d
 
     prox = np.where(ok, K - dist, 0).astype(np.uint8)           # 0 in open water, up to K-1 next to danger
-    c = (1.0 + 2.4 / (K - 1) * prox) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
+    channel = (np.frombuffer(flags[DREDGED - 1], np.uint8).reshape(h, w) > 0) & (navA == SAFE)
+    c = (1.0 + 2.4 / (K - 1) * prox * np.where(channel, DREDGED_PROX, 1.0)) * np.where(navA == MARGINAL, 4.0, 1.0)  # up to x3.4 next to danger
     c = np.where(pier, c * PIER_COST, c)
-    c = np.where(soft, c * SOFT_COST, c)
+    c = np.where(soft, c * np.where(channel, DREDGED_SOFT_COST, SOFT_COST), c)
     c = np.where(snag, c * SNAG_COST, c)
+    c = np.where(gate & ~pier, c * GATE_COST, c)
     cost = np.where(ok, c, np.inf).astype(np.float32)
     cost_arr = array("f")
     cost_arr.frombytes(cost.tobytes())
     return (bytearray(ok.astype(np.uint8).tobytes()), cost_arr, bytearray(prox.tobytes()),
-            bytearray((pier | snag).astype(np.uint8).tobytes()), bytearray(soft.astype(np.uint8).tobytes()))
+            bytearray((pier | snag | gate).astype(np.uint8).tobytes()), bytearray(soft.astype(np.uint8).tobytes()))
 
 
 WALLS = {"shallow": "water shallower than your -d depth",
@@ -1078,7 +1275,10 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_b
     class Snag:  # passable snag, as in prepare()
         def __getitem__(self, i):
             return flags[SNAG - 1][i] and nav[i] == SAFE
-    pier, snag = Pier(), Snag()
+    class Gate:  # channel marker or its wrong side, as in prepare()
+        def __getitem__(self, i):
+            return flags[GATE - 1][i] and nav[i] in (SAFE, MARGINAL)
+    pier, snag, gate = Pier(), Snag(), Gate()
     for k in range(len(wps_idx) - 1):
         a, b = wps_idx[k], wps_idx[k + 1]
         lc = line_cells(grid, a, b)
@@ -1107,6 +1307,9 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_b
         on_snag = pier_steps(grid, lc, snag) > 0
         if on_snag and not (legs and legs[-1].get("snag")):
             notes.insert(0, SNAG_NOTE)
+        on_gate = pier_steps(grid, lc, gate) > 0
+        if on_gate and not (legs and legs[-1].get("gate")):
+            notes.insert(0, GATE_NOTE)
         if on_pier and not (legs and legs[-1].get("pier")):
             notes.insert(0, PIER_NOTE)  # once per stretch of such legs
         near = bool(soft) and sum(1 for i in lc if soft[i]) >= 2  # one edge cell is grid noise
@@ -1115,7 +1318,7 @@ def report_legs(grid, wps_ll, wps_idx, nav, flags, cells, ext, use, work, seen_b
         d = distance_m(wps_ll[k], wps_ll[k + 1])
         low = shallowest_near(work, use, wps_ll[k], wps_ll[k + 1]) if marg else None
         legs.append({"dist": d, "brg": bearing(wps_ll[k], wps_ll[k + 1]),
-                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes, "pier": on_pier, "soft": near, "snag": on_snag})
+                     "shoal_m": marg * d / max(len(lc), 1), "low": low, "notes": notes, "pier": on_pier, "soft": near, "snag": on_snag, "gate": on_gate})
     return legs
 
 
@@ -1167,7 +1370,9 @@ def open_folder(path):
 
 OFF_WATER = "connects your point to usable water: not checked, use your eyes"
 CUT_OFF_M = 250.0     # how far an end may move to escape a pocket walled in by land/structures
-GUIDE_SPACING_M = 18000.0
+APPROACH_M = 20000.0  # a long trip's ends are worked out at 20 m this far out
+GUIDE_SPACING_M = 18000.0  # guide point spacing on a long trip's overview path
+FINE_GUIDE_M = 8000.0  # and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
 PIECE_RES = 20.0
 
 
@@ -1179,9 +1384,9 @@ class Ctx:
         self.messages, self.moved, self.seen = [], set(), set()
 
 
-def auto_grid(pts, widen, res=None, max_cells=5_000_000):
+def auto_grid(pts, widen, res=None, max_cells=5_000_000, align=None):
     if res:
-        return Grid(pts, res, widen)
+        return Grid(pts, res, widen, align)
     for res in (10, 15, 20, 30, 45, 60, 90, 120):
         g = Grid(pts, res, widen)
         if g.w * g.h <= max_cells:
@@ -1307,11 +1512,11 @@ def no_route(ctx, grid, G, who, pt, enc):
     die("\n".join(lines))
 
 
-def plan_piece(p, q, np_, nq, ctx, res=None):
+def plan_piece(p, q, np_, nq, ctx, res=None, align=None):
     """Route p to q on one full-detail window: (waypoints, legs)."""
     widths = (1.0, 2.5, 5.0)
     for attempt, widen in enumerate(widths):
-        grid = auto_grid([p, q], widen, res)
+        grid = auto_grid([p, q], widen, res, align=align)
         G = build(grid, ctx)
         ok = G["ok"]
         sp, mp = snap(grid, ok, *p)
@@ -1382,71 +1587,273 @@ def plan_piece(p, q, np_, nq, ctx, res=None):
         log("No route inside this area, widening the search")
 
 
+def refine_guide(pt, overview_res, ctx):
+    """A guide point moved to real channel water: the nearest full-detail cell charted at
+    least the safe depth, usable, not a pier/marker/snag cell; nearness to danger and being
+    in a hazard buffer only tie-breakers (as hard rules they skipped every cell of the
+    narrow ICW behind Masonboro Island, all within its bank soundings' buffers, and picked
+    the Atlantic across the island). An overview cell counts as water when a sliver of
+    channel runs through it, so its center can lie in shallow sound beside the ICW
+    (Masonboro Sound). Unchanged when there is no such water nearby."""
+    g = Grid.around(pt[0], pt[1], max(overview_res, 300.0), PIECE_RES)
+    G = build(g, ctx)
+    r0, c0 = g.cell(*pt)
+    best = None
+    for i in range(g.w * g.h):
+        if G["ok"][i] and G["nav"][i] == SAFE and not G["pier"][i]:
+            dd = math.hypot(i // g.w - r0, i % g.w - c0) + 0.5 * G["prox"][i] + (2 if G["soft"][i] else 0)
+            if best is None or dd < best[0]:
+                best = (dd, i)
+    return g.latlon(best[1]) if best else pt
+
+
+def cost_field(grid, cost, start, pier=None):
+    """Cheapest cost from start to every cell it can reach, with astar's moves and costs,
+    and each cell's parent (toward start)."""
+    w, h, res = grid.w, grid.h, grid.res
+    INF = float("inf")
+    g = array("d", [INF]) * (w * h)
+    parent = array("i", [-1]) * (w * h)
+    closed = bytearray(w * h)
+    g[start] = 0.0
+    # Heap entries are plain ints, cost (1/64 units) above the cell number: a whole 4M-cell
+    # window as (cost, cell) tuples would take hundreds of MB
+    SH = 24
+    MASK = (1 << SH) - 1
+    heap = [start]
+    D2 = math.sqrt(2)
+    nbrs = ((-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+            (-1, -1, D2), (-1, 1, D2), (1, -1, D2), (1, 1, D2))
+    while heap:
+        i = heapq.heappop(heap) & MASK
+        if closed[i]:
+            continue
+        closed[i] = 1
+        r, c = divmod(i, w)
+        gi, ci = g[i], cost[i]
+        for dr, dc, step in nbrs:
+            rr, cc = r + dr, c + dc
+            if not (0 <= rr < h and 0 <= cc < w):
+                continue
+            j = rr * w + cc
+            cj = cost[j]
+            if cj == INF or closed[j]:
+                continue
+            cs = cj
+            if dr and dc:
+                o1, o2 = r * w + cc, rr * w + c
+                if cost[o1] == INF or cost[o2] == INF:
+                    continue
+                if pier is not None and (pier[o1] or pier[o2]):
+                    cs = max(cj, cost[o1] if pier[o1] else 0.0, cost[o2] if pier[o2] else 0.0)
+            ng = gi + step * res * (ci + cs) * 0.5
+            if ng < g[j]:
+                g[j] = ng
+                parent[j] = i
+                heapq.heappush(heap, (int(ng * 64) << SH) | j)
+    return g, parent
+
+
+def astar_ends(grid, cost, box, starts, goals, target):
+    """Overview A* from any of starts (cell -> cost of reaching it from the start) to any
+    of goals (cell -> cost from it to the end). Inside the ends' windows (box) the overview
+    only starts or ends: it never crosses them on its own coarse cells. Returns the
+    overview path and its total cost, or None."""
+    w, h, res = grid.w, grid.h, grid.res
+    n = w * h
+    gr, gc = divmod(target, w)
+    INF = float("inf")
+    cost = array("f", cost)
+    for i in list(starts) + list(goals):
+        if cost[i] == INF:
+            cost[i] = 2.0
+    done = n  # the end itself, reached from a goal cell
+    g = array("d", [INF]) * (n + 1)
+    parent = array("i", [-1]) * (n + 1)
+    closed = bytearray(n + 1)
+    heap = []
+    for i, v in starts.items():
+        g[i] = v
+        heapq.heappush(heap, (v + math.hypot(i // w - gr, i % w - gc) * res, i))
+    D2 = math.sqrt(2)
+    nbrs = ((-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
+            (-1, -1, D2), (-1, 1, D2), (1, -1, D2), (1, 1, D2))
+    while heap:
+        _, i = heapq.heappop(heap)
+        if i == done:
+            break
+        if closed[i]:
+            continue
+        closed[i] = 1
+        gi = g[i]
+        if i not in starts and i in goals and gi + goals[i] < g[done]:
+            g[done] = gi + goals[i]
+            parent[done] = i
+            heapq.heappush(heap, (g[done], done))
+        if box[i] and i not in starts:
+            continue  # a goal cell inside a window: the path ends here
+        r, c = divmod(i, w)
+        ci = cost[i]
+        for dr, dc, step in nbrs:
+            rr, cc = r + dr, c + dc
+            if not (0 <= rr < h and 0 <= cc < w):
+                continue
+            j = rr * w + cc
+            # Into a window only to end there, and never from one window cell to another
+            if box[j] and (box[i] or j not in goals):
+                continue
+            cj = cost[j]
+            if cj == INF or closed[j]:
+                continue
+            if dr and dc and (cost[r * w + cc] == INF or cost[rr * w + c] == INF):
+                continue
+            ng = gi + step * res * (ci + cj) * 0.5
+            if ng < g[j]:
+                g[j] = ng
+                parent[j] = i
+                heapq.heappush(heap, (ng + math.hypot(rr - gr, cc - gc) * res, j))
+    if parent[done] == -1:
+        return None
+    path = [parent[done]]
+    while parent[path[-1]] != -1:
+        path.append(parent[path[-1]])
+    return path[::-1], g[done]
+
+
+def approach(pt, who, ctx, align=None):
+    """One end of a long trip worked out at full detail: everything reachable from it
+    within APPROACH_M, with the cheapest cost and path back to it. "fail" explains a
+    boxed-in end (called only if the trip turns out impossible)."""
+    fg = Grid.around(pt[0], pt[1], APPROACH_M, PIECE_RES, align)
+    F = build(fg, ctx)
+    s0 = snap(fg, F["ok"], *pt)[0]
+    enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+    if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
+        # Cut off within the window: use the nearest water that leads out of it
+        border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
+                  (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
+        hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
+        if hit:
+            s0 = hit[0]
+            enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
+    cost, parent = cost_field(fg, F["cost"], s0, F["pier"])
+    fail = None if enc[1] else (lambda: no_route(ctx, fg, F, who, pt, enc))
+
+    def trace(i):
+        out = []
+        while i >= 0:
+            out.append(i)
+            i = parent[i]
+        return out
+    return {"fg": fg, "cost": np.frombuffer(cost, np.float64), "trace": trace, "fail": fail}
+
+
 def guide_points(p, q, np_, nq, ctx):
-    """Long legs: open-water guide points about every GUIDE_SPACING_M along a coarse
-    overview route, with each end's full-detail reachable water stamped in first."""
+    """Long legs: plan on a coarse overview grid, then return guide points along that path;
+    each stretch between them is routed at full detail by plan_piece. Around each end
+    (APPROACH_M) the overview does not plan at all: it may only end on an overview cell
+    holding water reachable from the end at 20 m, at that water's real cost, and the guide
+    points there follow the 20 m path. Drawing the 20 m water into the overview instead let
+    a cell of ocean (reachable by Masonboro Inlet) sit next to a cell of sound (reachable
+    down the ICW): the overview walked across Pleasure Island, and the last stretch, at
+    20 m, could not follow it."""
+    log("Long trip: working out both ends at 20 m")
+    ap = approach(p, label(np_, p), ctx)
+    aq = approach(q, label(nq, q), ctx, align=ap["fg"])
+    ends = (ap, aq)
+    # Both ends inside each other's windows: the cheapest meeting in 20 m water
+    fp, fq = ap["fg"], aq["fg"]
+    meet = (math.inf, -1, -1)
+    ip = np.flatnonzero(np.isfinite(ap["cost"]))
+    rq = ip // fp.w + int(round((fq.north - fp.north) / fp.dlat))
+    cq = ip % fp.w + int(round((fp.west - fq.west) / fp.dlon))
+    inq = (rq >= 0) & (rq < fq.h) & (cq >= 0) & (cq < fq.w)
+    if inq.any():
+        jq = rq[inq] * fq.w + cq[inq]
+        tot = ap["cost"][ip[inq]] + aq["cost"][jq]
+        k = int(np.argmin(tot))
+        if np.isfinite(tot[k]):
+            meet = (float(tot[k]), int(ip[inq][k]), int(jq[k]))
     widths = (1.0, 2.5, 5.0)
     for attempt, widen in enumerate(widths):
         grid = auto_grid([p, q], widen)
         log(f"Long trip: overview at {grid.res:.0f} m")
         G = build(grid, ctx)
-        ok, cost = G["ok"], G["cost"]
-        ends = []
-        for pt in (p, q):
-            fg = Grid.around(pt[0], pt[1], 4000, PIECE_RES)
-            F = build(fg, ctx)
-            s0, _ = snap(fg, F["ok"], *pt)
-            enc = enclosure(fg, F["ok"], F["nav"], F["flags"], s0)
-            if not enc[1] and all(k in ("land", "struct") for k in enc[2]):
-                border = [i for i in range(fg.w * fg.h) if F["ok"][i] and
-                          (i < fg.w or i >= fg.w * (fg.h - 1) or i % fg.w in (0, fg.w - 1))]
-                hit = nearest_in(fg, region(fg, F["ok"], border), *pt, CUT_OFF_M)
-                if hit:
-                    s0 = hit[0]
-            reach = np.flatnonzero(np.frombuffer(bytes(region(fg, F["ok"], [s0])), np.uint8))
-            lat = fg.north - (reach // fg.w + 0.5) * fg.dlat
-            lon = fg.west + (reach % fg.w + 0.5) * fg.dlon
-            rr = np.clip(((grid.north - lat) / grid.dlat).astype(np.int64), 0, grid.h - 1)
-            cc = np.clip(((lon - grid.west) / grid.dlon).astype(np.int64), 0, grid.w - 1)
-            ci = rr * grid.w + cc
-            okv = np.frombuffer(ok, np.uint8)
-            costv = np.frombuffer(cost, np.float32)
-            okv[ci] = 1
-            costv[ci[np.isinf(costv[ci])]] = 2.0
-            r0, c0 = grid.cell(*fg.latlon(s0))
-            ends.append(r0 * grid.w + c0)
-        path = astar(grid, cost, ends[0], ends[1], G["pier"])
-        if path:
+        # Overview cells wholly inside an end's window, and per end the cheapest reachable
+        # 20 m cell in each of them
+        box = np.zeros((grid.h, grid.w), bool)
+        top = grid.north - np.arange(grid.h) * grid.dlat
+        left = grid.west + np.arange(grid.w) * grid.dlon
+        best = []
+        for e in ends:
+            fg = e["fg"]
+            rows = (top <= fg.north) & (top - grid.dlat >= fg.south)
+            cols = (left >= fg.west) & (left + grid.dlon <= fg.east)
+            inside = rows[:, None] & cols[None, :]
+            box |= inside
+            idx = np.flatnonzero(np.isfinite(e["cost"]))
+            lat = fg.north - (idx // fg.w + 0.5) * fg.dlat
+            lon = fg.west + (idx % fg.w + 0.5) * fg.dlon
+            r = np.floor((grid.north - lat) / grid.dlat).astype(np.int64)
+            c = np.floor((lon - grid.west) / grid.dlon).astype(np.int64)
+            keep = (r >= 0) & (r < grid.h) & (c >= 0) & (c < grid.w)
+            idx, r, c = idx[keep], r[keep], c[keep]
+            keep = inside[r, c]
+            idx, oc = idx[keep], (r * grid.w + c)[keep]
+            order = np.argsort(e["cost"][idx], kind="stable")
+            ocs, first = np.unique(oc[order], return_index=True)
+            best.append(dict(zip(ocs.tolist(), idx[order][first].tolist())))
+        boxb = bytearray(box.ravel().astype(np.uint8).tobytes())
+        found = astar_ends(grid, G["cost"], boxb, {k: float(ap["cost"][v]) for k, v in best[0].items()},
+                           {k: float(aq["cost"][v]) for k, v in best[1].items()}, grid.cell(*q)[0] * grid.w + grid.cell(*q)[1])
+        # Points along the whole path, each with its overview cell (-1: a 20 m point)
+        pts, cells = [], []
+        if found and found[1] < meet[0]:
+            path = found[0]
+            for i in reversed(ap["trace"](best[0][path[0]])):
+                pts.append(fp.latlon(i)); cells.append(-1)
+            for oc in path[1:-1]:
+                pts.append(grid.latlon(oc)); cells.append(oc)
+            for i in aq["trace"](best[1][path[-1]]):
+                pts.append(fq.latlon(i)); cells.append(-1)
+        elif meet[1] >= 0:
+            for i in reversed(ap["trace"](meet[1])):
+                pts.append(fp.latlon(i)); cells.append(-1)
+            for i in aq["trace"](meet[2])[1:]:
+                pts.append(fq.latlon(i)); cells.append(-1)
+        if pts:
             cum = [0.0]
-            for k in range(1, len(path)):
-                cum.append(cum[-1] + distance_m(grid.latlon(path[k - 1]), grid.latlon(path[k])))
+            for k in range(1, len(pts)):
+                cum.append(cum[-1] + distance_m(pts[k - 1], pts[k]))
             total = cum[-1]
-            n = max(1, int(math.ceil(total / GUIDE_SPACING_M)))
-            out, frm = [], 0
             reach_cells = max(1, int(2000 / grid.res))
-            for k in range(1, n):
-                target = total * k / n
-                j = frm
-                while j < len(path) - 1 and cum[j] < target:
-                    j += 1
-                best = j
-                for d in range(reach_cells + 1):
-                    cand = [x for x in (j + d, j - d) if frm < x < len(path) - 1 and
-                            G["nav"][path[x]] == SAFE and G["prox"][path[x]] == 0 and not G["soft"][path[x]]]
-                    if cand:
-                        best = cand[0]
-                        break
-                if cum[best] < 4000 or total - cum[best] < 4000:
+            out, last, k = [], 0.0, 1
+            while k < len(pts) - 1:
+                fine = cells[k] < 0
+                if cum[k] - last < (FINE_GUIDE_M if fine else GUIDE_SPACING_M) or cum[k] < 4000 or total - cum[k] < 4000:
+                    k += 1
                     continue
-                out.append(grid.latlon(path[best]))
-                frm = best
-            return out
-        encs = [enclosure(grid, ok, G["nav"], G["flags"], i) for i in ends]
-        closed = [e for e in (0, 1) if not encs[e][1]]
-        if closed or attempt == len(widths) - 1:
-            e = closed[0] if closed else min((0, 1), key=lambda e: encs[e][0])
-            pt = p if e == 0 else q
-            no_route(ctx, grid, G, label(np_ if e == 0 else nq, pt) + f" (overview at {grid.res:.0f} m)", pt, encs[e])
+                if fine:
+                    out.append(pts[k])  # on the 20 m path itself: usable water reachable from the end
+                else:
+                    # Prefer a nearby overview cell in open, safe water
+                    for d in range(reach_cells + 1):
+                        cand = [x for x in (k + d, k - d) if 0 < x < len(pts) - 1 and cells[x] >= 0 and cum[x] > last and
+                                G["nav"][cells[x]] == SAFE and G["prox"][cells[x]] == 0 and not G["soft"][cells[x]]]
+                        if cand:
+                            k = cand[0]
+                            break
+                    out.append(refine_guide(pts[k], grid.res, ctx))
+                last = cum[k]
+                k += 1
+            return out, fp
+        for e in ends:
+            if e["fail"]:
+                e["fail"]()
+        if attempt == len(widths) - 1:
+            r0, c0 = grid.cell(*p)
+            no_route(ctx, grid, G, label(np_, p) + f" (overview at {grid.res:.0f} m)", p,
+                     enclosure(grid, G["ok"], G["nav"], G["flags"], r0 * grid.w + c0))
         log("No route inside this area, widening the search")
 
 
@@ -1456,12 +1863,13 @@ def plan(pts, ctx):
     for k in range(len(pts) - 1):
         p, q = pts[k], pts[k + 1]
         long_leg = not ctx.a.res and auto_grid([p, q], 1.0).res > PIECE_RES
-        chain = [p] + (guide_points(p, q, k + 1, k + 2, ctx) if long_leg else []) + [q]
+        guide, lattice = guide_points(p, q, k + 1, k + 2, ctx) if long_leg else ([], None)
+        chain = [p] + guide + [q]
         for j in range(len(chain) - 1):
             log(f"Routing leg {k + 1} of {len(pts) - 1}" + (f", stretch {j + 1} of {len(chain) - 1}" if len(chain) > 2 else ""))
             w, l, _ = plan_piece(chain[j], chain[j + 1], k + 1 if j == 0 else None,
                                  k + 2 if j == len(chain) - 2 else None, ctx,
-                                 PIECE_RES if long_leg else ctx.a.res)
+                                 PIECE_RES if long_leg else ctx.a.res, lattice)
             wps += w if not wps else w[1:]
             legs += l
     return wps, legs

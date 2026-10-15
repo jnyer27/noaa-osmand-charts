@@ -37,12 +37,24 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
+        const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
+        const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
+        const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
         const val HAZARD = 3
         const val STRUCT = 4
         const val SHALLOW = 5
+        /** Bit ChartSet.window adds to SAFE water inside a dredged area (a maintained channel). */
+        const val DREDGED = 0x40
+        // Inside a dredged channel deep enough for the boat, being near its edge is normal:
+        // the proximity cost is cut to this share and the hazard buffer's cost (bank
+        // soundings just outside the channel) to DREDGED_SOFT_COST. Otherwise every cell of
+        // a narrow channel cost up to 3.4 x 5 and Maryland Marina to Carolina Beach went
+        // 20 nm outside to the Cape Fear River instead of down the ICW.
+        private const val DREDGED_PROX = 0.25f
+        private const val DREDGED_SOFT_COST = 1.5f
         // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
         private const val SHORE_M = 100.0
         private const val K_MIN = 5
@@ -63,6 +75,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
         private const val SNAG_COST = 50f
         private const val SNAG_NOTE = "passes charted piles or snags: check"
+        // Lateral marks (buoys, daybeacons) and their wrong-side lines (the pack's GATE_MARK):
+        // a mark's channel side is the same whichever way a boat goes, so red right
+        // returning (green right going out) is never passing between a mark and the water it
+        // guards. Crossing costs GATE_COST like a pier and is flagged.
+        private const val GATE_COST = 50f
+        private const val GATE_NOTE = "passes over or on the wrong side of a channel marker: check"
 
         /** Proximity reach in cells for grid resolution res. */
         fun proxReach(res: Double) = max(K_MIN, ceil(SHORE_M / res).toInt())
@@ -138,7 +156,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray)
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray)
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
@@ -152,6 +170,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val nopass = BooleanArray(n)
         val spanok = BooleanArray(n)
         val snag = BooleanArray(n)
+        val dredged = BooleanArray(n)
         for (i in 0 until n) {
             val fl = planes[Pack.P_FLAGS][i].toInt() and 0xff
             val hzv = planes[Pack.P_HAZARD][i].toInt() and 0xff
@@ -162,8 +181,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 hzv != 0 && hzv != Pack.HZ_PIER && !snag[i] && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
-                else -> planes[Pack.P_DEPTH][i].toInt()
+                else -> planes[Pack.P_DEPTH][i].toInt() and DREDGED.inv()
             }.toByte()
+            dredged[i] = (planes[Pack.P_DEPTH][i].toInt() and DREDGED) != 0
             val span = fl and Pack.F_SPAN != 0
             val clr = (planes[Pack.P_SPANCLR][i].toInt() and 0xff) / 2.0
             if (fl and Pack.F_DECK != 0 || (span && clr < air)) nopass[i] = true
@@ -217,7 +237,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // 4-neighbor steps alone, water diagonal off a headland looked 1.4x farther away.
         val k = proxReach(a.res)
         // Costly cells a leg may not cut across, which count as danger for proximity
-        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it]) }
+        val gate = BooleanArray(n) {
+            ok[it] && !snag[it] && (planes[Pack.P_FLAGS][it].toInt() and Pack.F_CABLE) == 0 &&
+                (planes[Pack.P_CABLECLR][it].toInt() and 0xff) == Pack.GATE_MARK
+        }
+        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it] || gate[it]) }
         val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
@@ -253,14 +277,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for (i in 0 until n) if (ok[i]) {
             val p = k - dist[i]
             prox[i] = p.toByte()
-            var c = 1f + pc * p
+            val inChannel = dredged[i] && nav[i].toInt() == SAFE
+            var c = 1f + pc * p * (if (inChannel) DREDGED_PROX else 1f)
             if (nav[i].toInt() == MARGINAL) c *= 4f
-            if (pier[i] && !snag[i]) c *= PIER_COST
-            if (snag[i]) c *= SNAG_COST
-            if (soft[i]) c *= SOFT_COST
+            // One of: pier or seawall, passable snag, channel marker or its wrong side
+            when {
+                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER -> c *= PIER_COST
+                snag[i] -> c *= SNAG_COST
+                gate[i] -> c *= GATE_COST
+            }
+            if (soft[i]) c *= if (inChannel) DREDGED_SOFT_COST else SOFT_COST
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft, gate)
     }
 
     // ------------------------------------------------------------ search
@@ -669,6 +698,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val every = max(1, (500 / a.res).toInt())
         var prevPier = false
         var prevSnag = false
+        var prevGate = false
         var prevSoft = false
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
@@ -697,6 +727,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val onSnag = pierSteps(a, lc) { g.snag[it] } > 0
             if (onSnag && !prevSnag) notes.add(0, SNAG_NOTE)
             prevSnag = onSnag
+            val onGate = pierSteps(a, lc) { g.gate[it] } > 0
+            if (onGate && !prevGate) notes.add(0, GATE_NOTE)
+            prevGate = onGate
             val near = lc.count { g.soft[it] } >= 2 // one edge cell is grid noise
             if (near && !prevSoft) notes.add(0, SOFT_NOTE)
             prevSoft = near
@@ -819,105 +852,336 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /** Full-detail window of +/- halfM meters around p. */
-    private fun areaAround(p: LatLon, halfM: Double): Area {
+    private fun areaAround(p: LatLon, halfM: Double, f: Int = 1): Area {
         val dy = halfM / Pack.M_PER_DEG
         val dx = halfM / (Pack.M_PER_DEG * cos(Math.toRadians(p.lat)))
         val r0 = max(0, floor((pack.north - (p.lat + dy)) / pack.dlat).toInt())
         val r1 = min(pack.height, ceil((pack.north - (p.lat - dy)) / pack.dlat).toInt())
         val c0 = max(0, floor((p.lon - dx - pack.west) / pack.dlon).toInt())
         val c1 = min(pack.width, ceil((p.lon + dx - pack.west) / pack.dlon).toInt())
-        return Area(r0, c0, r1 - r0, c1 - c0, 1)
+        return Area(r0, c0, (r1 - r0) / f, (c1 - c0) / f, f)
     }
 
     /**
-     * Long trips: plan on a coarse overview grid, with the water around both
-     * ends worked out at full detail and stamped in (a narrow creek must not
-     * disappear at 100 m), then return open-water guide points about every
-     * 18 km along that path. Each stretch between them is then routed at full
-     * detail by planPiece.
+     * A guide point moved to real channel water: the nearest full-detail cell charted
+     * at least the safe depth, usable, not a pier/marker/snag cell; nearness to danger
+     * and being in a hazard buffer only tie-breakers. As hard rules they skipped every
+     * cell of the narrow ICW behind Masonboro Island (all within the buffers of its bank
+     * soundings) and picked the Atlantic across the island, sending the route around
+     * Cape Fear. An overview cell (320 m on a long
+     * trip) counts as water when a sliver of channel runs through it, so its center
+     * can lie in shallow sound beside the ICW (Masonboro Sound: the stretch was sent
+     * there, the 20 m search failed, and the 40 m one left the marked channel).
+     * Unchanged when there is no such water nearby.
+     */
+    private fun refineGuide(pt: LatLon, overviewRes: Double, c: Ctx): LatLon {
+        val fa = areaAround(pt, max(overviewRes, 300.0))
+        val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+        val at = fa.cell(pt)
+        val r0 = at / fa.w
+        val c0 = at % fa.w
+        var best = -1
+        var bestD = Double.MAX_VALUE
+        for (i in 0 until fa.n) if (fg.ok[i] && fg.nav[i].toInt() == SAFE && !fg.pier[i]) {
+            val dd = hypot((i / fa.w - r0).toDouble(), (i % fa.w - c0).toDouble()) + 0.5 * fg.prox[i] + (if (fg.soft[i]) 2.0 else 0.0)
+            if (dd < bestD) { bestD = dd; best = i }
+        }
+        return if (best >= 0) fa.latlon(best) else pt
+    }
+
+    /**
+     * Cheapest cost from [start] to every cell it can reach, with the moves and costs
+     * of astar, and each cell's parent (toward [start]).
+     */
+    private fun costField(a: Area, g0: Grid, start: Int): Pair<FloatArray, IntArray> {
+        val cost = g0.cost
+        val pier = g0.pier
+        val w = a.w
+        val h = a.h
+        val res = a.res.toFloat()
+        val g = FloatArray(a.n) { Float.POSITIVE_INFINITY }
+        val parent = IntArray(a.n) { -1 }
+        // Binary heap keyed by g with each cell at most once (pos: its slot, -1 none, -2 done):
+        // a lazy heap over a whole 4M-cell window could grow to tens of millions of entries
+        val pos = IntArray(a.n) { -1 }
+        var heap = IntArray(1 shl 16)
+        var size = 0
+        fun up(at: Int) {
+            var x = at
+            val v = heap[x]
+            while (x > 0) {
+                val pa = (x - 1) / 2
+                if (g[heap[pa]] <= g[v]) break
+                heap[x] = heap[pa]; pos[heap[x]] = x; x = pa
+            }
+            heap[x] = v; pos[v] = x
+        }
+        fun down(at: Int) {
+            var x = at
+            val v = heap[x]
+            while (true) {
+                var ch = 2 * x + 1
+                if (ch >= size) break
+                if (ch + 1 < size && g[heap[ch + 1]] < g[heap[ch]]) ch++
+                if (g[heap[ch]] >= g[v]) break
+                heap[x] = heap[ch]; pos[heap[x]] = x; x = ch
+            }
+            heap[x] = v; pos[v] = x
+        }
+        g[start] = 0f
+        heap[size++] = start
+        pos[start] = 0
+        val dr = intArrayOf(-1, 1, 0, 0, -1, -1, 1, 1)
+        val dc = intArrayOf(0, 0, -1, 1, -1, 1, -1, 1)
+        val step = floatArrayOf(1f, 1f, 1f, 1f, 1.4142135f, 1.4142135f, 1.4142135f, 1.4142135f)
+        while (size > 0) {
+            val i = heap[0]
+            pos[i] = -2
+            size--
+            if (size > 0) { heap[0] = heap[size]; down(0) }
+            val r = i / w
+            val c = i % w
+            val gi = g[i]
+            val ci = cost[i]
+            for (k in 0 until 8) {
+                val rr = r + dr[k]
+                val cc = c + dc[k]
+                if (rr < 0 || rr >= h || cc < 0 || cc >= w) continue
+                val j = rr * w + cc
+                val cj = cost[j]
+                if (cj == Float.POSITIVE_INFINITY || pos[j] == -2) continue
+                var cs = cj
+                if (k >= 4) {
+                    val o1 = r * w + cc
+                    val o2 = rr * w + c
+                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    if (pier[o1]) cs = max(cs, cost[o1])
+                    if (pier[o2]) cs = max(cs, cost[o2])
+                }
+                val ng = gi + step[k] * res * (ci + cs) * 0.5f
+                if (ng < g[j]) {
+                    g[j] = ng
+                    parent[j] = i
+                    if (pos[j] == -1) {
+                        if (size == heap.size) heap = heap.copyOf(size * 2)
+                        heap[size] = j
+                        pos[j] = size++
+                    }
+                    up(pos[j])
+                }
+            }
+        }
+        return g to parent
+    }
+
+    /**
+     * One end of a long trip worked out at full detail: everything reachable from it
+     * within APPROACH_M, with the cheapest cost and path back to it ([fail]: the
+     * explanation to give if the end turns out to be boxed in).
+     */
+    private class Approach(val fa: Area, val cost: FloatArray, val parent: IntArray, val fail: PlanException?) {
+        /** Full-detail path from cell i back to the end. */
+        fun trace(i: Int): List<Int> {
+            val out = ArrayList<Int>()
+            var x = i
+            while (x >= 0) { out.add(x); x = parent[x] }
+            return out
+        }
+    }
+
+    private fun approach(pt: LatLon, who: String, c: Ctx): Approach {
+        val fa = areaAround(pt, APPROACH_M)
+        val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+        var (s, _) = snap(fa, fg, pt)
+        var enc = enclosure(fa, fg, s)
+        if (!enc.edge && enc.walls.keys.all { it == "land" || it == "struct" }) {
+            // Cut off within the window: use the nearest water that leads out of it
+            val border = (0 until fa.n).filter { i ->
+                val r = i / fa.w
+                val col = i % fa.w
+                fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
+            }.toIntArray()
+            val out = region(fa, fg.ok, border)
+            nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first; enc = enclosure(fa, fg, s) }
+        }
+        val (cost, parent) = costField(fa, fg, s)
+        return Approach(fa, cost, parent, if (enc.edge) null else noRoute(c, fa, fg, who, pt, enc))
+    }
+
+    /**
+     * Long trips: plan on a coarse overview grid, then return guide points along that
+     * path; each stretch between them is routed at full detail by planPiece. Around
+     * each end (APPROACH_M) the overview does not plan at all: it may only end on an
+     * overview cell holding water reachable from the end at 20 m, at that water's real
+     * cost, and the guide points there follow the 20 m path. Drawing the 20 m water
+     * into the overview instead let a cell of ocean (reachable by Masonboro Inlet) sit
+     * next to a cell of sound (reachable down the ICW): the overview walked across
+     * Pleasure Island, and the last stretch, at 20 m, could not follow it.
      */
     private fun guidePoints(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Pair<List<LatLon>, Double> {
+        val ends = listOf(approach(p, label(np, p), c), approach(q, label(nq, q), c))
+        // Both ends inside each other's windows: the cheapest meeting in 20 m water
+        val (ap, aq) = ends
+        var meet = Float.POSITIVE_INFINITY
+        var meetP = -1
+        var meetQ = -1
+        for (i in 0 until ap.fa.n) {
+            if (ap.cost[i] == Float.POSITIVE_INFINITY) continue
+            val r = ap.fa.r0 + i / ap.fa.w - aq.fa.r0
+            val col = ap.fa.c0 + i % ap.fa.w - aq.fa.c0
+            if (r < 0 || r >= aq.fa.h || col < 0 || col >= aq.fa.w) continue
+            val j = r * aq.fa.w + col
+            val t = ap.cost[i] + aq.cost[j]
+            if (t < meet) { meet = t; meetP = i; meetQ = j }
+        }
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
+            // Overview cells wholly inside an end's window, and per end the cheapest
+            // reachable 20 m cell in each of them
+            val box = BooleanArray(a.n)
+            val best = ends.map { HashMap<Int, Int>() }
+            for ((k, e) in ends.withIndex()) {
+                val fa = e.fa
+                val rA = max(0, ceil((fa.r0 - a.r0).toDouble() / a.f).toInt())
+                val rB = min(a.h, floor((fa.r0 + fa.h - a.r0).toDouble() / a.f).toInt())
+                val cA = max(0, ceil((fa.c0 - a.c0).toDouble() / a.f).toInt())
+                val cB = min(a.w, floor((fa.c0 + fa.w - a.c0).toDouble() / a.f).toInt())
+                for (r in rA until rB) for (col in cA until cB) box[r * a.w + col] = true
+                for (i in 0 until fa.n) {
+                    if (e.cost[i] == Float.POSITIVE_INFINITY) continue
+                    val r = (fa.r0 + i / fa.w - a.r0).floorDiv(a.f)
+                    val col = (fa.c0 + i % fa.w - a.c0).floorDiv(a.f)
+                    if (r !in rA until rB || col !in cA until cB) continue
+                    val oc = r * a.w + col
+                    val cur = best[k][oc]
+                    if (cur == null || e.cost[i] < e.cost[cur]) best[k][oc] = i
+                }
+            }
             // A coarse overview can break up a narrow canal: before widening (which makes the
             // grid coarser still), retry with any clear 20 m cell keeping its block open
             for (optimistic in if (a.f > 1) listOf(false, true) else listOf(false)) {
                 c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})" + if (optimistic) ", keeping narrow channels" else "")
                 val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
-                val ends = IntArray(2)
-                for ((k, pt) in listOf(p, q).withIndex()) {
-                    val fa = areaAround(pt, 4000.0)
-                    val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
-                    var (s, _) = snap(fa, fg, pt)
-                    val enc0 = enclosure(fa, fg, s)
-                    if (!enc0.edge && enc0.walls.keys.all { it == "land" || it == "struct" }) {
-                        // Cut off within the detail window: use the nearest water that leads out of it
-                        val border = (0 until fa.n).filter { i ->
-                            val r = i / fa.w
-                            val col = i % fa.w
-                            fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
-                        }.toIntArray()
-                        val out = region(fa, fg.ok, border)
-                        nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first }
-                    }
-                    // Everything reachable from the point within the detail window is usable on the overview
-                    val seen = BooleanArray(fa.n)
-                    val stack = IntArray(fa.n)
-                    var sp = 0
-                    stack[sp++] = s
-                    seen[s] = true
-                    while (sp > 0) {
-                        val i = stack[--sp]
-                        val ci = a.cell(fa.latlon(i))
-                        g.ok[ci] = true
-                        if (g.cost[ci] == Float.POSITIVE_INFINITY) g.cost[ci] = 2f
-                        val r = i / fa.w
-                        val col = i % fa.w
-                        for (j in intArrayOf(if (r > 0) i - fa.w else -1, if (r < fa.h - 1) i + fa.w else -1,
-                                             if (col > 0) i - 1 else -1, if (col < fa.w - 1) i + 1 else -1)) {
-                            if (j >= 0 && !seen[j] && fg.ok[j]) { seen[j] = true; stack[sp++] = j }
-                        }
-                    }
-                    ends[k] = a.cell(fa.latlon(s))
+                val found = astarEnds(a, g, box, best[0].mapValues { ap.cost[it.value] }, best[1].mapValues { aq.cost[it.value] }, a.cell(q))
+                // Points along the whole path, each with its overview cell (-1: a 20 m point)
+                val pts = ArrayList<LatLon>()
+                val cells = ArrayList<Int>()
+                if (found != null && found.second < meet) {
+                    val path = found.first
+                    for (i in ap.trace(best[0][path.first()]!!).asReversed()) { pts.add(ap.fa.latlon(i)); cells.add(-1) }
+                    for (oc in path.slice(1 until path.size - 1)) { pts.add(a.latlon(oc)); cells.add(oc) }
+                    for (i in aq.trace(best[1][path.last()]!!)) { pts.add(aq.fa.latlon(i)); cells.add(-1) }
+                } else if (meetP >= 0) {
+                    for (i in ap.trace(meetP).asReversed()) { pts.add(ap.fa.latlon(i)); cells.add(-1) }
+                    for (i in aq.trace(meetQ).drop(1)) { pts.add(aq.fa.latlon(i)); cells.add(-1) }
                 }
-                val path = astar(a, g, ends[0], ends[1])
-                if (path != null) {
-                    // Cumulative distance along the overview path
-                    val cum = DoubleArray(path.size)
-                    for (k in 1 until path.size) cum[k] = cum[k - 1] + distanceM(a.latlon(path[k - 1]), a.latlon(path[k]))
+                if (pts.isNotEmpty()) {
+                    val cum = DoubleArray(pts.size)
+                    for (k in 1 until pts.size) cum[k] = cum[k - 1] + distanceM(pts[k - 1], pts[k])
                     val total = cum.last()
-                    val n = max(1, ceil(total / 18000.0).toInt())
+                    val reach = max(1, (2000 / a.res).toInt())
                     val out = ArrayList<LatLon>()
-                    var from = 0
-                    for (k in 1 until n) {
-                        val target = total * k / n
-                        var j = from
-                        while (j < path.size - 1 && cum[j] < target) j++
-                        // Prefer a nearby path cell in open, safe water
-                        val reach = max(1, (2000 / a.res).toInt())
-                        var best = j
-                        for (d in 0..reach) {
-                            val cand = listOf(j + d, j - d).firstOrNull { it in (from + 1) until path.size - 1 &&
-                                g.nav[path[it]].toInt() == SAFE && g.prox[path[it]].toInt() == 0 }
-                            if (cand != null) { best = cand; break }
+                    var last = 0.0
+                    var k = 1
+                    while (k < pts.size - 1) {
+                        val fine = cells[k] < 0
+                        if (cum[k] - last < (if (fine) FINE_GUIDE_M else GUIDE_M) || cum[k] < 4000 || total - cum[k] < 4000) { k++; continue }
+                        if (fine) {
+                            // On the 20 m path itself: already usable water reachable from the end
+                            out.add(pts[k])
+                        } else {
+                            // Prefer a nearby overview cell in open, safe water
+                            var at = k
+                            for (d in 0..reach) {
+                                val cand = listOf(k + d, k - d).firstOrNull { it in (k - reach)..(k + reach) && it in 1 until pts.size - 1 &&
+                                    cells[it] >= 0 && cum[it] > last && g.nav[cells[it]].toInt() == SAFE && g.prox[cells[it]].toInt() == 0 }
+                                if (cand != null) { at = cand; break }
+                            }
+                            k = at
+                            out.add(refineGuide(pts[k], a.res, c))
                         }
-                        if (cum[best] < 4000 || total - cum[best] < 4000) continue
-                        out.add(a.latlon(path[best]))
-                        from = best
+                        last = cum[k]
+                        k++
                     }
                     return out to a.res
                 }
                 if (!optimistic && a.f > 1) continue
-                val enc = listOf(enclosure(a, g, ends[0]), enclosure(a, g, ends[1]))
-                val closed = (0..1).filter { !enc[it].edge }
-                if (closed.isNotEmpty() || attempt == widths.size - 1) {
-                    val e = closed.firstOrNull() ?: (0..1).minBy { enc[it].cells }
-                    throw noRoute(c, a, g, (if (e == 0) label(np, p) else label(nq, q)) + " (overview at ${a.res.roundToInt()} m)", if (e == 0) p else q, enc[e])
+                ends.firstOrNull { it.fail != null }?.let { throw it.fail!! }
+                if (attempt == widths.size - 1) {
+                    throw noRoute(c, a, g, label(np, p) + " (overview at ${a.res.roundToInt()} m)", p, enclosure(a, g, a.cell(p)))
                 }
             }
             c.progress("No route inside this area, widening the search")
         }
         throw PlanException("No route found")
+    }
+
+    /**
+     * Overview A* from any of [starts] (cell -> cost of reaching it from the start) to
+     * any of [goals] (cell -> cost from it to the end). Inside the ends' windows ([box])
+     * the overview only starts or ends: it never crosses them on its own coarse cells.
+     * Returns the overview path and its total cost.
+     */
+    private fun astarEnds(a: Area, g0: Grid, box: BooleanArray, starts: Map<Int, Float>, goals: Map<Int, Float>,
+                          target: Int): Pair<IntArray, Float>? {
+        val cost = g0.cost.copyOf()
+        for (i in starts.keys + goals.keys) if (cost[i] == Float.POSITIVE_INFINITY) cost[i] = 2f
+        val w = a.w
+        val h = a.h
+        val res = a.res.toFloat()
+        val gr = target / w
+        val gc = target % w
+        val done = a.n // the end itself, reached from a goal cell
+        val g = FloatArray(a.n + 1) { Float.POSITIVE_INFINITY }
+        val parent = IntArray(a.n + 1) { -1 }
+        val closed = BooleanArray(a.n + 1)
+        val heap = Heap(1 shl 16)
+        for ((i, v) in starts) {
+            g[i] = v
+            heap.push(v + hypot((i / w - gr).toDouble(), (i % w - gc).toDouble()).toFloat() * res, i)
+        }
+        val dr = intArrayOf(-1, 1, 0, 0, -1, -1, 1, 1)
+        val dc = intArrayOf(0, 0, -1, 1, -1, 1, -1, 1)
+        val step = floatArrayOf(1f, 1f, 1f, 1f, 1.4142135f, 1.4142135f, 1.4142135f, 1.4142135f)
+        while (heap.size > 0) {
+            val i = heap.pop()
+            if (i == done) break
+            if (closed[i]) continue
+            closed[i] = true
+            val gi = g[i]
+            if (i !in starts) goals[i]?.let { v -> if (gi + v < g[done]) { g[done] = gi + v; parent[done] = i; heap.push(gi + v, done) } }
+            if (box[i] && i !in starts) continue // a goal cell inside a window: the path ends here
+            val r = i / w
+            val c = i % w
+            val ci = cost[i]
+            for (k in 0 until 8) {
+                val rr = r + dr[k]
+                val cc = c + dc[k]
+                if (rr < 0 || rr >= h || cc < 0 || cc >= w) continue
+                val j = rr * w + cc
+                // Into a window only to end there, and never from one window cell to another
+                if (box[j] && (box[i] || j !in goals)) continue
+                val cj = cost[j]
+                if (cj == Float.POSITIVE_INFINITY || closed[j]) continue
+                if (k >= 4) {
+                    val o1 = r * w + cc
+                    val o2 = rr * w + c
+                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                }
+                val ng = gi + step[k] * res * (ci + cj) * 0.5f
+                if (ng < g[j]) {
+                    g[j] = ng
+                    parent[j] = i
+                    heap.push(ng + hypot((rr - gr).toDouble(), (cc - gc).toDouble()).toFloat() * res, j)
+                }
+            }
+        }
+        if (parent[done] == -1) return null
+        val path = ArrayList<Int>()
+        var x = parent[done]
+        while (x >= 0) { path.add(x); x = parent[x] }
+        path.reverse()
+        return path.toIntArray() to g[done]
     }
 
     // ------------------------------------------------------------ main entry
@@ -939,6 +1203,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val chain = if (area(listOf(p, q), 1.0).f == 1) listOf(p, q) else {
                 val (guide, gr) = guidePoints(p, q, k + 1, k + 2, c)
                 guideRes = max(guideRes ?: 0.0, gr)
+                progress("Guide points (overview %.0f m): ".format(gr) + guide.joinToString("; ") { "%.5f,%.5f".format(it.lat, it.lon) })
                 listOf(p) + guide + listOf(q)
             }
             for (j in 0 until chain.size - 1) {
@@ -948,6 +1213,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 res = max(res, piece.res)
+                progress("Stretch ${j + 1}: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
             }
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)

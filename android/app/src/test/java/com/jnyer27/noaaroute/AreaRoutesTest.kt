@@ -2,6 +2,7 @@ package com.jnyer27.noaaroute
 
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import kotlin.math.max
 import org.junit.Test
 import java.io.File
 
@@ -37,13 +38,28 @@ class AreaRoutesTest {
                 val mustFail = test["fail"] == true
                 val t0 = System.currentTimeMillis()
                 try {
-                    val r = Planner(charts).plan("test", pts, depth, air)
+                    // Progress (overview, guide points, each stretch's grid) goes to the log too
+                    val r = Planner(charts).plan("test", pts, depth, air) { msg -> println("PROGRESS $name: $msg") }
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM
                     println("PASS? $name: %.1f nm (straight %.1f), %d points, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, r.resM, sec))
+                    // The route itself, so a surprising length can be looked at from the log
+                    println("POINTS $name: " + r.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
+                    // "avoid": [[lat, lon, meters], ...]: places the route must keep away from
+                    // (where an earlier version strayed out of a channel)
+                    val strayed = (test["avoid"] as List<*>?).orEmpty().mapNotNull { av ->
+                        val (lat, lon, m) = (av as List<*>).map { it as Double }
+                        val c = LatLon(lat, lon)
+                        val hit = r.points.zipWithNext().any { (p, q) ->
+                            val n = max(1, (Planner.distanceM(p, q) / 20).toInt())
+                            (0..n).any { k -> Planner.distanceM(c, LatLon(p.lat + (q.lat - p.lat) * k / n, p.lon + (q.lon - p.lon) * k / n)) < m }
+                        }
+                        if (hit) "%.5f, %.5f".format(lat, lon) else null
+                    }
                     when {
                         mustFail -> failures.add("$name: expected no route, got %.1f nm".format(r.totalNm))
+                        strayed.isNotEmpty() -> failures.add("$name: passes within the avoid radius of ${strayed.joinToString("; ")}")
                         nm != null && r.totalNm !in (nm[0] as Double)..(nm[1] as Double) ->
                             failures.add("$name: %.1f nm outside %s".format(r.totalNm, nm))
                         r.totalNm < straight * 0.99 -> failures.add("$name: shorter than a straight line?")
