@@ -92,6 +92,17 @@ class Note(
 class Pack(file: File) : AutoCloseable {
     companion object {
         /**
+         * The name depths are charted to, for the report and GPX: MLLW for tidal waters (12,
+         * and packs from before the datum was recorded), Low Water Datum for the Great Lakes
+         * (25, IGLD 1985), "chart datum" for a mix or anything else.
+         */
+        fun datumName(codes: Collection<Int>): String = when {
+            codes.all { it == 12 } -> "MLLW"
+            codes.all { it == 25 } -> "Low Water Datum"
+            else -> "chart datum"
+        }
+
+        /**
          * Decompressed tiles of every open pack, least recently used dropped first. One
          * budget for all packs (160 tiles, about 63 MB): one cache per pack held up to
          * 63 MB each, and with three or more packs a long trip ran out of memory.
@@ -134,6 +145,8 @@ class Pack(file: File) : AutoCloseable {
     val ty0: Int
     val created: String
     val states: List<String>
+    /** S-57 sounding datum codes of the pack's charts (12 MLLW, 25 Great Lakes); empty in older packs. */
+    val datums: List<Int>
     val west: Double
     val north: Double
     val dlat: Double
@@ -165,6 +178,7 @@ class Pack(file: File) : AutoCloseable {
         ty0 = (h["ty0"] as Double).toInt()
         created = h["created"] as String
         states = (h["states"] as List<*>).map { it as String }
+        datums = (h["sounding_datums"] as List<*>?).orEmpty().map { (it as Double).toInt() }
         west = h["west"] as Double
         north = h["north"] as Double
         dlat = h["dlat"] as Double

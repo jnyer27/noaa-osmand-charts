@@ -119,6 +119,10 @@ class PlannerTest {
             assertTrue(text, lines[1] == "start: Home (1, 2)" && lines[2] == "destination: 3, 4")
             assertTrue(text, lines[3].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
             assertTrue(text, lines[4] == "charts: Test")
+            // Great Lakes packs: depths are charted to Low Water Datum, not MLLW
+            val lake = Gpx.report(r, emptyList(), emptyList(), null, Pack.datumName(listOf(25)))
+            assertTrue(lake, lake.lines()[1].startsWith("depth 3 ft (Low Water Datum), "))
+            assertTrue(Gpx.write(r, "Low Water Datum").contains("ft depth at Low Water Datum from NOAA ENC"))
         }
     }
 
@@ -311,5 +315,13 @@ class PlannerTest {
         val m = MiniJson.parse("""{"a":[1,2.5,null,true],"b":"x\"y°"}""") as Map<*, *>
         assertEquals(listOf(1.0, 2.5, null, true), m["a"])
         assertEquals("x\"y°", m["b"])
+    }
+
+    @Test
+    fun datumNames() {
+        assertEquals("MLLW", Pack.datumName(emptyList()))
+        assertEquals("MLLW", Pack.datumName(listOf(12, 12)))
+        assertEquals("Low Water Datum", Pack.datumName(listOf(25)))
+        assertEquals("chart datum", Pack.datumName(listOf(12, 25)))
     }
 }
