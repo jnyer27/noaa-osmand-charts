@@ -5,10 +5,12 @@ import android.app.DownloadManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.job.JobInfo
 import android.app.job.JobScheduler
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
@@ -48,6 +50,22 @@ class ChartMaps(private val ctx: Context) {
          * running: rescheduling would stop it mid-conversion, and it keeps going until
          * nothing is left anyway.
          */
+        /**
+         * A chart map notice; tapping it opens the app at [region]'s card (with the Open in
+         * OsmAnd buttons), or at the Regions screen.
+         */
+        fun notifyChart(ctx: Context, title: String, text: String, region: String? = null) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+            val nm = ctx.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel("charts", "Chart maps", NotificationManager.IMPORTANCE_DEFAULT))
+            val open = Intent(ctx, MainActivity::class.java).putExtra(MainActivity.EXTRA_REGION, region ?: "")
+            val pi = PendingIntent.getActivity(ctx, title.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            nm.notify(title.hashCode(), Notification.Builder(ctx, "charts")
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle(title).setContentText(text).setContentIntent(pi).setAutoCancel(true).build())
+        }
+
         fun schedule(ctx: Context) {
             val js = ctx.getSystemService(JobScheduler::class.java)
             if (js.getPendingJob(JOB_ID) != null) return
@@ -217,7 +235,7 @@ class ChartMaps(private val ctx: Context) {
             } catch (ex: Exception) {
                 failed = true
                 put(Entry(e.key, State.FAILED, size = e.size, error = ex.message ?: ex.toString()))
-                notify("Chart map ${label(e)} failed", ex.message ?: "")
+                notify("Chart map ${label(e)} failed", ex.message ?: "", e.key.takeIf { !e.merged })
             }
         }
         return failed
@@ -233,7 +251,7 @@ class ChartMaps(private val ctx: Context) {
             val (uri, name) = publish(src, "ncds_${e.key}", "mbtiles")
             src.delete()
             put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = e.size, mbtilesOnly = true))
-            notify("Chart map region ${e.key} downloaded", "Download/$SUBDIR/$name")
+            notify("Chart map region ${e.key} downloaded", "Download/$SUBDIR/$name", e.key)
             return
         }
         val out = Output("ncds_${e.key}")
@@ -255,7 +273,7 @@ class ChartMaps(private val ctx: Context) {
         src.delete()
         val (uri, name, size) = out.finish()
         put(Entry(e.key, State.READY, uri = uri.toString(), file = name, size = size))
-        notify("Chart map region ${e.key} ready for OsmAnd", "Download/$SUBDIR/$name: open it in OsmAnd")
+        notify("Chart map region ${e.key} ready for OsmAnd", "Download/$SUBDIR/$name: tap to open it in OsmAnd", e.key)
     }
 
     /** The published file of a ready region map, for combining. */
@@ -378,13 +396,5 @@ class ChartMaps(private val ctx: Context) {
         return uri to name
     }
 
-    private fun notify(title: String, text: String) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("charts", "Chart maps", NotificationManager.IMPORTANCE_DEFAULT))
-        nm.notify(title.hashCode(), Notification.Builder(ctx, "charts")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(title).setContentText(text).setAutoCancel(true).build())
-    }
+    private fun notify(title: String, text: String, region: String? = null) = notifyChart(ctx, title, text, region)
 }

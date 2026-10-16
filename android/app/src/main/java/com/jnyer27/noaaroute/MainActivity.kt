@@ -45,6 +45,8 @@ import kotlin.math.ceil
 class MainActivity : Activity() {
     companion object {
         const val ROUTES_DIR = "noaa-charts/routes"
+        /** From a chart map notice: open this region's card ("" = the Regions screen). */
+        const val EXTRA_REGION = "region"
         const val BUF_M = 60.0 // hazard buffer around shallow soundings and obstructions
         val DEFAULT_PLACES = listOf(
             "Maryland Marina" to "39.32371, -76.39998",
@@ -203,7 +205,7 @@ class MainActivity : Activity() {
         catalog = store.cachedCatalog()
         openCharts()
         refreshCatalog(quiet = true)
-        if (savedInstanceState == null) handleShared(intent)
+        if (savedInstanceState == null) { handleShared(intent); handleRegion(intent) }
     }
 
     /**
@@ -233,6 +235,17 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleShared(intent)
+        handleRegion(intent)
+    }
+
+    /** A chart map notice was tapped: show its region's card over the Regions screen. */
+    private fun handleRegion(i: Intent?) {
+        val code = i?.getStringExtra(EXTRA_REGION) ?: return
+        i.removeExtra(EXTRA_REGION)
+        ui.post {
+            showRegions()
+            if (code.isNotEmpty()) regionCard(code)
+        }
     }
 
     // ------------------------------------------------------------ shared positions

@@ -1,14 +1,8 @@
 package com.jnyer27.noaaroute
 
-import android.Manifest
 import android.app.DownloadManager
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.StatFs
 import org.json.JSONArray
 import org.json.JSONObject
@@ -251,7 +245,7 @@ class VectorMaps(private val ctx: Context) {
             } catch (ex: Exception) {
                 failed = true
                 put(failed(e, ex.message ?: ex.toString()))
-                notify("Vector charts region ${e.ncds} failed", ex.message ?: "")
+                notify("Vector charts region ${e.ncds} failed", ex.message ?: "", e.ncds)
             }
         }
         return failed
@@ -280,7 +274,7 @@ class VectorMaps(private val ctx: Context) {
         prefs.edit().putString("vector-created-${e.ncds}", e.created).apply()
         put(Entry(e.ncds, State.READY, e.created, e.files, uris = uris, names = names))
         notify("Vector charts region ${e.ncds} ready for OsmAnd",
-            "Download/${ChartMaps.SUBDIR}/${names.values.joinToString(", ")}: open them in OsmAnd")
+            "Download/${ChartMaps.SUBDIR}/${names.values.joinToString(", ")}: tap to open them in OsmAnd", e.ncds)
     }
 
     private fun sha256(f: File): String {
@@ -296,13 +290,5 @@ class VectorMaps(private val ctx: Context) {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun notify(title: String, text: String) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel("charts", "Chart maps", NotificationManager.IMPORTANCE_DEFAULT))
-        nm.notify(title.hashCode(), Notification.Builder(ctx, "charts")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(title).setContentText(text).setAutoCancel(true).build())
-    }
+    private fun notify(title: String, text: String, region: String) = ChartMaps.notifyChart(ctx, title, text, region)
 }
