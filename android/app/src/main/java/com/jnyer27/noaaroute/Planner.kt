@@ -662,7 +662,56 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
         }
         if (keep.last() != path.size - 1) keep.add(path.size - 1)
-        return keep.map { path[it] }.toIntArray()
+        return straighten(a, g, path, keep, pc).map { path[it] }.toIntArray()
+    }
+
+    /**
+     * Second pass over [simplify]'s points: where water usable on the grid is a thin
+     * diagonal band (a narrow canal at 20 m), every straight line clips a corner of
+     * the 0-6 ft water or hazard buffer beside it and the legs stayed a staircase of
+     * one-cell steps. Join points while the line stays within one cell of the planned
+     * path, crosses no more pier lines, and only grazes charted water with nothing
+     * charted in the cell itself (never land, hazards, piers, open ocean, too-shallow
+     * water or a low bridge).
+     */
+    private fun straighten(a: Area, g: Grid, path: IntArray, keep: List<Int>, pc: IntArray): List<Int> {
+        val w = a.w
+        fun graze(i: Int): Boolean {
+            if (g.ok[i]) return true
+            val v = g.nav[i].toInt()
+            return (v == SAFE || v == MARGINAL) && !g.nopass[i] && g.planes[Pack.P_HAZARD][i].toInt() == 0
+        }
+        // distance in cells from path[m] to the segment path[i0]-path[i1]
+        fun off(m: Int, i0: Int, i1: Int): Double {
+            val ax = (path[i0] % w).toDouble()
+            val ay = (path[i0] / w).toDouble()
+            val dx = path[i1] % w - ax
+            val dy = path[i1] / w - ay
+            val px = path[m] % w - ax
+            val py = path[m] / w - ay
+            val l2 = (dx * dx + dy * dy).takeIf { it > 0 } ?: 1.0
+            val t = ((px * dx + py * dy) / l2).coerceIn(0.0, 1.0)
+            return hypot(px - t * dx, py - t * dy)
+        }
+        val out = ArrayList<Int>()
+        out.add(keep[0])
+        var s = 0
+        while (s < keep.size - 1) {
+            var best = s + 1
+            for (e in s + 2 until keep.size) {
+                val i0 = keep[s]
+                val i1 = keep[e]
+                if ((i0 + 1 until i1).any { off(it, i0, i1) > 1.0 }) break
+                val corners = ArrayList<Int>()
+                val cells = lineCells(a, path[i0], path[i1], corners)
+                if (!cells.all { graze(it) } || !corners.all { graze(it) }) continue
+                if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
+                best = e
+            }
+            out.add(keep[best])
+            s = best
+        }
+        return out
     }
 
     // ------------------------------------------------------------ report

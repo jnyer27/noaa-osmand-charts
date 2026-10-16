@@ -47,7 +47,9 @@ class AreaRoutesTest {
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM
-                    println("PASS? $name: %.1f nm (straight %.1f), %d points, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, r.resM, sec))
+                    // legs under 40 m: a staircase of grid steps where a narrow canal should be one line
+                    val short = r.legs.count { it.distM < 40.0 }
+                    println("PASS? $name: %.1f nm (straight %.1f), %d points, %d legs under 40 m, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, short, r.resM, sec))
                     // The route itself, so a surprising length can be looked at from the log
                     println("POINTS $name: " + r.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
                     // "avoid": [[lat, lon, meters], ...]: places the route must keep away from
@@ -66,6 +68,8 @@ class AreaRoutesTest {
                         strayed.isNotEmpty() -> failures.add("$name: passes within the avoid radius of ${strayed.joinToString("; ")}")
                         nm != null && r.totalNm !in (nm[0] as Double)..(nm[1] as Double) ->
                             failures.add("$name: %.1f nm outside %s".format(r.totalNm, nm))
+                        test["maxShort"] != null && short > (test["maxShort"] as Double) ->
+                            failures.add("$name: $short legs under 40 m, more than ${(test["maxShort"] as Double).toInt()} (grid staircase?)")
                         r.totalNm < straight * 0.99 -> failures.add("$name: shorter than a straight line?")
                     }
                 } catch (e: PlanException) {
