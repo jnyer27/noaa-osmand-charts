@@ -1,5 +1,7 @@
 name: Block build check (temporary)
-on: workflow_dispatch
+on:
+  push:
+    paths: [".github/workflows/block-check.yml"]
 jobs:
   check:
     runs-on: ubuntu-24.04
