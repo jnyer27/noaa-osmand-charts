@@ -86,8 +86,16 @@ The main product is the NOAA Route Android app (`android/`): depth-aware route p
 - `noaa-ecdis-tiles.sh -u feet` sends a guessed MCS `display_params` (`DisplayDepthUnits=2`); unverified against NOAA. If Jason reports depths still in meters, investigate the MCS `parameters` operation on the service.
 - ECDIS size estimate is a 3-8 KB/tile range, from measured maps: north bay 50 mi z10-15 = 139 MB / 38,700 tiles (3.7 KB), Middle River z10-16 = 12 MB / 1,700 tiles (7 KB). Old 25 KB/tile guess overstated ~7x.
 
-## Abandoned approach (context only)
-Raw ENC S-57 to OSM (JOSM SeaChart `js57toosm`) to OsmAnd `.obf` via OsmAndMapCreator. It worked technically (needed an Android-native sqlite-jdbc swap), but `js57toosm` ignores ENC update files (.001+), so data lacks Notice to Mariners corrections. Dropped in favor of ECDIS tiles. Do not revive without solving update application (GDAL's S-57 reader applies updates).
+## Vector ENC charts for OsmAnd (issue #2, proof of concept on branch enc-vector-poc)
+First attempt (abandoned): raw ENC S-57 to OSM with JOSM SeaChart `js57toosm`, then OsmAndMapCreator on the phone (needed an Android-native sqlite-jdbc swap). `js57toosm` ignores ENC update files (.001+), so the data lacked Notice to Mariners corrections; dropped in favor of ECDIS tiles.
+
+Revived 2026-10-16 with GDAL (updates applied), working on Jason's phone for Middle River and Back River (findings in the issue #2 comment). Branch `enc-vector-poc`, not merged: `tools/enc_to_osm.py` (ENC to OSM seamark/depth tags, most detailed chart per object, areas merged across cells), `tools/obf_compare.py` (tags written vs kept, from BinaryInspector's `types [k-v] add_types [...] Names [k(n) - v]` lines), `.github/workflows/enc-vector-poc.yml` (OsmAndMapCreator `utilities.sh generate-obf-no-address`, Java 21, then `inspector.sh -vmap -vmapobjects`). Lessons:
+- Released OsmAnd's depth rules (depthcontourlines.addon, 2023) draw only `contourtype` 5m/10m/20m/50m/100m/200m/1000m; `2m`, `minor` and `contourarea=depth` shading came to OsmAnd's development version in September 2026. NOAA's shallow contours are written as `5m` class; the `name` tag carries the depth.
+- Jason's map style is **Nautical** (not Marine); its default contour colors (white, red) are about 27% opaque, dark brown is the most visible.
+- OsmAnd prints every text tag: one label per object, in whole feet (NOAA stores feet rounded to 0.1 m).
+- No dredged area type in OsmAnd: DRGARE is written as `seamark:type=fairway` named "<section>, dredged N ft" (draws as a green band). Seabed areas are outlined, so same-tag areas are merged across chart cells (cell edges showed as straight lines).
+- `.depth.obf` files go to OsmAnd's nautical folder (loaded with the free Nautical plugin); the file type was not the problem. OsmAnd's own depth maps (e.g. Swiss_Lakes_contours_2) use the same contour tags and no depth areas.
+- Open: OpenStreetMap seamarks show twice (OsmAnd's map and ours), daymarks and light sectors not mapped, one contour style.
 
 ## Style
 - Jason prefers direct, concise communication.
