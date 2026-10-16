@@ -591,10 +591,30 @@ def build(cells, grid, work, depth=None, quiet=False):
         planes[DEPTH][land] = 0
 
         # Hazards and soundings, shallowest wins
+        area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
+                                                   ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)
+        # Bridge footprints (not ruined), 5 m wider: an obstruction, wreck or rock of unknown
+        # depth charted there is bridge structure (a swing span's pivot pier, a fender), a
+        # visible wall without the hazard buffer. The Centerville Turnpike swing bridge's
+        # pivot (Virginia Cut) is charted as an obstruction and a wreck, and its 60 m buffer
+        # over the 0-6 ft water between the dredged channel's ends shut the bridge.
+        brg = ogr.Geometry(ogr.wkbMultiPolygon)
+        for f, geom in features(gp, "BRIDGE"):
+            if area(geom) and fnum(f, "CONDTN") != 2:
+                g2 = geom.Clone()
+                g2.FlattenTo2D()
+                for part in ([g2] if g2.GetGeometryType() == ogr.wkbPolygon else
+                             [g2.GetGeometryRef(i) for i in range(g2.GetGeometryCount())]):
+                    brg.AddGeometry(part)
+        brg = brg.UnionCascaded().Buffer(0.00005) if brg.GetGeometryCount() else None
+        bridge_hz = []
         hz, snags = [], []
         for layer in ("OBSTRN", "WRECKS", "UWTROC"):
             for f, geom in features(gp, layer):
                 v = fnum(f, "VALSOU")
+                if v is None and brg is not None and geom.Intersects(brg):
+                    bridge_hz.append((geom, 1))
+                    continue
                 # Foul ground (CATOBS 7) is safe to navigate over, only bad for anchoring: a
                 # hazard only with a charted depth (unknown-depth foul ground around the
                 # Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
@@ -624,8 +644,8 @@ def build(cells, grid, work, depth=None, quiet=False):
 
         # Flags
         flags = np.zeros((grid.h, grid.w), np.uint8)
-        area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
-                                                   ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)
+        if bridge_hz:
+            flags |= np.where(burn(grid, bridge_hz, all_touched=True) > 0, STRUCT, 0).astype(np.uint8)
         # Pier areas by cell center, not all touched: the Route 168 bridge's two 12 m piers
         # stand 27 m apart in the Virginia Cut (ICW, Great Bridge), and touching cells shut
         # the one free row between them, so no inside route reached North Carolina
@@ -649,6 +669,10 @@ def build(cells, grid, work, depth=None, quiet=False):
         flags |= np.where(burn(grid, resn, all_touched=True) > 0, RESNOTE, 0).astype(np.uint8)
         deck, span, opening, anyb = [], [], [], []
         for f, geom in features(gp, "BRIDGE"):
+            # A ruined bridge (CONDTN 2) is no deck: a ruined railway bridge charted as a line
+            # across the Elizabeth River's Southern Branch shut the ICW (Virginia Cut)
+            if fnum(f, "CONDTN") == 2:
+                continue
             clr = fnum(f, "VERCLR")
             kinds = [OPENING_KINDS[c] for c in listval(fstr(f, "CATBRG")) if c in OPENING_KINDS]
             anyb.append((geom, 1))

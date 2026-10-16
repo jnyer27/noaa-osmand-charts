@@ -808,7 +808,8 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # Bridge decks without a charted clearance (approach spans) block passage;
         # spans with enough clearance, or that open, re-open it. Cables only with -a.
         if "BRIDGE" in have:
-            raster(src, "BRIDGE", 1, f"VERCLR IS NULL OR VERCLR < {air}", True, [NO_PASS], ft)
+            # A ruined bridge (CONDTN 2) is no deck (one shut the Elizabeth River's Southern Branch)
+            raster(src, "BRIDGE", 1, f"(CONDTN IS NULL OR CONDTN <> 2) AND (VERCLR IS NULL OR VERCLR < {air})", True, [NO_PASS], ft)
             raster(src, "BRIDGE", 1, f"VERCLR >= {air} OR {OPENING_SQL}", True, [SPAN_OK], ft)
         # Piers, seawalls, jetties, breakwaters, one cell wide (not all touched) so a
         # bulkheaded channel keeps its middle
