@@ -266,11 +266,24 @@ def feature_tags(cls, f, geom):
             return None
         # name and depth both carry the label, as in OsmAnd's own depth maps
         return {"contour": "depth", "contourtype": contourtype(v), "depth": feet(v), "name": feet(v)}
-    if cls in ("DEPARE", "DRGARE"):
+    if cls == "DEPARE":
         a = areatype(val(f, "DRVAL1"))
         if a is None:
             return None
         return {"contourarea": "depth", "areatype": a}
+    if cls == "DRGARE":
+        # OsmAnd has no dredged area type: its Nautical style draws fairways (tinted, outlined,
+        # name along the edge), so a dredged channel is a fairway named with its depth. The
+        # depth area tags stay for OsmAnd versions that draw depth areas.
+        d1 = val(f, "DRVAL1")
+        t = {"seamark:type": "fairway"}
+        label = f"Dredged {feet(d1)} ft" if d1 is not None else "Dredged area"
+        n = val(f, "OBJNAM")
+        t["name"] = t["seamark:name"] = f"{n}, {label.lower()}" if n else label
+        a = areatype(d1)
+        if a is not None:
+            t.update({"contourarea": "depth", "areatype": a})
+        return t
     if cls == "SLCONS":
         t = {"seamark:type": "shoreline_construction"}
         c = [CATSLC[x] for x in codes(f, "CATSLC") if x in CATSLC]
