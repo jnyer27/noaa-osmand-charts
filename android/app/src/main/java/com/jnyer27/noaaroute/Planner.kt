@@ -258,7 +258,39 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val fender = BooleanArray(n) {
             dredged[it] && nav[it].toInt() == SAFE && spanok[it] && (planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER
         }
-        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER && !fender[it] || snag[it] || gate[it]) }
+        // Water under a bridge that also spans a dredged channel, outside the channel: the
+        // channel span is where the charted clearance and the opening between the piers are,
+        // and piers are often not charted (the Jordan Bridge is one polygon, VERCLR 44.1 m,
+        // HORCLR 82.2 m, and a straight leg passed under it a cell west of the channel, by
+        // the main pier). Such cells cost like a pier line and count as danger, so routes
+        // take the channel span unless the side span is the only way.
+        val sideSpan = BooleanArray(n)
+        run {
+            val seen = BooleanArray(n)
+            val stack = IntArray(n)
+            val comp = ArrayList<Int>()
+            for (s0 in 0 until n) {
+                if (seen[s0] || (planes[Pack.P_FLAGS][s0].toInt() and Pack.F_BRIDGE) == 0) continue
+                comp.clear()
+                var sp = 0
+                var chan = false
+                stack[sp++] = s0
+                seen[s0] = true
+                while (sp > 0) {
+                    val i = stack[--sp]
+                    comp.add(i)
+                    if (dredged[i] && nav[i].toInt() == SAFE) chan = true
+                    val r = i / w
+                    val c = i % w
+                    for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                        val j = rr * w + cc
+                        if (!seen[j] && (planes[Pack.P_FLAGS][j].toInt() and Pack.F_BRIDGE) != 0) { seen[j] = true; stack[sp++] = j }
+                    }
+                }
+                if (chan) for (i in comp) if (ok[i] && !(dredged[i] && nav[i].toInt() == SAFE)) sideSpan[i] = true
+            }
+        }
+        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER && !fender[it] || snag[it] || gate[it] || sideSpan[it]) }
         val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
@@ -299,7 +331,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (nav[i].toInt() == MARGINAL) c *= 4f
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
-                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !fender[i] -> c *= PIER_COST
+                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !fender[i] || sideSpan[i] -> c *= PIER_COST
                 snag[i] -> c *= SNAG_COST
                 gate[i] -> c *= GATE_COST
             }
