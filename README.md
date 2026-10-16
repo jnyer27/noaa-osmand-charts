@@ -27,7 +27,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 ## Quick start
 
-1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (about 2-7 MB).
+1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (usually 2-7 MB; the largest, Arctic Alaska, is 14 MB).
 2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd.
 3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
@@ -47,10 +47,13 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 ## Chart regions
 
-Route data comes in NOAA Chart Display Service regions. These are the same numbered regions as NOAA's chart maps (`ncds_04`, `ncds_05`). Available now:
+Route data comes in NOAA Chart Display Service regions. These are the same numbered regions as NOAA's chart maps (`ncds_04`, `ncds_05`). Every region with harbor or approach charts is available, from Maine to Texas, the Great Lakes, the West Coast, Alaska, Hawaii, Puerto Rico and the Virgin Islands, and the Pacific islands. Region 21, open ocean off British Columbia, has none:
 
 | Region | Covers | Size |
 |---|---|---|
+| **01a** | The New Hampshire and Maine coast from Portsmouth to Casco Bay and Boothbay, Lake Champlain, eastern Lake Ontario (Oswego, Sackets Harbor) and the St. Lawrence through the Thousand Islands | 2.3 MB |
+| **01b** | Rockland, Camden and Penobscot Bay, Blue Hill Bay, Mount Desert Island and Bar Harbor, Frenchman Bay, Jonesport and Machias Bay | 1.2 MB |
+| **01c** | Eastport, Lubec, Cobscook Bay and Passamaquoddy Bay on the Canadian border | 0.2 MB |
 | **02a** | Long Island Sound north of 41.1 N and its east end, the Hudson from Haverstraw to Troy, Connecticut and Rhode Island, Narragansett Bay | 4.8 MB |
 | **02b** | Buzzards Bay, Martha's Vineyard and Nantucket, the Cape Cod Canal, Cape Cod Bay, Boston Harbor and Massachusetts Bay | 2.0 MB |
 | **03** | New York Harbor and the lower Hudson, western Long Island Sound, Long Island's south shore, northern NJ, the Delaware River from Wilmington to Trenton | 6.7 MB |
@@ -59,9 +62,41 @@ Route data comes in NOAA Chart Display Service regions. These are the same numbe
 | **06** | Pamlico Sound and Hatteras, Beaufort and Morehead City, Wilmington, Myrtle Beach, Charleston, the Savannah River to Augusta | 3.6 MB |
 | **07** | Beaufort SC and Hilton Head, Savannah, the Georgia sea islands, Jacksonville and the St. Johns, the Florida coast to Cape Canaveral | 4.6 MB |
 | **08** | The Indian River south of Cape Canaveral, the Atlantic coast and ICW from Sebastian to Miami, Biscayne Bay, the upper Keys | 3.0 MB |
-| **10** | Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers, Naples, Florida Bay, the Keys from Islamorada to Key West and the Dry Tortugas | 4.7 MB |
+| **09** | Puerto Rico (San Juan, Fajardo, Ponce), Vieques and Culebra, and the US Virgin Islands (St. Thomas, St. John, St. Croix) | 4.3 MB |
+| **10** | Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers, Naples, Florida Bay, the Keys from Islamorada to Key West and the Dry Tortugas | 4.6 MB |
 | **11** | The Gulf coast from Tarpon Springs and the Big Bend to Apalachicola, Panama City, Pensacola, Mobile Bay and Mississippi Sound to Biloxi | 4.4 MB |
+| **12** | The Mississippi River from Baton Rouge past New Orleans, Lake Pontchartrain and Lake Borgne, western Mississippi Sound (Gulfport), Morgan City and the Intracoastal Waterway across Louisiana | 3.3 MB |
+| **13** | Louisiana's coast south of 29.33 N: the Mississippi River below Venice and its passes, Barataria Bay and Grand Isle, Terrebonne and Timbalier Bays, and Atchafalaya Bay | 1.4 MB |
+| **14** | Lake Charles and the Calcasieu, Sabine Pass, Galveston Bay and the Houston Ship Channel, Freeport, Matagorda Bay, Corpus Christi, and the Laguna Madre to Brownsville | 4.8 MB |
 | **15** | Lake Erie from Toledo and the Bass Islands to Cleveland, Erie and Dunkirk, the Detroit River and Lake St. Clair | 1.7 MB |
+| **16** | Lake Ontario's US shore from Niagara to Sodus Bay, Buffalo and the Niagara River, the St. Clair River, and Lake Huron's Michigan shore from Port Huron and Saginaw Bay to Alpena and Drummond Island | 2.3 MB |
+| **17a** | Green Bay and Door County, Grand Traverse Bay, Charlevoix, Petoskey, Mackinac Island, Cheboygan and the Straits of Mackinac, and Lake Michigan's shores north of Ludington and Manitowoc | 2.2 MB |
+| **17b** | Chicago, Milwaukee, Sheboygan, Michigan City, St. Joseph, Holland, Grand Haven and Muskegon | 1.3 MB |
+| **18** | Lake Superior's US shore: Duluth and Two Harbors, the Apostle Islands, Isle Royale, Marquette, Munising, Whitefish Bay, and the St. Marys River at Sault Ste. Marie | 2.7 MB |
+| **19a** | San Diego Bay, Mission Bay, Oceanside, Dana Point, Newport Beach, Long Beach and Los Angeles harbors, and Catalina Island | 1.6 MB |
+| **19b** | Santa Monica Bay and Marina del Rey, the Channel Islands, Ventura, Santa Barbara, Morro Bay and Monterey Bay | 2.1 MB |
+| **19c** | San Francisco Bay, San Pablo Bay, the Sacramento-San Joaquin Delta to Sacramento and Stockton, and the coast from Half Moon Bay to Bodega Bay | 3.9 MB |
+| **19d** | Offshore waters west of San Francisco Bay: the Farallon Islands, Cordell Bank and Bodega Canyon | 0.3 MB |
+| **20a** | Fort Bragg, Humboldt Bay and Eureka, Crescent City, Brookings, Coos Bay, Florence and Newport (Yaquina Bay) | 1.5 MB |
+| **20b** | The Columbia River from the bar to Portland and the Willamette, Tillamook Bay, Willapa Bay and Grays Harbor | 1.9 MB |
+| **20c** | Puget Sound from Olympia to Seattle and Everett, Hood Canal, the Strait of Juan de Fuca, the San Juan Islands, Bellingham, and the Washington coast north of Grays Harbor | 5.8 MB |
+| **22a** | Ketchikan and Tongass Narrows, Metlakatla, Prince of Wales Island (Craig), Clarence Strait and Dixon Entrance | 2.3 MB |
+| **22b** | Wrangell, Wrangell Narrows, Petersburg and Sumner Strait | 2.1 MB |
+| **23a** | Sitka and Sitka Sound, the outer coasts of Baranof and Chichagof Islands, Chatham Strait, Kake and Frederick Sound | 1.5 MB |
+| **23b** | Juneau and Auke Bay, Stephens Passage, Icy Strait, Glacier Bay, Lynn Canal to Haines and Skagway, and Yakutat | 1.6 MB |
+| **24a** | Prince William Sound (Valdez, Cordova, Whittier), the Copper River delta, and the coast east to Yakutat Bay | 6.7 MB |
+| **24b** | Seward and Resurrection Bay, Kenai Fjords, Cook Inlet (Homer, Seldovia, Anchorage), and Kodiak | 4.0 MB |
+| **25a** | Shelikof Strait, the Alaska Peninsula's Pacific coast to Chignik, and eastern Bristol Bay (Naknek, Dillingham) | 6.2 MB |
+| **25b** | The Shumagin Islands and Sand Point, King Cove, Cold Bay, False Pass and western Bristol Bay | 8.7 MB |
+| **26a** | Dutch Harbor and Unalaska, Akutan, Umnak and the Islands of Four Mountains, and the Pribilof Islands | 7.3 MB |
+| **26b** | Adak, Atka and the Andreanof Islands | 2.4 MB |
+| **27** | Norton Sound and Nome, the Yukon delta, Bering Strait, Kotzebue Sound, and the Arctic coast to Utqiagvik and Prudhoe Bay | 13.7 MB |
+| **28a** | Nihoa, Necker, French Frigate Shoals, Gardner Pinnacles, Midway and Johnston Atoll | 4.8 MB |
+| **28b** | Oahu and Honolulu, Maui, Lanai, Molokai, the Big Island (Hilo, Kona) and Kauai | 5.8 MB |
+| **29** | Tutuila (Pago Pago), the Manu'a Islands, Swains Island, Rose Atoll, Palmyra, Kingman Reef, Jarvis, Howland and Baker Islands | 3.1 MB |
+| **30** | The Rat and Near Islands: Kiska, Shemya and Attu | 5.1 MB |
+| **31a** | Guam (Apra Harbor), Rota, Tinian and Saipan, and the northern Marianas | 9.5 MB |
+| **31b** | Pohnpei, Kosrae and other islands of the Federated States of Micronesia, and Wake Island | 10.4 MB |
 
 Region 15 (Lake Erie) depths are charted to the Great Lakes Low Water Datum, not MLLW, and the route report and GPX say so. Lake levels are usually above that datum, but they change with the season and with wind.
 
@@ -362,7 +397,7 @@ The script searches a box around your points. If the only way runs outside it (a
 | `~/.noaa-enc/` | `noaa-route.py` data: NOAA ENC zips (`dl/`), unpacked charts per state (`MD/`, `VA/`), single cells for NCDS regions (`cells/`, with NOAA's catalog `ENCProdCat.xml`), converted cells (`gpkg/`), scratch grids (`work/`). Safe to delete; it re-downloads. Works offline once downloaded |
 | `~/.noaa-enc/route-defaults.json` | Last depth and air draft, used as interview defaults |
 
-**Storage:** the app's chart regions are about 2-7 MB each. A single NCDS chart map is about 600 MB, and a merged map for regions 03-05 is about 1.8 GB. With the scripts, an ECDIS map is 10-150 MB plus its tile cache in `~/.noaa-ecdis`, and `noaa-route.py` data in `~/.noaa-enc` is about 600 MB for Maryland and Virginia. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
+**Storage:** the app's chart regions are 0.2-14 MB each, most 2-7 MB. A single NCDS chart map is about 600 MB, and a merged map for regions 03-05 is about 1.8 GB. With the scripts, an ECDIS map is 10-150 MB plus its tile cache in `~/.noaa-ecdis`, and `noaa-route.py` data in `~/.noaa-enc` is about 600 MB for Maryland and Virginia. OsmAnd keeps its own copy of every imported map, so the files in `Download/noaa-charts` are only needed to re-import or update.
 
 ## Data sources
 - NOAA ENC downloads (route data): https://charts.noaa.gov/ENCs/ENCs.shtml and the ENC product catalog https://charts.noaa.gov/ENCs/ENCProdCat.xml
