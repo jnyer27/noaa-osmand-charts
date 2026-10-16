@@ -112,6 +112,11 @@ jobs:
         run: |
           JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects Depth_*.depth.obf > inspect_depth.txt 2>&1 || true
           JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects "${NAME}_seamarks.obf" > inspect_seamarks.txt 2>&1 || true
+          # the inspector lists the objects shown at one zoom (15 by default): the coastal and
+          # approach sounding sections only appear at their own zooms
+          for z in 11 13; do
+            JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects -zoom=$z Depth_*.depth.obf > inspect_depth_z$z.txt 2>&1 || true
+          done
           wc -l inspect_*.txt
           echo "== depth map sections"
           grep -v -E '^(Point|Way|Polygon|Multipolygon|Relation) ' inspect_depth.txt | head -40
@@ -132,7 +137,17 @@ jobs:
               seamark:light:colour seamark:type=fairway seamark:type=wreck seamark:type=obstruction \
               seamark:type=bridge seamark:name name \
             >> compare.md || rc=1
+          # each sounding section holds every sounding of its set (dump at its own zoom)
+          echo -e "\n### Sounding sections\n" >> compare.md
+          for z in 11 13 15; do
+            dump=inspect_depth_z$z.txt; [ $z = 15 ] && dump=inspect_depth.txt
+            w=$(grep -c '<node' "${NAME}_soundings_z$z.osm" || true)
+            k=$(grep -c 'point-depth' "$dump" || true)
+            echo "- zoom $z: $w written, $k shown" >> compare.md
+            [ "$k" -ge "$w" ] || { echo "  **Missing soundings at zoom $z**" >> compare.md; rc=1; }
+          done
           cat compare.md >> "$GITHUB_STEP_SUMMARY"
+          grep -A4 '^### Sounding' compare.md
           grep -A2 '^### Required' compare.md
           exit $rc
 
