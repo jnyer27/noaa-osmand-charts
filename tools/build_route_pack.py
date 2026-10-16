@@ -717,7 +717,9 @@ def build(cells, grid, work, depth=None, quiet=False):
 # Regions whose box is larger than this many grid cells are built in blocks: their whole
 # grid would not fit in memory (region 29, American Samoa and the central Pacific atolls,
 # is 8.8 billion cells, about 53 GB of planes, with charts in 254 of its tiles)
-BLOCK_CELLS = 0.8e9
+# Regions 20a (739M cells) and 28b (750M) ran the runner out of memory at 0.8e9 once
+# the open-sea seeds were burned too: right at the edge, so they are built in blocks now
+BLOCK_CELLS = 0.7e9
 BLOCK = 16       # tiles per block side (4096 x 4096 cells, about 100 MB of planes)
 NEAR_TILES = 2   # tiles kept around approach and harbor charts (band 4+), about 10 km
 
