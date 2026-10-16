@@ -88,6 +88,7 @@ class MainActivity : Activity() {
     private lateinit var via: EditText
     private lateinit var depth: EditText
     private lateinit var air: EditText
+    private lateinit var inside: CheckBox
     private lateinit var name: EditText
     private lateinit var planButton: Button
     private lateinit var status: TextView
@@ -159,6 +160,12 @@ class MainActivity : Activity() {
         col.addView(depth)
         col.addView(label("Air draft (ft)"))
         col.addView(air)
+        inside = CheckBox(this).apply { text = "Stay inside (avoid open ocean)" }
+        col.addView(inside)
+        col.addView(TextView(this).apply {
+            text = "Keeps the route on bays, sounds, rivers and the ICW: no water seaward of the territorial sea baseline (the line across inlets and bay mouths)."
+            textSize = 12f
+        })
         name = field("route name")
         col.addView(label("Name"))
         col.addView(name)
@@ -191,6 +198,7 @@ class MainActivity : Activity() {
 
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
+        inside.isChecked = prefs.getBoolean("inside", false)
         start.setText(prefs.getString("start", ""))
         dest.setText(prefs.getString("dest", ""))
         File(filesDir, "md-route-pack.bin").delete() // single-pack format from the first build
@@ -1096,7 +1104,8 @@ class MainActivity : Activity() {
         val routeName = name.text.toString().trim().ifEmpty {
             "route_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
         }.replace(Regex("[^\\w.-]+"), "_")
-        prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString())
+        val stayInside = inside.isChecked
+        prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString()).putBoolean("inside", stayInside)
             .putString("start", start.text.toString()).putString("dest", dest.text.toString()).apply()
         planButton.isEnabled = false
         packButton.isEnabled = false // no area changes while planning
@@ -1107,7 +1116,7 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M) { msg -> ui.post { status.text = msg } }
+                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside) { msg -> ui.post { status.text = msg } }
                 val used = usedPacks(p, r)
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val (uri, savedAs) = saveGpx(r, datum)
@@ -1115,7 +1124,8 @@ class MainActivity : Activity() {
                 ui.post {
                     route = r
                     gpxUri = uri
-                    result.text = Gpx.report(r, tripLines(a, vias, b), afterLines(used, sec), BUF_M, datum)
+                    result.text = Gpx.report(r, tripLines(a, vias, b) + listOfNotNull(
+                        "Stay inside: on (no open ocean)".takeIf { stayInside }), afterLines(used, sec), BUF_M, datum)
                     status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format(sec) +
                         if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
                     actions.visibility = View.VISIBLE

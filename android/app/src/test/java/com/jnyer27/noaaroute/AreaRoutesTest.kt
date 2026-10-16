@@ -39,10 +39,11 @@ class AreaRoutesTest {
                 val depth = test["depth"] as Double
                 val air = test["air"] as Double?
                 val mustFail = test["fail"] == true
+                val inside = test["inside"] == true // Stay inside: open sea is a wall
                 val t0 = System.currentTimeMillis()
                 try {
                     // Progress (overview, guide points, each stretch's grid) goes to the log too
-                    val r = Planner(charts).plan("test", pts, depth, air) { msg -> println("PROGRESS $name: $msg") }
+                    val r = Planner(charts).plan("test", pts, depth, air, stayInside = inside) { msg -> println("PROGRESS $name: $msg") }
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM

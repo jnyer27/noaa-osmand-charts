@@ -32,6 +32,9 @@ class Route(val name: String, val points: List<LatLon>, val legs: List<Leg>, val
  * cutting, then line-of-sight simplification.
  */
 class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS) {
+    /** Stay inside: open sea is a wall (set by [plan]). */
+    private var inside = false
+
     companion object {
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
@@ -46,6 +49,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val HAZARD = 3
         const val STRUCT = 4
         const val SHALLOW = 5
+        /** Open sea while "Stay inside" is on (seaward of the territorial sea baseline) */
+        const val SEA = 6
         /** Bit ChartSet.window adds to SAFE water inside a dredged area (a maintained channel). */
         const val DREDGED = 0x40
         // Inside a dredged channel deep enough for the boat, being near its edge is normal:
@@ -178,6 +183,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             snag[i] = hzv == 1 && fl and Pack.F_CABLE == 0 && (planes[Pack.P_CABLECLR][i].toInt() and 0xff) == Pack.SNAG_MARK
             nav[i] = when {
                 fl and Pack.F_STRUCT != 0 -> STRUCT
+                // before hazards, so a boxed-in point is told it is the ocean, not a buoyed shoal
+                inside && planes[Pack.P_DEPTH][i].toInt() != 0 && fl and Pack.F_SPAN == 0 &&
+                    (planes[Pack.P_SPANCLR][i].toInt() and 0xff) == Pack.SEA_MARK -> SEA
                 hzv != 0 && hzv != Pack.HZ_PIER && !snag[i] && (hzv - 1) / 10.0 < hz -> HAZARD
                 sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
@@ -460,6 +468,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         "hazard" to "the buffer around shallow soundings, rocks, wrecks or obstructions",
         "struct" to "piers or bridge piers",
         "nopass" to "a bridge or overhead cable without enough charted clearance",
+        "sea" to "open ocean (Stay inside is on; turn it off to route outside)",
     )
 
     /** Water reachable from start: cells, touches window edge, reason -> (edge cells, example). */
@@ -495,6 +504,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     v == SAFE || v == MARGINAL || v == HAZARD -> "hazard"
                     v == SHALLOW -> "shallow"
                     v == STRUCT -> "struct"
+                    v == SEA -> "sea"
                     else -> "land"
                 }
                 val cur = walls[why]
@@ -1187,8 +1197,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     // ------------------------------------------------------------ main entry
 
     fun plan(name: String, pts: List<LatLon>, depthFt: Double, airFt: Double?, bufM: Double = 60.0,
-             progress: (String) -> Unit = {}): Route {
+             stayInside: Boolean = false, progress: (String) -> Unit = {}): Route {
         require(pts.size >= 2)
+        inside = stayInside
         for (p in pts) if (!pack.covers(p.lat, p.lon))
             throw PlanException("%.5f, %.5f is outside your downloaded chart areas (%s). Download the area that covers it.".format(p.lat, p.lon, pack.names))
         val c = Ctx(depthFt, airFt, depthFt * Pack.FT, airFt?.let { it * Pack.FT }, bufM, progress)

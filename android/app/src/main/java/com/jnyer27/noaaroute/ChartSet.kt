@@ -89,8 +89,12 @@ class ChartSet(val packs: List<Pack>) {
                     val i = wr * w + (pc - c0) / f
                     val ti = rowBase + (pc - tx * t)
                     if (centerRow && (pc - c0) % f == half) out[Pack.P_DEPTH][i] = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff]
+                    val center = centerRow && (pc - c0) % f == half
                     for (p in minPlanes) {
                         val v = d[p * tt + ti].toInt() and 0xff
+                        // Open sea only from the center cell, like depth: from any cell, the
+                        // overview would close inside channels beside a barrier island
+                        if (p == Pack.P_SPANCLR && v == Pack.SEA_MARK && !center) continue
                         val cur = out[p][i].toInt() and 0xff
                         if (v != 0 && (cur == 0 || v < cur)) out[p][i] = v.toByte()
                     }

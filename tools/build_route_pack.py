@@ -48,7 +48,12 @@ Planes (0 always means "nothing here"):
             bit 5 CABLE    overhead cable (clearance in plane 5)
             bit 6 RESNOTE  restricted area with a navigation rule (reported)
             bit 7 BRIDGE   any bridge part (reported)
-  4 SPANCLR shortest span clearance here, 0.5 m units (1-255)
+  4 SPANCLR shortest span clearance here, 0.5 m units (1-255). Where FLAGS has no SPAN
+            bit, 255 (SEA_MARK) marks open sea: the territorial sea, contiguous zone or
+            EEZ (TESARE, CONZNE, EXEZNE) of the most detailed chart, i.e. seaward of the
+            territorial sea baseline, which closes bays and sounds. The app's "Stay
+            inside" option keeps routes off it; apps from before it read this plane only
+            with the SPAN bit and ignore it.
   5 CABLECLR shortest cable clearance, 0.5 m units (1-255), 0 unknown. Where FLAGS
             has no CABLE bit, 255 (SNAG_MARK) marks a cell whose only hazard is a
             snag or stump (OBSTRN CATOBS 1, always submerged, unknown depth): its
@@ -96,7 +101,7 @@ CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
 REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
-          "BOYLAT", "BCNLAT", "FAIRWY"]
+          "BOYLAT", "BCNLAT", "FAIRWY", "TESARE", "CONZNE", "EXEZNE"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -107,6 +112,8 @@ STRUCT, PROHIB, DECK, SPAN, OPENING, CABLE, RESNOTE, BRIDGE = (1 << b for b in r
 HZ_PIER = 255  # HAZARD plane: shoreline construction, no hazard
 SNAG_MARK = 255  # CABLECLR plane without the CABLE flag: the cell's hazard is only a snag
 GATE_MARK = 254  # CABLECLR plane without the CABLE flag: a channel marker or its wrong side
+SEA_MARK = 255  # SPANCLR plane without the SPAN flag: open sea (seaward of the baseline)
+SEA_LAYERS = ("TESARE", "CONZNE", "EXEZNE")
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
@@ -516,6 +523,7 @@ def build(cells, grid, work, depth=None, quiet=False):
     """Rasterize the charts into the grid's planes. depth: (depth_table, depth_index)
     shared by the blocks of a region built in blocks (build_blocks)."""
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
+    sea = np.zeros((grid.h, grid.w), bool)  # open sea, reset per band like the planes
     depth_table, depth_index = depth or ([None], {})  # index 0 = no water
     coarsened = 0
     notes = []
@@ -541,6 +549,8 @@ def build(cells, grid, work, depth=None, quiet=False):
         cov = burn(grid, [(geom, 1) for f, geom in features(gp, "M_COVR")
                           if fnum(f, "CATCOV") == 1]) > 0
         planes[:, cov] = 0
+        sea[cov] = False
+        sea |= burn(grid, [(geom, 1) for layer in SEA_LAYERS for f, geom in features(gp, layer)]) > 0
 
         # Depth areas -> depth table index
         depth_feats = []
@@ -690,6 +700,9 @@ def build(cells, grid, work, depth=None, quiet=False):
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
             say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
 
+    # Open sea where no bridge span needs the plane (planes[FLAGS] is final by now)
+    planes[SPANCLR][sea & ((planes[FLAGS] & SPAN) == 0)] = SEA_MARK
+    say(f"Open sea: {int((sea & (planes[DEPTH] > 0)).sum())} water cells")
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
