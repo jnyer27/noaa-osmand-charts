@@ -129,12 +129,15 @@ def feet(m):
 
 
 def contourtype(m):
-    """OsmAnd contour classes it keeps (rendering_types.xml): 2m, 5m, 10m, 20m, 50m, 100m,
-    200m, 1000m, else minor (shown from zoom 15)."""
-    for cls in (2, 5, 10, 20, 50, 100, 200, 1000):
-        if abs(m - cls) <= cls * 0.15:
+    """The contour class OsmAnd draws a line with. Released OsmAnd (rules from 2023) only draws
+    5m, 10m, 20m, 50m, 100m, 200m and 1000m; 2m, minor and depth areas only came to its
+    development version in September 2026. So every line gets the drawn class at or below
+    the next one up: NOAA's 3, 6 and 12 ft lines (0.9, 1.8, 3.6 m) draw as 5m class lines.
+    The label is the name tag (feet), so the class does not change what the line reads."""
+    for cls, upto in ((5, 7.5), (10, 15), (20, 35), (50, 75), (100, 150), (200, 600)):
+        if m < upto:
             return f"{cls}m"
-    return "minor"
+    return "1000m"
 
 
 def areatype(d1):
