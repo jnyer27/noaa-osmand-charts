@@ -49,11 +49,13 @@ Planes (0 always means "nothing here"):
             bit 6 RESNOTE  restricted area with a navigation rule (reported)
             bit 7 BRIDGE   any bridge part (reported)
   4 SPANCLR shortest span clearance here, 0.5 m units (1-255). Where FLAGS has no SPAN
-            bit, 255 (SEA_MARK) marks open sea: the territorial sea, contiguous zone or
-            EEZ (TESARE, CONZNE, EXEZNE) of the most detailed chart, i.e. seaward of the
-            territorial sea baseline, which closes bays and sounds. The app's "Stay
-            inside" option keeps routes off it; apps from before it read this plane only
-            with the SPAN bit and ignore it.
+            bit, 255 (SEA_MARK) marks open sea (mark_sea): water connected, without
+            crossing land or a COLREGS demarcation line (tools/colregs.geojson, 33 CFR 80:
+            the lines across inlets and bay mouths), to the charts' contiguous zone or EEZ
+            (CONZNE, EXEZNE: 12 nm and more offshore). The app's "Stay inside" option keeps
+            routes off it; apps from before it read this plane only with the SPAN bit and
+            ignore it. (TESARE, the territorial sea, is only a sliver along the 12 nm line
+            in NOAA's ENCs, so it cannot tell inside from outside.)
   5 CABLECLR shortest cable clearance, 0.5 m units (1-255), 0 unknown. Where FLAGS
             has no CABLE bit, 255 (SNAG_MARK) marks a cell whose only hazard is a
             snag or stump (OBSTRN CATOBS 1, always submerged, unknown depth): its
@@ -101,7 +103,7 @@ CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
 REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
-          "BOYLAT", "BCNLAT", "FAIRWY", "TESARE", "CONZNE", "EXEZNE"]
+          "BOYLAT", "BCNLAT", "FAIRWY", "CONZNE", "EXEZNE"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -113,7 +115,7 @@ HZ_PIER = 255  # HAZARD plane: shoreline construction, no hazard
 SNAG_MARK = 255  # CABLECLR plane without the CABLE flag: the cell's hazard is only a snag
 GATE_MARK = 254  # CABLECLR plane without the CABLE flag: a channel marker or its wrong side
 SEA_MARK = 255  # SPANCLR plane without the SPAN flag: open sea (seaward of the baseline)
-SEA_LAYERS = ("TESARE", "CONZNE", "EXEZNE")
+SEA_LAYERS = ("CONZNE", "EXEZNE")  # seeds of mark_sea; TESARE is only a 12 nm line sliver
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
@@ -548,7 +550,7 @@ def build(cells, grid, work, depth=None, quiet=False):
         cov = burn(grid, [(geom, 1) for f, geom in features(gp, "M_COVR")
                           if fnum(f, "CATCOV") == 1]) > 0
         planes[:, cov] = 0
-        # Open sea, straight into SPANCLR (cleared with this band's coverage above; bridge
+        # Open sea seeds (mark_sea), straight into SPANCLR (cleared with this band's coverage above; bridge
         # spans burned later in the band overwrite it): an array of its own, even one byte
         # per cell, ran regions 20a and 28b (grids just under BLOCK_CELLS) out of memory
         zones = [(geom, 1) for layer in SEA_LAYERS for f, geom in features(gp, layer)]
@@ -707,9 +709,6 @@ def build(cells, grid, work, depth=None, quiet=False):
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
             say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
 
-    n_sea = sum(int(((planes[SPANCLR][r0:r0 + 1024] == SEA_MARK) & ((planes[FLAGS][r0:r0 + 1024] & SPAN) == 0) &
-                     (planes[DEPTH][r0:r0 + 1024] > 0)).sum()) for r0 in range(0, grid.h, 1024))
-    say(f"Open sea: {n_sea} water cells")
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
@@ -770,6 +769,120 @@ def build_blocks(cells, grid, work, detail):
         if (k + 1) % 10 == 0 or k + 1 == len(blocks):
             log(f"Block {k + 1}/{len(blocks)}: {len(tiles)} tiles with data, {len(depth[0]) - 1} depth ranges, {len(notes)} notes")
     return tiles, depth[0], notes, sorted(datums)
+
+
+def colregs_lines():
+    """COLREGS demarcation lines (33 CFR 80) from tools/colregs.geojson: [(geometry, envelope)]."""
+    ds = ogr.Open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "colregs.geojson"))
+    out = []
+    for f in ds.GetLayer(0):
+        g = f.GetGeometryRef().Clone()
+        out.append((g, g.GetEnvelope()))  # minx, maxx, miny, maxy
+    return out
+
+
+def mark_sea(grid, tiles):
+    """Open sea for the app's "Stay inside": water connected (4-neighbor) to the seed cells
+    build() marked from CONZNE/EXEZNE (12 nm and more offshore) without crossing land or a
+    COLREGS demarcation line, so bays, sounds, rivers and the ICW behind inlets that have a
+    line stay inside. Tile by tile, so memory stays flat on the largest grids: each tile's
+    water is labeled, labels are joined across tile edges (union-find), then a second pass
+    sets SEA_MARK on the sea's cells and clears seed marks elsewhere. tiles: the region's
+    planes, or {(tx, ty): tile} from build_blocks (changed in place). A region whose pack
+    does not reach 12 nm offshore has no seeds, and so no open sea."""
+    from scipy import ndimage
+    tw, th = grid.w // TILE, grid.h // TILE
+    if isinstance(tiles, dict):
+        tile_at = tiles.get
+    else:
+        def tile_at(k):
+            return tiles[:, k[1] * TILE:(k[1] + 1) * TILE, k[0] * TILE:(k[0] + 1) * TILE]
+    lines = colregs_lines()
+    tdlon, tdlat = TILE * grid.dlon, TILE * grid.dlat
+    four = ndimage.generate_binary_structure(2, 1)
+
+    def walls(tx, ty):
+        w0, n0 = grid.west + tx * tdlon, grid.north - ty * tdlat
+        mine = [g for g, e in lines if e[0] <= w0 + tdlon and e[1] >= w0 and e[2] <= n0 and e[3] >= n0 - tdlat]
+        if not mine:
+            return None
+        ds = gdal.GetDriverByName("MEM").Create("", TILE, TILE, 1, gdal.GDT_Byte)
+        ds.SetGeoTransform((w0, grid.dlon, 0, n0, 0, -grid.dlat))
+        ds.SetProjection(grid.srs.ExportToWkt())
+        mem = ogr.GetDriverByName("Memory").CreateDataSource("")
+        lyr = mem.CreateLayer("l", grid.srs, ogr.wkbUnknown)
+        for g in mine:
+            f = ogr.Feature(lyr.GetLayerDefn())
+            f.SetGeometry(g)
+            lyr.CreateFeature(f)
+        gdal.RasterizeLayer(ds, [1], lyr, burn_values=[1], options=["ALL_TOUCHED=TRUE"])
+        return ds.GetRasterBand(1).ReadAsArray() > 0
+
+    def label(tx, ty):
+        t = tile_at((tx, ty))
+        if t is None:
+            return None, 0, None
+        water = t[DEPTH] > 0
+        w = walls(tx, ty)
+        if w is not None:
+            water &= ~w
+        lab, n = ndimage.label(water, four)
+        return lab, n, t
+
+    parent = []
+
+    def find(i):
+        root = i
+        while parent[root] != root:
+            root = parent[root]
+        while parent[i] != root:
+            parent[i], i = root, parent[i]
+        return root
+
+    def union(pairs):
+        for a_, b_ in pairs:
+            ra, rb = find(a_), find(b_)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+
+    base = {}
+    seeds = set()
+    prev_bottom = {}  # tx -> global labels along the bottom row of the tile above
+    for ty in range(th):
+        bottom, left_col = {}, None
+        for tx in range(tw):
+            lab, n, t = label(tx, ty)
+            if lab is None:
+                left_col = None
+                continue
+            b0 = len(parent)
+            base[(tx, ty)] = b0
+            parent.extend(range(b0, b0 + n))
+            g = np.where(lab > 0, lab.astype(np.int64) + b0 - 1, -1)
+            for k in np.unique(lab[(t[SPANCLR] == SEA_MARK) & ((t[FLAGS] & SPAN) == 0) & (lab > 0)]):
+                seeds.add(b0 + int(k) - 1)
+            for edge_here, edge_there in ((g[:, 0], left_col), (g[0, :], prev_bottom.get(tx))):
+                if edge_there is None:
+                    continue
+                both = (edge_here >= 0) & (edge_there >= 0)
+                if both.any():
+                    union(set(zip(edge_here[both].tolist(), edge_there[both].tolist())))
+            left_col = g[:, -1]
+            bottom[tx] = g[-1, :]
+        prev_bottom = bottom
+    roots = {find(s_) for s_ in seeds}
+    n_sea = 0
+    for (tx, ty), b0 in base.items():
+        lab, n, t = label(tx, ty)
+        is_sea = np.zeros(n + 1, bool)
+        is_sea[1:] = [find(b0 + i) in roots for i in range(n)]
+        sea = is_sea[lab]
+        free = (t[FLAGS] & SPAN) == 0
+        t[SPANCLR][sea & free] = SEA_MARK
+        t[SPANCLR][~sea & free & (t[SPANCLR] == SEA_MARK)] = 0
+        n_sea += int(sea.sum())
+    log(f"Open sea: {n_sea} water cells reached from {len(seeds)} seed pieces, "
+        f"{sum(1 for _ in lines)} COLREGS lines")
 
 
 def note(kind, band, geom, **attrs):
@@ -871,6 +984,7 @@ def main():
             planes, depth_table, notes, datums = build_blocks(cells, grid, a.work, detail)
         else:
             planes, depth_table, notes, datums = build(cells, grid, a.work)
+        mark_sea(grid, planes)
         if datums and datums != [12]:
             log(f"Note: sounding datums {datums}; the app reports Low Water Datum if 25 (Great Lakes, IGLD 1985) is among them, else MLLW")
         path = os.path.join(a.out, area["id"] + ".bin")

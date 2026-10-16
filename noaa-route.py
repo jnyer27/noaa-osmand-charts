@@ -20,9 +20,6 @@ Options:
                  need (your draft plus your margin, e.g. 1.8 ft draft -> 3)
   -a FEET        Air draft in feet; bridge spans and overhead cables with less
                  charted clearance are avoided (default: not checked)
-  -i             Stay inside: no open ocean, only bays, sounds, rivers and the
-                 ICW (no water seaward of the territorial sea baseline, the line
-                 across inlets and bay mouths), as the app's "Stay inside"
   -n NAME        Route name and file name (default: route)
   -o DIR         Output folder (default: ~/storage/downloads/noaa-charts/routes)
   -s SETS        Charts to use, comma separated (default: MD): NOAA state sets
@@ -113,9 +110,7 @@ NCDS = {
 S57_OPTS = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON,ADD_SOUNDG_DEPTH=ON"
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
-          "BOYLAT", "BCNLAT", "FAIRWY", "TESARE", "CONZNE", "EXEZNE"]
-# Open sea: territorial sea, contiguous zone, EEZ (seaward of the territorial sea baseline)
-SEA_LAYERS = ("TESARE", "CONZNE", "EXEZNE")
+          "BOYLAT", "BCNLAT", "FAIRWY"]
 FT = 0.3048
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
@@ -125,7 +120,6 @@ NM = 1852.0
 
 # Grid values
 BLOCKED, SAFE, MARGINAL, HAZARD, STRUCT, SHALLOW = 0, 1, 2, 3, 4, 5  # STRUCT: visible, not buffered
-SEA_NAV = 6  # open sea with -i
 # NOAA converts feet to meters at 0.1 m, so the 6 ft line is stored as 1.8 m (5.9 ft).
 # Compare depths with this much slack so "6 ft" water counts for a 6 ft need.
 ROUNDING_M = 0.05
@@ -135,10 +129,10 @@ SHORE_M = 100.0
 K_MIN = 5
 # Flag raster bands (1-3 are reported per leg; 4 = no passage under, 5 = passable span,
 # 6 = pier or seawall line, 7 = submerged snag or pile of unknown depth, 8 = channel
-# marker or its wrong side, 9 = dredged area deep enough, 10 = open sea)
+# marker or its wrong side, 9 = dredged area deep enough)
 FLAG_LAYERS = {"RESARE": 1, "BRIDGE": 2, "CBLOHD": 3}
-NO_PASS, SPAN_OK, PIER, SNAG, GATE, DREDGED, SEA = 4, 5, 6, 7, 8, 9, 10
-NFLAGS = 10
+NO_PASS, SPAN_OK, PIER, SNAG, GATE, DREDGED = 4, 5, 6, 7, 8, 9
+NFLAGS = 9
 # Inside a dredged channel deep enough for the boat, being near its edge is normal: the
 # proximity cost is cut to this share and the hazard buffer's cost (bank soundings just
 # outside the channel) to DREDGED_SOFT_COST. Otherwise every cell of a narrow channel cost
@@ -807,9 +801,6 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
                 raster(src, layer, burn, where, at)
         if "M_COVR" in have:
             raster(src, "M_COVR", 0, "CATCOV = 1", bands=range(1, NFLAGS + 1), target=ft)
-        for layer in SEA_LAYERS:
-            if layer in have:
-                raster(src, layer, 1, None, False, [SEA], ft)
         for layer, fb in FLAG_LAYERS.items():
             if layer in have:
                 where = " OR ".join(f"RESTRN LIKE '%\"{c}\"%'" for c in RESTRN) if layer == "RESARE" else None
@@ -935,8 +926,7 @@ WALLS = {"shallow": "water shallower than your -d depth",
          "land": "land or uncharted water",
          "hazard": "the -b buffer around soundings shallower than -d, rocks, wrecks or obstructions",
          "struct": "piles or bridge piers",
-         "nopass": "a bridge or overhead cable without enough charted clearance (-a)",
-         "sea": "open ocean (-i, stay inside; leave it out to route outside)"}
+         "nopass": "a bridge or overhead cable without enough charted clearance (-a)"}
 
 
 def enclosure(grid, ok, nav, flags, start):
@@ -962,7 +952,7 @@ def enclosure(grid, ok, nav, flags, start):
             v = nav[j]
             why = ("nopass" if v in (SAFE, MARGINAL) and flags[NO_PASS - 1][j] else
                    "hazard" if v in (SAFE, MARGINAL, HAZARD) else
-                   "shallow" if v == SHALLOW else "struct" if v == STRUCT else "sea" if v == SEA_NAV else "land")
+                   "shallow" if v == SHALLOW else "struct" if v == STRUCT else "land")
             cnt, ex = walls.get(why, (0, j))
             walls[why] = (cnt + 1, ex)
             if why == "hazard":
@@ -1413,11 +1403,6 @@ def build(grid, ctx, draft_m=None):
         die(f"Area too large at {grid.res:.0f} m ({grid.w} x {grid.h}). Add -v points closer together.")
     nav, flags, use = build_rasters(grid, ctx.cells, ctx.ext, draft_m if draft_m is not None else ctx.draft_m,
                                     ctx.air_m, ctx.work)
-    if ctx.a.inside:
-        # Stay inside: charted water at sea is a wall, as in the app (not under a span)
-        n = np.frombuffer(nav, np.uint8)
-        sea = (np.frombuffer(flags[SEA - 1], np.uint8) > 0) & (np.frombuffer(flags[SPAN_OK - 1], np.uint8) == 0)
-        n[sea & (n != BLOCKED) & (n != STRUCT)] = SEA_NAV
     ok, cost, prox, pier, soft = prepare(grid, nav, flags, ctx.a.buf)
     return {"nav": nav, "flags": flags, "use": use, "ok": ok, "cost": cost, "prox": prox, "pier": pier, "soft": soft,
             "rad": buffer_cells(ctx.a.buf, grid.res)}
@@ -1903,7 +1888,6 @@ def main():
     ap.add_argument("-v", dest="via", action="append", default=[])
     ap.add_argument("-d", dest="draft", type=float)
     ap.add_argument("-a", dest="air", type=float)
-    ap.add_argument("-i", dest="inside", action="store_true")
     ap.add_argument("-n", dest="name", default="route")
     ap.add_argument("-o", dest="out", default=os.path.join(HOME, "storage/downloads/noaa-charts/routes"))
     ap.add_argument("-s", dest="states", default="MD")
