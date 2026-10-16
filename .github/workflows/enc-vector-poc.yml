@@ -2,7 +2,7 @@ name: ENC vector charts
 
 # Issue #2: NOAA ENC -> OSM seamark/depth tags (tools/enc_to_osm.py) -> two OsmAnd maps
 # per area with OsmAndMapCreator, like OsmAnd's own depth maps:
-#   Depth_<name>.depth.obf  contours and depth areas, plus soundings in three map
+#   <Name>_depth.depth.obf   contours and depth areas, plus soundings in three map
 #                           sections (zoom 11-12 coastal, 13-14 approach, 15+ harbor)
 #   <Name>_seamarks.obf     marks, lights, hazards, piers, bridges, channels and areas
 # Builds the Middle River test box (quick check) and an NCDS region (04 by default).
@@ -83,7 +83,6 @@ jobs:
         run: |
           set -euo pipefail
           OMC="$GITHUB_WORKSPACE/omc"
-          lower=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
           # run CMD...: OsmAndMapCreator utilities in a folder of its own (it keeps work files
           # there, named after the output); prints the folder
           run() {
@@ -100,7 +99,8 @@ jobs:
             echo "$(basename "$osm") -> $(du -h "$obf" | cut -f1)${zooms:+, zooms $zooms}"
             parts+=("$obf")
           done
-          depth="$PWD/Depth_${lower}.depth.obf"
+          # not Depth_<name>: OsmAnd drops a trailing _<number> from map names as a version
+          depth="$PWD/${NAME}_depth.depth.obf"
           rm -f "$depth"
           if [ ${#parts[@]} -eq 1 ]; then mv "${parts[0]}" "$depth"; else run merge-index "$depth" "${parts[@]}" > /dev/null; fi
           d=$(run generate-obf-no-address "$PWD/${NAME}_seamarks.osm")
@@ -110,12 +110,12 @@ jobs:
       - name: Inspect the OBFs
         working-directory: out
         run: |
-          JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects Depth_*.depth.obf > inspect_depth.txt 2>&1 || true
+          JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects *.depth.obf > inspect_depth.txt 2>&1 || true
           JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects "${NAME}_seamarks.obf" > inspect_seamarks.txt 2>&1 || true
           # the inspector lists the objects shown at one zoom (15 by default): the coastal and
           # approach sounding sections only appear at their own zooms
           for z in 11 13; do
-            JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects -zoom=$z Depth_*.depth.obf > inspect_depth_z$z.txt 2>&1 || true
+            JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects -zoom=$z *.depth.obf > inspect_depth_z$z.txt 2>&1 || true
           done
           wc -l inspect_*.txt
           echo "== depth map sections"

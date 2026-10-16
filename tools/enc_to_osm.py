@@ -13,7 +13,7 @@ Nautical and Marine styles. Five files, built into two maps by
 .github/workflows/enc-vector-poc.yml, like OsmAnd's own depth maps:
 
   <out>_contours.osm       depth contours and depth areas    } merged into
-  <out>_soundings_z11.osm  soundings from coastal charts      } Depth_<name>.depth.obf,
+  <out>_soundings_z11.osm  soundings from coastal charts      } <name>_depth.depth.obf,
   <out>_soundings_z13.osm  ... from approach charts           } one map section each,
   <out>_soundings_z15.osm  ... from harbor charts             } shown from zoom 11/13/15
   <out>_seamarks.osm       marks, lights, hazards, piers, bridges, cables, channels and
