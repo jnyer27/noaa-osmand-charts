@@ -436,6 +436,10 @@ def main():
     unmapped = collections.Counter()
     covered = None  # coverage of the more detailed bands already written
     lights = []  # lights are merged into the mark they stand on (OpenSeaMap tagging)
+    # Areas with the same tags are merged across chart cells before writing: charts cut
+    # areas at each cell's edge, and OsmAnd outlines some areas (seabed), which drew the
+    # cell edges as straight lines
+    areas = collections.OrderedDict()
     marks = []   # (x, y, tags) of written marks
 
     for band in sorted(by_band, reverse=True):  # most detailed first
@@ -489,7 +493,11 @@ def main():
                             continue
                         if cls == "DAYMAR":
                             continue
-                        report[cls]["written"] += osm.add(p, tags)
+                        if ogr.GT_Flatten(p.GetGeometryType()) in (ogr.wkbPolygon, ogr.wkbMultiPolygon):
+                            key = (cls, tuple(sorted(tags.items())))
+                            areas.setdefault(key, []).append(p)
+                        else:
+                            report[cls]["written"] += osm.add(p, tags)
                         report[cls]["tags"].update(f"{k}={v}" if k in ("seamark:type", "contour", "contourarea",
                                                                          "contourtype", "areatype", "point") or
                                                    k.endswith((":category", ":colour", ":shape", ":restriction",
@@ -497,6 +505,17 @@ def main():
                                                    for k, v in tags.items())
         if band_cov is not None:
             covered = band_cov if covered is None else covered.Union(band_cov)
+
+    merged_from = 0
+    for (cls, tagitems), parts in areas.items():
+        mp = ogr.Geometry(ogr.wkbMultiPolygon)
+        for g in parts:
+            for k in range(g.GetGeometryCount()) if ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbMultiPolygon else [None]:
+                mp.AddGeometry(g if k is None else g.GetGeometryRef(k))
+        u = mp.UnionCascaded() if len(parts) > 1 else parts[0]
+        merged_from += len(parts)
+        report[cls]["written"] += osm.add(u, dict(tagitems))
+    print(f"Areas: {merged_from} pieces merged into {len(areas)} tag groups across cells")
 
     # A light within about 2 m of a mark goes on the mark's node; the rest stand alone
     m_per_deg = 111320.0
