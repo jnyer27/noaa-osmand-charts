@@ -128,6 +128,8 @@ def feet(m):
     """Whole feet, as NOAA charts print them: NOAA stores feet rounded to 0.1 m, so the
     6 ft line is 1.8 m (5.9 ft) and a 10 ft sounding 3.0 m (9.8 ft). Under a foot, tenths."""
     f = m / FT
+    if abs(f) < 0.05:
+        return "0"
     return f"{f:.0f}" if abs(f) >= 0.95 else f"{f:.1f}"
 
 
