@@ -1,0 +1,227 @@
+name: Vector charts for OsmAnd
+
+# Issue #2: NOAA ENC -> OSM seamark/depth tags (tools/enc_to_osm.py) -> two OsmAnd maps
+# per NCDS region (tools/osm_to_obf.sh): <Name>_depth.depth.obf (contours, depth areas and
+# soundings in zoom 11/13/15 sections) and <Name>_seamarks.obf. The NOAA Route app offers
+# them per region from the vector-maps release (vector-maps-beta for APKs built from a
+# branch), listed in its catalog.json.
+#   push (converter changes): quick check, the Middle River test box and region 04 with the
+#     strict tag list, nothing published
+#   Saturday schedule, manual runs: every region in tools/areas.json (or the codes given),
+#     published (main: vector-maps; a branch: vector-maps-beta). The catalog is merged with
+#     the published one, so building some regions keeps the others.
+# Chart cells and OsmAndMapCreator are cached for the ISO week.
+on:
+  push:
+    paths:
+      - "tools/enc_to_osm.py"
+      - "tools/obf_compare.py"
+      - "tools/osm_to_obf.sh"
+      - ".github/workflows/vector-maps.yml"
+  schedule:
+    - cron: "0 15 * * 6"
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'NCDS region codes, e.g. "04 05", or "all"'
+        default: all
+      publish:
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REGIONS: ${{ inputs.regions }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          ev = os.environ["EVENT"]
+          codes = [a["ncds"] for a in json.load(open("tools/areas.json"))["areas"] if a.get("ncds")]
+          if ev == "push":
+              m = [{"name": "Test_middle_river", "code": "", "args": "-b=-76.50,39.20,-76.33,39.37", "strict": True},
+                   {"name": "Ncds_04", "code": "04", "args": "-r 04", "strict": True}]
+              publish = False
+          else:
+              want = (os.environ.get("REGIONS") or "all").split()
+              if want != ["all"]:
+                  bad = [c for c in want if c not in codes]
+                  if bad:
+                      raise SystemExit(f"Not in areas.json: {bad}")
+                  codes = want
+              m = [{"name": f"Ncds_{c}", "code": c, "args": f"-r {c}", "strict": c == "04"} for c in codes]
+              publish = ev == "schedule" or os.environ.get("PUBLISH") == "true"
+          print("matrix=" + json.dumps({"include": m}))
+          print("publish=" + str(publish).lower())
+          PY
+          cat "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      NAME: ${{ matrix.name }}
+      JAVA_OPTS: -Xmx12g
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Week
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache chart cells
+        uses: actions/cache@v4
+        with:
+          path: enc-work
+          key: enc-cells-${{ matrix.name }}-${{ steps.week.outputs.week }}
+
+      - name: Cache OsmAndMapCreator
+        uses: actions/cache@v4
+        with:
+          path: omc
+          key: omc-${{ steps.week.outputs.week }}
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
+
+      - name: ENC to OSM
+        run: |
+          python3 tools/enc_to_osm.py ${{ matrix.args }} -o "out/$NAME" -w enc-work
+          ls -l out
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: OsmAndMapCreator
+        run: |
+          if [ ! -f omc/utilities.sh ]; then
+            curl -fsSL -o omc.zip https://download.osmand.net/latest-night-build/OsmAndMapCreator-main.zip
+            rm -rf omc && mkdir omc && unzip -q omc.zip -d omc && rm omc.zip
+          fi
+          chmod +x omc/*.sh
+
+      - name: OSM to OBF, checks
+        working-directory: out
+        env:
+          REQUIRE_DEPTH: ${{ matrix.strict && 'contourtype=5m' || '' }}
+          REQUIRE_SEAMARKS: >-
+            ${{ matrix.strict && 'seamark:type=buoy_lateral seamark:buoy_lateral:colour seamark:buoy_lateral:shape
+            seamark:type=beacon_lateral seamark:beacon_lateral:colour seamark:light:character seamark:light:colour
+            seamark:type=fairway seamark:type=wreck seamark:type=obstruction seamark:type=bridge' || '' }}
+        run: |
+          rc=0
+          ../tools/osm_to_obf.sh "$NAME" ../omc || rc=$?
+          cat compare.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Catalog entry
+        if: matrix.code != ''
+        env:
+          CODE: ${{ matrix.code }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, time
+          code, name = os.environ["CODE"], os.environ["NAME"]
+          area = next(a for a in json.load(open("tools/areas.json"))["areas"] if a.get("ncds") == code)
+          rep = json.load(open(f"out/{name}.report.json"))
+          files = []
+          for kind, f in (("depth", f"{name}_depth.depth.obf"), ("seamarks", f"{name}_seamarks.obf")):
+              h = hashlib.sha256()
+              with open(f"out/{f}", "rb") as fh:
+                  for chunk in iter(lambda: fh.read(1 << 20), b""):
+                      h.update(chunk)
+              files.append({"kind": kind, "file": f, "size": os.path.getsize(f"out/{f}"), "sha256": h.hexdigest()})
+          e = {"ncds": code, "name": area["name"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+               "cells": len(rep["cells"]), "files": files}
+          json.dump(e, open(f"out/catalog-{code}.json", "w"), indent=1)
+          print(json.dumps(e, indent=1))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vec-${{ matrix.name }}
+          path: |
+            out/*.obf
+            out/*.report.json
+            out/compare.md
+            out/catalog-*.json
+          retention-days: 3
+
+  publish:
+    needs: [plan, build]
+    # Publishes the regions that built, even when others failed
+    if: always() && needs.plan.outputs.publish == 'true' && needs.build.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vec-*
+          path: maps
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            tag=vector-maps; flags=""; what="Vector charts for OsmAnd"
+          else
+            tag=vector-maps-beta; flags="--prerelease"; what="Vector charts for OsmAnd, test from ${GITHUB_REF_NAME}"
+          fi
+          gh release view $tag >/dev/null 2>&1 || gh release create $tag $flags --title "$what" --notes "Starting"
+          rm -f old-catalog.json
+          gh release download $tag -p catalog.json -O old-catalog.json 2>/dev/null || true
+          python3 - <<'PY'
+          import glob, json, os
+          ids = [a["ncds"] for a in json.load(open("tools/areas.json"))["areas"] if a.get("ncds")]
+          regions = {}
+          if os.path.exists("old-catalog.json"):
+              for e in json.load(open("old-catalog.json")).get("regions", []):
+                  regions[e["ncds"]] = e
+          built = []
+          for f in glob.glob("maps/catalog-*.json"):
+              e = json.load(open(f))
+              if all(os.path.exists(f"maps/{x['file']}") for x in e["files"]):
+                  regions[e["ncds"]] = e
+                  built.append(e["ncds"])
+          if not built:
+              raise SystemExit("No region built")
+          out = [regions[c] for c in ids if c in regions]
+          json.dump({"version": 1, "regions": out}, open("maps/catalog.json", "w"), indent=1)
+          open("built.txt", "w").write(" ".join(sorted(built)))
+          print(f"Built {sorted(built)}; catalog lists {len(out)} regions")
+          PY
+          built="$(cat built.txt)"
+          files=(maps/catalog.json)
+          for c in $built; do files+=(maps/Ncds_${c}_depth.depth.obf maps/Ncds_${c}_seamarks.obf); done
+          # catalog last, so it never lists files not uploaded yet
+          gh release upload $tag "${files[@]:1}" --clobber
+          gh release upload $tag maps/catalog.json --clobber
+          day="$(date -u +%Y-%m-%d)"
+          failed="${{ needs.build.result == 'success' && 'none' || 'some regions, see the run' }}"
+          gh release edit $tag --title "$what, build ${GITHUB_RUN_NUMBER} ($day)" \
+            --notes "OsmAnd vector chart maps from NOAA ENC data for the NOAA Route app, build ${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}. Regions built: $built. Failed: $failed. Not for navigation."

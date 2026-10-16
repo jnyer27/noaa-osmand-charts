@@ -96,8 +96,11 @@ def main():
     missing = []
     for r in a.require:
         k, v = r.split("=", 1) if "=" in r else (r, None)
-        if not tags.get((k, v)) or not kept.get((k, v)):
-            missing.append(f"`{r}` ({'not kept' if tags.get((k, v)) else 'not written'})")
+        # a key alone matches any value (keys counted by value too, such as seamark:type)
+        n_w = tags.get((k, v), 0) if v is not None else sum(n for (kk, _), n in tags.items() if kk == k)
+        n_k = kept.get((k, v), 0) if v is not None else sum(n for (kk, _), n in kept.items() if kk == k)
+        if not n_w or not n_k:
+            missing.append(f"`{r}` ({'not kept' if n_w else 'not written'})")
     print("\n### Required tags\n")
     print("**Missing:** " + ", ".join(missing) if missing else f"All {len(a.require)} present.")
     return 1 if missing else 0
