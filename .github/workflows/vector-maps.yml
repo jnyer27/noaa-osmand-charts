@@ -6,8 +6,9 @@ name: Vector charts for OsmAnd
 # them per region from the vector-maps release (vector-maps-beta for APKs built from a
 # branch), listed in its catalog.json.
 #   push (converter changes): quick check, the Middle River test box and region 04 with the
-#     strict tag list, nothing published; a commit message with "[vector all]" builds and
-#     publishes every region instead (manual runs need the workflow on main)
+#     strict tag list, nothing published; a commit message with "[vector all]" or
+#     "[vector 26b 07]" builds and publishes those regions instead (manual runs need the
+#     workflow on main)
 #   Saturday schedule, manual runs: every region in tools/areas.json (or the codes given),
 #     published (main: vector-maps; a branch: vector-maps-beta). The catalog is merged with
 #     the published one, so building some regions keeps the others.
@@ -52,8 +53,12 @@ jobs:
           import json, os
           ev = os.environ["EVENT"]
           codes = [a["ncds"] for a in json.load(open("tools/areas.json"))["areas"] if a.get("ncds")]
-          if ev == "push" and "[vector all]" in os.environ.get("MESSAGE", ""):
-              ev = "schedule"
+          import re
+          tag = re.search(r"\[vector ([0-9a-z ]+)\]", os.environ.get("MESSAGE", ""))
+          if ev == "push" and tag:
+              ev = "dispatch"
+              os.environ["REGIONS"] = tag.group(1)
+              os.environ["PUBLISH"] = "true"
           if ev == "push":
               m = [{"name": "Test_middle_river", "code": "", "args": "-b=-76.50,39.20,-76.33,39.37", "strict": True},
                    {"name": "Ncds_04", "code": "04", "args": "-r 04", "strict": True}]
