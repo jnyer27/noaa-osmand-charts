@@ -823,7 +823,9 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
             if gj:
                 raster(gj, "gates", 1, None, False, [GATE], ft)
         if air_m and "CBLOHD" in have:
-            raster(src, "CBLOHD", 1, f"VERCLR IS NULL OR VERCLR < {air_m}", True, [NO_PASS], ft)
+            # VERCSA (safe clearance, used by some power cables) when VERCLR is not charted
+            raster(src, "CBLOHD", 1, f"(VERCLR IS NULL AND (VERCSA IS NULL OR VERCSA < {air_m})) OR VERCLR < {air_m}",
+                   True, [NO_PASS], ft)
 
     gb, fb = os.path.join(work, "grid.bin"), os.path.join(work, "flags.bin")
     run(["gdal_translate", "-q", "-of", "ENVI", gt, gb])
@@ -1202,7 +1204,7 @@ def feature_notes(grid, cells, ext, use, layer, lat, lon):
             feats = []
         for f in feats:
             p = f.get("properties", {})
-            clr = p.get("VERCLR") or p.get("VERCCL")
+            clr = p.get("VERCLR") or (p.get("VERCSA") if layer == "CBLOHD" else p.get("VERCCL"))
             if layer == "RESARE":
                 rules = [RESTRN[c] for c in (p.get("RESTRN") or []) if c in RESTRN]
                 if not rules:

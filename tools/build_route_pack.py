@@ -649,7 +649,12 @@ def build(cells, grid, work, depth=None, quiet=False):
         flags |= np.where(burn(grid, anyb, all_touched=True) > 0, BRIDGE, 0).astype(np.uint8)
         cab, cabclr = [], []
         for f, geom in features(gp, "CBLOHD"):
+            # Some power cables are charted with only a safe vertical clearance (VERCSA,
+            # clearance less the electrical safety margin); without it they were walls
+            # of unknown clearance (two cables by the Amtrak bridge sealed the upper Bush River)
             clr = fnum(f, "VERCLR")
+            if clr is None:
+                clr = fnum(f, "VERCSA")
             cab.append((geom, 1))
             if clr is not None:
                 cabclr.append((geom, half_m(clr)))
