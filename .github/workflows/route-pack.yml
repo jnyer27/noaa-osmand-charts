@@ -4,18 +4,52 @@ name: Route pack
 # ENC updates Friday afternoon (US Eastern), so build Saturday morning.
 # Areas and their reference routes are defined in tools/areas.json; nothing is
 # published unless every reference route still passes.
+# Each area builds in its own job (in parallel; one run with every region in
+# sequence would pass the job time limit), then one job tests them together and
+# publishes.
+#
+# Run by hand, mode picks what happens:
+#   build      build every area, test, publish (what the weekly schedule does)
+#   test-only  reuse the packs of run_id (kept 3 days) and only rerun the reference
+#              routes, then publish: for changes to tests in areas.json, not packs
+#   promote    on main: copy the tested route-pack-beta packs to route-pack instead of
+#              building them again; refused unless the commit that built them is in main
 on:
   schedule:
     - cron: "0 12 * * 6"
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [build, test-only, promote]
+        default: build
+      run_id:
+        description: "test-only: the run whose packs to reuse"
+        required: false
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
-  build:
+  areas:
+    if: (inputs.mode || 'build') == 'build'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ids
+        run: echo "ids=$(python3 -c 'import json; print(json.dumps([a["id"] for a in json.load(open("tools/areas.json"))["areas"]]))')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: areas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        id: ${{ fromJSON(needs.areas.outputs.ids) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +58,55 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
 
-      - name: Build area packs
-        run: python3 tools/build_route_pack.py -o packs
+      - name: Build ${{ matrix.id }}
+        run: |
+          python3 tools/build_route_pack.py -a ${{ matrix.id }} -o packs
+          mv packs/catalog.json packs/catalog-${{ matrix.id }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.id }}
+          path: packs/
+          retention-days: 3
+
+  test-and-publish:
+    needs: build
+    # Runs after a build, or on its own in test-only mode (build is then skipped)
+    if: always() && (needs.build.result == 'success' || (inputs.mode == 'test-only' && needs.build.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: inputs.mode == 'test-only' && inputs.run_id == ''
+        run: echo "test-only needs run_id" && exit 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pack-*
+          path: packs
+          merge-multiple: true
+          # test-only: the packs of an earlier run; otherwise this run's
+          run-id: ${{ inputs.mode == 'test-only' && inputs.run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Merge catalog
+        run: |
+          python3 - <<'EOF'
+          import glob, json, os
+          ids = [a["id"] for a in json.load(open("tools/areas.json"))["areas"]]
+          entries = {}
+          for f in glob.glob("packs/catalog-*.json"):
+              for e in json.load(open(f))["areas"]:
+                  entries[e["id"]] = e
+              os.remove(f)
+          missing = [i for i in ids if i not in entries]
+          if missing:
+              raise SystemExit(f"No pack built for {missing}")
+          json.dump({"version": 2, "areas": [entries[i] for i in ids]}, open("packs/catalog.json", "w"), indent=1)
+          print(f"Catalog with {len(ids)} areas")
+          EOF
+          ls -l packs
 
       - uses: actions/setup-java@v4
         with:
@@ -64,9 +145,51 @@ jobs:
           else
             tag=route-pack-beta; flags="--prerelease"; title="Route packs, test $version from ${GITHUB_REF_NAME} ($day)"
           fi
-          notes="NOAA ENC area route packs for the NOAA Route app, $version, built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}. Not for navigation."
+          if [ "${{ inputs.mode }}" = test-only ]; then
+            how="packs from run ${{ inputs.run_id }}, tested $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}"
+          else
+            how="built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}"
+          fi
+          notes="NOAA ENC area route packs for the NOAA Route app, $version, $how. Not for navigation."
           gh release view $tag >/dev/null 2>&1 || gh release create $tag $flags --title "$title" --notes "$notes"
           gh release upload $tag packs/*.bin packs/catalog.json --clobber
           # Renamed rather than recreated like the app release: the app downloads packs from
           # here at any time, and a delete/create would leave a moment with no files
           gh release edit $tag --title "$title" --notes "$notes"
+
+  promote:
+    if: inputs.mode == 'promote'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Copy route-pack-beta to route-pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "promote runs from main only"; exit 1; }
+          beta_title="$(gh release view route-pack-beta --json name -q .name)"
+          beta_notes="$(gh release view route-pack-beta --json body -q .body)"
+          echo "Beta: $beta_title"; echo "$beta_notes"
+          # The commit the beta packs were built or tested from ("... from abc1234. Not for
+          # navigation.") must be in main: never promote another branch's test packs
+          sha="$(echo "$beta_notes" | grep -oE 'from [0-9a-f]{7}\. Not for navigation' | cut -c6-12)"
+          [ -n "$sha" ] || { echo "No commit in the beta release notes"; exit 1; }
+          git merge-base --is-ancestor "$sha" HEAD || { echo "Beta packs come from $sha, which is not in main"; exit 1; }
+          mkdir packs
+          gh release download route-pack-beta -D packs -p '*.bin' -p catalog.json
+          python3 - <<'EOF'
+          import json
+          ids = [a["id"] for a in json.load(open("tools/areas.json"))["areas"]]
+          have = [a["id"] for a in json.load(open("packs/catalog.json"))["areas"]]
+          if have != ids:
+              raise SystemExit(f"Beta catalog {have} does not match areas.json {ids}")
+          EOF
+          day="$(date -u +%Y-%m-%d)"
+          title="Route packs build ${GITHUB_RUN_NUMBER} ($day)"
+          notes="NOAA ENC area route packs for the NOAA Route app, build ${GITHUB_RUN_NUMBER}: promoted $(date -u '+%Y-%m-%d %H:%M UTC') from the tested beta ($beta_title, from $sha). Not for navigation."
+          gh release upload route-pack packs/*.bin packs/catalog.json --clobber
+          gh release edit route-pack --title "$title" --notes "$notes"

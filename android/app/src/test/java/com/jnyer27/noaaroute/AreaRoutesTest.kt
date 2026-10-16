@@ -20,7 +20,9 @@ class AreaRoutesTest {
         assumeTrue("PACK_DIR/AREAS_JSON not set", dir != null && areasJson != null)
         val root = MiniJson.parse(File(areasJson!!).readText()) as Map<*, *>
         val areas = root["areas"] as List<*>
-        val packs = areas.associate { a -> val id = (a as Map<*, *>)["id"] as String; id to Pack(File(dir, "$id.bin")) }
+        // Packs are opened per group and closed after it: with every region open at once
+        // (34 packs, tens of thousands of notes) the test ran out of its 512 MB heap
+        val known = areas.map { a -> (a as Map<*, *>)["id"] as String }.toSet()
         val failures = ArrayList<String>()
         // Each area's own tests run on its pack alone (an old area and the regions that
         // replace it overlap); top-level tests run on the packs they list
@@ -28,7 +30,8 @@ class AreaRoutesTest {
             (root["tests"] as List<*>?).orEmpty().map { t -> ((t as Map<*, *>)["areas"] as List<*>).map { it as String } to listOf(t) }
         for ((ids, tests) in groups) {
             if (tests.isEmpty()) continue
-            val charts = ChartSet(ids.map { packs[it] ?: error("No pack $it") })
+            val open = ids.map { id -> require(id in known) { "No pack $id" }; Pack(File(dir, "$id.bin")) }
+            val charts = ChartSet(open)
             for (t in tests) {
                 val test = t as Map<*, *>
                 val name = "${ids.joinToString("+")}: ${test["name"]}"
@@ -69,8 +72,8 @@ class AreaRoutesTest {
                     if (!mustFail) failures.add("$name: ${e.message}")
                 }
             }
+            open.forEach { it.close() }
         }
-        packs.values.forEach { it.close() }
         assertTrue("Reference route failures:\n" + failures.joinToString("\n"), failures.isEmpty())
     }
 }

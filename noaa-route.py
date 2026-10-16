@@ -55,7 +55,8 @@ How depth is judged (charted depths are at MLLW, no tide added):
     clearance (the navigation spans), and with -a only if it is enough.
     Opening bridges (swing, bascule, lift, draw) are passed and reported
     with their closed clearance; check opening schedules.
-  - Areas charted "entry prohibited" or "area to be avoided" are never used.
+  - Areas charted "entry prohibited" are never used. Areas to be avoided (IMO
+    routing measures for large ships) are used and reported.
     Other restricted areas and overhead cables are not avoided (cables are
     with -a), but every crossing is reported with its rule and clearance.
 
@@ -755,7 +756,7 @@ def build_rasters(grid, cells, ext, draft_m, air_m, work):
         # Not all touched: that narrowed harbor entrances shut (Rock Hall at 20 m);
         # the shore proximity cost keeps routes off land instead
         ("LNDARE", None, BLOCKED, False),
-        ("RESARE", "RESTRN LIKE '%\"7\"%' OR RESTRN LIKE '%\"14\"%'", BLOCKED, False),
+        ("RESARE", "RESTRN LIKE '%\"7\"%'", BLOCKED, False),
         # Foul ground (CATOBS 7) is safe to navigate over, only bad for anchoring: a hazard
         # only with a charted depth that is too shallow (unknown-depth foul ground around
         # the Mid-Hudson Bridge piers closed the Hudson at Poughkeepsie)
