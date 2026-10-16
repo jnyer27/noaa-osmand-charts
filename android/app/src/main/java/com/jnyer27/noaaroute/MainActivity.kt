@@ -948,7 +948,9 @@ class MainActivity : Activity() {
     }
 
     /** Hand a chart map to OsmAnd; if it will not take it, show the folder. */
-    private fun openChart(e: ChartMaps.Entry) = importInOsmAnd(Uri.parse(e.uri ?: return), e.file ?: "")
+    private fun openChart(e: ChartMaps.Entry) {
+        importInOsmAnd(Uri.parse(e.uri ?: return), e.file ?: "")
+    }
 
     /** Hand a map file in Download/noaa-charts to OsmAnd to import; if it will not take it, show the folder. */
     private fun importInOsmAnd(uri: Uri, name: String) {
