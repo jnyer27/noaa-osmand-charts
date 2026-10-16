@@ -593,10 +593,11 @@ def build(cells, grid, work, depth=None, quiet=False):
         # Hazards and soundings, shallowest wins
         area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
                                                    ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)
-        # Bridge footprints (not ruined), 5 m wider: an obstruction, wreck or rock of unknown
+        # Bridge footprints (not ruined), about 20 m wider: an obstruction, wreck or rock of unknown
         # depth charted there is bridge structure (a swing span's pivot pier, a fender), a
         # visible wall without the hazard buffer. The Centerville Turnpike swing bridge's
-        # pivot (Virginia Cut) is charted as an obstruction and a wreck, and its 60 m buffer
+        # pivot (Virginia Cut) is charted as an obstruction and a wreck 12-14 m off the swing
+        # span's polygons, and its 60 m buffer
         # over the 0-6 ft water between the dredged channel's ends shut the bridge.
         brg = ogr.Geometry(ogr.wkbMultiPolygon)
         for f, geom in features(gp, "BRIDGE"):
@@ -606,7 +607,7 @@ def build(cells, grid, work, depth=None, quiet=False):
                 for part in ([g2] if g2.GetGeometryType() == ogr.wkbPolygon else
                              [g2.GetGeometryRef(i) for i in range(g2.GetGeometryCount())]):
                     brg.AddGeometry(part)
-        brg = brg.UnionCascaded().Buffer(0.00005) if brg.GetGeometryCount() else None
+        brg = brg.UnionCascaded().Buffer(0.0002) if brg.GetGeometryCount() else None
         bridge_hz = []
         hz, snags = [], []
         for layer in ("OBSTRN", "WRECKS", "UWTROC"):
