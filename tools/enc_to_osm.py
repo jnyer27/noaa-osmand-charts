@@ -61,10 +61,19 @@ CATWRK = {"1": "non-dangerous", "2": "dangerous", "3": "distributed_remains", "4
           "5": "hull_showing"}
 CATOBS = {"1": "stump", "2": "wellhead", "3": "diffuser", "4": "crib", "5": "fish_haven", "6": "foul_area",
           "7": "foul_ground", "8": "ice_boom", "9": "ground_tackle", "10": "boom"}
-CATSLC = {"1": "breakwater", "2": "groyne", "3": "mole", "4": "pier", "5": "promenade_pier", "6": "wharf",
-          "7": "training_wall", "8": "rip_rap", "9": "revetment", "10": "sea_wall", "11": "landing_steps",
-          "12": "ramp", "13": "slipway", "14": "fender", "15": "solid_face_wharf", "16": "open_face_wharf",
-          "17": "log_ramp"}
+# Shoreline construction, mapped onto the categories OsmAnd converts (rendering_types.xml:
+# breakwater, groyne, pier -> man_made; training_wall, seawall -> wall; slipway). Wharves,
+# landing steps and fenders draw as piers, moles as breakwaters, ramps as slipways,
+# revetments and rip rap as seawalls
+CATSLC = {"1": "breakwater", "2": "groyne", "3": "breakwater", "4": "pier", "5": "pier", "6": "pier",
+          "7": "training_wall", "8": "seawall", "9": "seawall", "10": "seawall", "11": "pier",
+          "12": "slipway", "13": "slipway", "14": "pier", "15": "pier", "16": "pier", "17": "slipway"}
+CATLMK = {"1": "cairn", "2": "cemetery", "3": "chimney", "4": "dish_aerial", "5": "flagstaff", "6": "flare_stack",
+          "7": "mast", "8": "windsock", "9": "monument", "10": "column", "11": "memorial", "12": "obelisk",
+          "13": "statue", "14": "cross", "15": "dome", "16": "radar_scanner", "17": "tower", "18": "windmill",
+          "19": "windmotor", "20": "spire", "21": "boulder"}
+NATSUR = {"1": "mud", "2": "clay", "3": "silt", "4": "sand", "5": "stone", "6": "gravel", "7": "pebbles",
+          "8": "cobbles", "9": "rock", "11": "lava", "14": "coral", "17": "shells", "18": "boulder"}
 RESTRN = {"1": "no_anchoring", "2": "restricted_anchoring", "3": "no_fishing", "4": "restricted_fishing",
           "5": "no_trawling", "6": "restricted_trawling", "7": "no_entry", "8": "restricted_entry",
           "9": "no_dredging", "10": "restricted_dredging", "11": "no_diving", "12": "restricted_diving",
@@ -90,7 +99,8 @@ MARKS = {
 # Classes this proof of concept reads (everything else in the cells is counted as not mapped)
 LAYERS = list(MARKS) + ["LIGHTS", "DAYMAR", "WRECKS", "UWTROC", "OBSTRN", "PILPNT", "SOUNDG", "DEPCNT",
                         "DEPARE", "DRGARE", "SLCONS", "BRIDGE", "CBLOHD", "FAIRWY", "RESARE", "ACHARE",
-                        "CBLARE", "PIPARE", "MORFAC", "HRBFAC", "SMCFAC", "NAVLNE", "RECTRC", "M_COVR"]
+                        "CBLARE", "PIPARE", "MORFAC", "HRBFAC", "SMCFAC", "NAVLNE", "RECTRC", "SEAARE",
+                        "LNDMRK", "CBLSUB", "PYLONS", "SBDARE", "FOGSIG", "MARCUL", "M_COVR"]
 
 
 def val(f, name):
@@ -155,6 +165,9 @@ def mark_tags(cls, f):
         c = [cattab[x] for x in codes(f, catattr) if x in cattab]
         if c:
             t[f"seamark:{st}:category"] = c[0]
+            # OsmAnd keeps beacon categories but drops buoy ones; its folded form
+            # (seamark:category, rendering_types.xml) may survive
+            t["seamark:category"] = c[0]
     col = [COLOUR[x] for x in codes(f, "COLOUR") if x in COLOUR]
     if col:
         t[f"seamark:{st}:colour"] = ";".join(col)
@@ -268,7 +281,7 @@ def feature_tags(cls, f, geom):
         t = {"seamark:type": "cable_overhead"}
         v = val(f, "VERCLR")
         if v is not None:
-            t["seamark:cable_overhead:clearance_height"] = f"{v:g}"
+            t["seamark:cable_overhead:vertical_clearance_safe"] = f"{v:g}"  # OsmAnd's label tag
         return t
     if cls == "RESARE":
         t = {"seamark:type": "restricted_area"}
@@ -277,7 +290,25 @@ def feature_tags(cls, f, geom):
             t["seamark:restricted_area:restriction"] = ";".join(r)
         t.update(name_tags(f))
         return t
-    simple = {"FAIRWY": "fairway", "ACHARE": "anchorage", "CBLARE": "cable_area", "PIPARE": "pipeline_area",
+    if cls == "SEAARE":
+        n = val(f, "OBJNAM")
+        return {"seamark:type": "sea_area", "name": n, "seamark:name": n} if n else None
+    if cls == "LNDMRK":
+        t = {"seamark:type": "landmark"}
+        c = [CATLMK[x] for x in codes(f, "CATLMK") if x in CATLMK]
+        if c:
+            t["seamark:landmark:category"] = c[0]
+        t.update(name_tags(f))
+        return t
+    if cls == "SBDARE":
+        t = {"seamark:type": "seabed_area"}
+        c = [NATSUR[x] for x in codes(f, "NATSUR") if x in NATSUR]
+        if not c:
+            return None
+        t["seamark:seabed_area:surface"] = ";".join(c)
+        return t
+    simple = {"FAIRWY": "fairway", "CBLSUB": "cable_submarine", "PYLONS": "pylon", "FOGSIG": "fog_signal",
+              "MARCUL": "marine_farm", "ACHARE": "anchorage", "CBLARE": "cable_area", "PIPARE": "pipeline_area",
               "MORFAC": "mooring", "HRBFAC": "harbour", "SMCFAC": "small_craft_facility",
               "NAVLNE": "navigation_line", "RECTRC": "recommended_track"}
     if cls in simple:

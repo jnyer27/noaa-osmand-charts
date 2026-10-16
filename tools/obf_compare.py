@@ -30,38 +30,52 @@ def osm_tags(path):
     return tags, objects
 
 
+def dump_tags(path):
+    """Tags of the objects in a BinaryInspector -vmapobjects dump. Lines look like
+    'Point types [seamark:type-buoy_lateral (27)] add_types [seamark:system-iala-b(14), ...]
+    Names [name(1) - Back River Buoy 11] id -62964 ...': key-value pairs (keys have no
+    '-'), and Names as key(n) - value. Each object is listed once per map zoom level."""
+    tags, lines = collections.Counter(), 0
+    for line in open(path, errors="replace"):
+        if not line.startswith(("Point ", "Way ", "Polygon ", "Multipolygon ", "Relation ")):
+            continue
+        lines += 1
+        for block in ("types", "add_types"):
+            m = re.search(block + r" \[([^\]]*)\]", line)
+            if m:
+                for item in m.group(1).split(", "):
+                    item = re.sub(r" ?\(\d+\)$", "", item.strip())
+                    if "-" in item:
+                        k, v = item.split("-", 1)
+                        tags[(k, v if k in VALUE_KEYS else None)] += 1
+        m = re.search(r"Names \[(.*?)\] id ", line)
+        if m:
+            for k in re.findall(r"([A-Za-z_:]+)\(\d+\) - ", m.group(1)):
+                tags[(k, None)] += 1
+    return tags, lines
+
+
 def main():
     osm, dump = sys.argv[1], sys.argv[2]
     tags, objects = osm_tags(osm)
-    text = open(dump, errors="replace").read()
-    tokens = collections.Counter(re.findall(r"[A-Za-z_:]+=[^\s,;\]\)}]+", text))
-    keys_in_dump = collections.Counter(t.split("=", 1)[0] for t in tokens.elements())
-
-    def in_dump(k, v):
-        forms = [k]
-        m = re.match(r"seamark:[a-z_]+:([a-z_]+)$", k)
-        if m:
-            forms.append("seamark:" + m.group(1))  # OsmAnd's folded form
-        if v is None:
-            return sum(keys_in_dump.get(f, 0) for f in forms), forms
-        return sum(tokens.get(f"{f}={v}", 0) for f in forms) + text.count(f"{k} {v}"), forms
-
+    kept, lines = dump_tags(dump)
     print("## ENC vector proof of concept: tags written vs kept in the .obf\n")
-    print(f"OSM objects with tags: {dict(objects)}. Inspector dump: {len(text.splitlines())} lines.\n")
+    print(f"OSM objects with tags: {dict(objects)}. Objects listed in the .obf dump: {lines} "
+          "(each object once per map zoom level, so dump counts are multiples).\n")
     print("| Tag written | In .osm | In .obf dump | Kept? |")
     print("|---|---|---|---|")
     lost = []
     for (k, v), n in sorted(tags.items(), key=lambda kv: (kv[0][0], kv[0][1] or "")):
-        c, forms = in_dump(k, v)
+        c = kept.get((k, v), 0)
         label = f"`{k}={v}`" if v is not None else f"`{k}` (any value)"
         print(f"| {label} | {n} | {c} | {'yes' if c else '**no**'} |")
         if not c:
             lost.append(label)
-    print("\n### Not kept by OsmAnd\n")
+    print("\n### Not kept by OsmAnd (dropped, or turned into another tag)\n")
     print(", ".join(lost) if lost else "Everything written was found in the .obf dump.")
-    print("\n### Most common key=value tokens in the dump\n")
-    for t, n in tokens.most_common(60):
-        print(f"- `{t}`: {n}")
+    extra = sorted((k, v) for (k, v) in kept if (k, v) not in tags)
+    print("\n### In the .obf but not written as such (OsmAnd's conversions)\n")
+    print(", ".join(f"`{k}={v}`" if v is not None else f"`{k}`" for k, v in extra) or "None.")
 
 
 if __name__ == "__main__":
