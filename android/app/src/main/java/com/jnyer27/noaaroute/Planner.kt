@@ -250,7 +250,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             ok[it] && !snag[it] && (planes[Pack.P_FLAGS][it].toInt() and Pack.F_CABLE) == 0 &&
                 (planes[Pack.P_CABLECLR][it].toInt() and 0xff) == Pack.GATE_MARK
         }
-        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER || snag[it] || gate[it]) }
+        // A pier or fender line in a dredged channel under a span you clear is the span's
+        // fender: on a 20 m grid the fenders either side of a 40 m channel span filled the
+        // channel cells, and routes went under the next span over (North Landing River
+        // bridge, 36.6147 N 76.0496 W). Such cells are channel; the fender cells beside
+        // them still count as danger, so the route keeps to the middle of the opening.
+        val fender = BooleanArray(n) {
+            dredged[it] && nav[it].toInt() == SAFE && spanok[it] && (planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER
+        }
+        val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER && !fender[it] || snag[it] || gate[it]) }
         val dist = ByteArray(n) { k.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
@@ -291,7 +299,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (nav[i].toInt() == MARGINAL) c *= 4f
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
-                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER -> c *= PIER_COST
+                (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !fender[i] -> c *= PIER_COST
                 snag[i] -> c *= SNAG_COST
                 gate[i] -> c *= GATE_COST
             }
