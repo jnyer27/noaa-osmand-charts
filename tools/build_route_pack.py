@@ -176,7 +176,10 @@ def enc_catalog(work):
     for c in ET.parse(path).getroot().iter("cell"):
         if c.findtext("status") != "Active":
             continue
-        v = [(float(x.findtext("long")), float(x.findtext("lat"))) for x in c.iter("vertex")]
+        # The catalog writes the western Pacific west of 180 W (Guam at -215.4, Attu at
+        # -186.8); the charts themselves and the NCDS rectangles use east longitudes
+        v = [(lon + 360 if lon < -180 else lon, float(x.findtext("lat")))
+             for x in c.iter("vertex") for lon in [float(x.findtext("long"))]]
         if not v:
             continue
         name = c.findtext("name")

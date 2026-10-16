@@ -4,6 +4,9 @@ name: Route pack
 # ENC updates Friday afternoon (US Eastern), so build Saturday morning.
 # Areas and their reference routes are defined in tools/areas.json; nothing is
 # published unless every reference route still passes.
+# Each area builds in its own job (in parallel; one run with every region in
+# sequence would pass the job time limit), then one job tests them together and
+# publishes.
 on:
   schedule:
     - cron: "0 12 * * 6"
@@ -13,9 +16,23 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  areas:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    outputs:
+      ids: ${{ steps.ids.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ids
+        run: echo "ids=$(python3 -c 'import json; print(json.dumps([a["id"] for a in json.load(open("tools/areas.json"))["areas"]]))')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: areas
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        id: ${{ fromJSON(needs.areas.outputs.ids) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +41,47 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
 
-      - name: Build area packs
-        run: python3 tools/build_route_pack.py -o packs
+      - name: Build ${{ matrix.id }}
+        run: |
+          python3 tools/build_route_pack.py -a ${{ matrix.id }} -o packs
+          mv packs/catalog.json packs/catalog-${{ matrix.id }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pack-${{ matrix.id }}
+          path: packs/
+          retention-days: 3
+
+  test-and-publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pack-*
+          path: packs
+          merge-multiple: true
+
+      - name: Merge catalog
+        run: |
+          python3 - <<'EOF'
+          import glob, json, os
+          ids = [a["id"] for a in json.load(open("tools/areas.json"))["areas"]]
+          entries = {}
+          for f in glob.glob("packs/catalog-*.json"):
+              for e in json.load(open(f))["areas"]:
+                  entries[e["id"]] = e
+              os.remove(f)
+          missing = [i for i in ids if i not in entries]
+          if missing:
+              raise SystemExit(f"No pack built for {missing}")
+          json.dump({"version": 2, "areas": [entries[i] for i in ids]}, open("packs/catalog.json", "w"), indent=1)
+          print(f"Catalog with {len(ids)} areas")
+          EOF
+          ls -l packs
 
       - uses: actions/setup-java@v4
         with:
