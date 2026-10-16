@@ -52,6 +52,20 @@ jobs:
           wc -l inspect.txt
           head -60 inspect.txt
 
+      - name: Reference, OsmAnd's own depth map (structure only, not redistributed)
+        run: |
+          curl -fsSL -o ref.zip "https://download.osmand.net/download?file=Swiss_Lakes_contours_2.depth.obf.zip&depth=yes"
+          mkdir ref && unzip -q ref.zip -d ref && ls -l ref
+          ref="$(ls ref/*.obf | head -1)"
+          JAVA_OPTS="-Xmx3g" omc/inspector.sh -vmap -vmapobjects "$ref" > out/reference-inspect-full.txt 2>&1 || true
+          # Section summary, then a sample of each kind of object
+          grep -v '^Point\|^Way\|^Polygon\|^Multipolygon' out/reference-inspect-full.txt | head -40 > out/reference-inspect.txt
+          for t in contour-depth contourarea-depth point-depth; do grep -m 15 "$t" out/reference-inspect-full.txt >> out/reference-inspect.txt; done
+          grep -oE '^(Point|Way|Polygon|Multipolygon)' out/reference-inspect-full.txt | sort | uniq -c >> out/reference-inspect.txt
+          grep -oE '(types|add_types) \[[^]]*\]' out/reference-inspect-full.txt | sed 's/([0-9]*)//g' | sort | uniq -c | sort -rn | head -40 >> out/reference-inspect.txt
+          rm out/reference-inspect-full.txt
+          cat out/reference-inspect.txt
+
       - name: Compare tags written and kept
         run: |
           python3 tools/obf_compare.py out/Noaa_enc_middle_river.osm out/inspect.txt | tee out/compare.md
@@ -65,5 +79,6 @@ jobs:
             out/*.osm
             out/*.report.json
             out/inspect.txt
+            out/reference-inspect.txt
             out/compare.md
           retention-days: 14
