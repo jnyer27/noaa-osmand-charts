@@ -783,32 +783,52 @@ def colregs_lines():
     return out
 
 
+SEA_GAP_M = 300.0  # openings narrower than twice this are sealed before the open sea is flooded
+
+
 def mark_sea(grid, tiles):
-    """Open sea for the app's "Stay inside": water connected (4-neighbor) to the seed cells
-    build() marked from CONZNE/EXEZNE (12 nm and more offshore) without crossing land or a
-    COLREGS demarcation line, so bays, sounds, rivers and the ICW behind inlets that have a
-    line stay inside. Tile by tile, so memory stays flat on the largest grids: each tile's
-    water is labeled, labels are joined across tile edges (union-find), then a second pass
-    sets SEA_MARK on the sea's cells and clears seed marks elsewhere. tiles: the region's
-    planes, or {(tx, ty): tile} from build_blocks (changed in place). A region whose pack
-    does not reach 12 nm offshore has no seeds, and so no open sea."""
+    """Open sea for the app's "Stay inside": the water reached from the seed cells build()
+    marked from CONZNE/EXEZNE (12 nm and more offshore) without crossing land or a COLREGS
+    demarcation line (33 CFR 80: the lines across inlets and bay mouths), so bays, sounds,
+    rivers and the ICW stay inside.
+
+    Lines alone leaked everywhere (the Chesapeake flooded around Smith Island through the
+    seaside marsh creeks; inlets migrate, line ends miss the charted shore, small channels
+    have no line), so the flood runs on water eroded by SEA_GAP_M: every opening narrower
+    than twice that is sealed, while the open coast stays wide. The flooded sea is then
+    grown back by SEA_GAP_M over water, restoring the strip along the beaches (it stops at a
+    line or the land and does not reach behind a barrier island wider than nothing).
+
+    Tile by tile with a halo of R cells from the neighbors, so memory stays flat on the
+    largest grids: (1) label each tile's eroded water and join labels across tile edges
+    (union-find), (2) keep the sea's eroded cells per tile as bits, (3) grow them back and
+    set SEA_MARK, clearing seed marks elsewhere. tiles: the region's planes, or
+    {(tx, ty): tile} from build_blocks (changed in place). A region whose pack does not
+    reach 12 nm offshore has no seeds, and so no open sea."""
     from scipy import ndimage
     tw, th = grid.w // TILE, grid.h // TILE
     if isinstance(tiles, dict):
         tile_at = tiles.get
     else:
         def tile_at(k):
+            if not (0 <= k[0] < tw and 0 <= k[1] < th):
+                return None
             return tiles[:, k[1] * TILE:(k[1] + 1) * TILE, k[0] * TILE:(k[0] + 1) * TILE]
     lines = colregs_lines()
-    tdlon, tdlat = TILE * grid.dlon, TILE * grid.dlat
+    R = int(round(SEA_GAP_M / grid.res))
+    halo = R + 1
+    S = TILE + 2 * halo
     four = ndimage.generate_binary_structure(2, 1)
 
     def walls(tx, ty):
-        w0, n0 = grid.west + tx * tdlon, grid.north - ty * tdlat
-        mine = [g for g, e in lines if e[0] <= w0 + tdlon and e[1] >= w0 and e[2] <= n0 and e[3] >= n0 - tdlat]
+        """COLREGS lines in the tile and its halo, or None."""
+        w0 = grid.west + (tx * TILE - halo) * grid.dlon
+        n0 = grid.north - (ty * TILE - halo) * grid.dlat
+        e0, s0 = w0 + S * grid.dlon, n0 - S * grid.dlat
+        mine = [g for g, e in lines if e[0] <= e0 and e[1] >= w0 and e[2] <= n0 and e[3] >= s0]
         if not mine:
             return None
-        ds = gdal.GetDriverByName("MEM").Create("", TILE, TILE, 1, gdal.GDT_Byte)
+        ds = gdal.GetDriverByName("MEM").Create("", S, S, 1, gdal.GDT_Byte)
         ds.SetGeoTransform((w0, grid.dlon, 0, n0, 0, -grid.dlat))
         ds.SetProjection(grid.srs.ExportToWkt())
         mem = ogr.GetDriverByName("Memory").CreateDataSource("")
@@ -820,16 +840,37 @@ def mark_sea(grid, tiles):
         gdal.RasterizeLayer(ds, [1], lyr, burn_values=[1], options=["ALL_TOUCHED=TRUE"])
         return ds.GetRasterBand(1).ReadAsArray() > 0
 
-    def label(tx, ty):
+    def window(tx, ty, get):
+        """get(tile) -> TILE x TILE bool, assembled with the halo (missing tiles False)."""
+        out = np.zeros((S, S), bool)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                v = get(tx + dx, ty + dy)
+                if v is None:
+                    continue
+                # part of neighbor (dx, dy) inside the window
+                ys = slice(max(0, halo + dy * TILE), min(S, halo + (dy + 1) * TILE))
+                xs = slice(max(0, halo + dx * TILE), min(S, halo + (dx + 1) * TILE))
+                oy, ox = ys.start - (halo + dy * TILE), xs.start - (halo + dx * TILE)
+                out[ys, xs] = v[oy:oy + (ys.stop - ys.start), ox:ox + (xs.stop - xs.start)]
+        return out
+
+    def water_of(tx, ty):
         t = tile_at((tx, ty))
-        if t is None:
-            return None, 0, None
-        water = t[DEPTH] > 0
+        return None if t is None else t[DEPTH] > 0
+
+    def eroded(tx, ty):
+        """The tile's water farther than R cells from land, a line or a missing tile."""
+        t = tile_at((tx, ty))
+        if t is None or not (t[DEPTH] > 0).any():
+            return None
+        wat = window(tx, ty, water_of)
         w = walls(tx, ty)
         if w is not None:
-            water &= ~w
-        lab, n = ndimage.label(water, four)
-        return lab, n, t
+            wat &= ~w
+        if wat.all():
+            return np.ones((TILE, TILE), bool)
+        return (ndimage.distance_transform_edt(wat) > R)[halo:halo + TILE, halo:halo + TILE]
 
     parent = []
 
@@ -847,18 +888,21 @@ def mark_sea(grid, tiles):
             if ra != rb:
                 parent[max(ra, rb)] = min(ra, rb)
 
+    # (1) label eroded water, join across tile edges, note seeded labels
     base = {}
     seeds = set()
-    prev_bottom = {}  # tx -> global labels along the bottom row of the tile above
+    prev_bottom = {}
     for ty in range(th):
         bottom, left_col = {}, None
         for tx in range(tw):
-            lab, n, t = label(tx, ty)
-            if lab is None:
+            e = eroded(tx, ty)
+            if e is None or not e.any():
                 left_col = None
                 continue
+            lab, n = ndimage.label(e, four)
+            t = tile_at((tx, ty))
             b0 = len(parent)
-            base[(tx, ty)] = b0
+            base[(tx, ty)] = (b0, n)
             parent.extend(range(b0, b0 + n))
             g = np.where(lab > 0, lab.astype(np.int64) + b0 - 1, -1)
             for k in np.unique(lab[(t[SPANCLR] == SEA_MARK) & ((t[FLAGS] & SPAN) == 0) & (lab > 0)]):
@@ -873,18 +917,44 @@ def mark_sea(grid, tiles):
             bottom[tx] = g[-1, :]
         prev_bottom = bottom
     roots = {find(s_) for s_ in seeds}
-    n_sea = 0
-    for (tx, ty), b0 in base.items():
-        lab, n, t = label(tx, ty)
+
+    # (2) the sea's eroded cells per tile, as bits
+    core = {}
+    for (tx, ty), (b0, n) in base.items():
+        lab, _ = ndimage.label(eroded(tx, ty), four)
         is_sea = np.zeros(n + 1, bool)
         is_sea[1:] = [find(b0 + i) in roots for i in range(n)]
-        sea = is_sea[lab]
-        free = (t[FLAGS] & SPAN) == 0
-        t[SPANCLR][sea & free] = SEA_MARK
-        t[SPANCLR][~sea & free & (t[SPANCLR] == SEA_MARK)] = 0
-        n_sea += int(sea.sum())
-    log(f"Open sea: {n_sea} water cells reached from {len(seeds)} seed pieces, "
-        f"{sum(1 for _ in lines)} COLREGS lines")
+        c = is_sea[lab]
+        if c.any():
+            core[(tx, ty)] = np.packbits(c)
+
+    def core_of(tx, ty):
+        b = core.get((tx, ty))
+        return None if b is None else np.unpackbits(b)[:TILE * TILE].reshape(TILE, TILE).astype(bool)
+
+    # (3) grow the sea back by R cells over water (not across a line), set the marks
+    n_sea = 0
+    for ty in range(th):
+        for tx in range(tw):
+            t = tile_at((tx, ty))
+            if t is None:
+                continue
+            free = (t[FLAGS] & SPAN) == 0
+            near = any((tx + dx, ty + dy) in core for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+            if not near:
+                t[SPANCLR][free & (t[SPANCLR] == SEA_MARK)] = 0
+                continue
+            c = window(tx, ty, core_of)
+            grown = (ndimage.distance_transform_edt(~c) <= R)[halo:halo + TILE, halo:halo + TILE]
+            w = walls(tx, ty)
+            sea = grown & (t[DEPTH] > 0)
+            if w is not None:
+                sea &= ~w[halo:halo + TILE, halo:halo + TILE]
+            t[SPANCLR][sea & free] = SEA_MARK
+            t[SPANCLR][~sea & free & (t[SPANCLR] == SEA_MARK)] = 0
+            n_sea += int(sea.sum())
+    log(f"Open sea: {n_sea} water cells from {len(seeds)} seed pieces ({len(core)} tiles of open water "
+        f"beyond {SEA_GAP_M:.0f} m of land), {len(lines)} COLREGS lines")
 
 
 def note(kind, band, geom, **attrs):
