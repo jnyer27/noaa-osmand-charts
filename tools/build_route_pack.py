@@ -626,8 +626,11 @@ def build(cells, grid, work, depth=None, quiet=False):
         flags = np.zeros((grid.h, grid.w), np.uint8)
         area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
                                                    ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)
+        # Pier areas by cell center, not all touched: the Route 168 bridge's two 12 m piers
+        # stand 27 m apart in the Virginia Cut (ICW, Great Bridge), and touching cells shut
+        # the one free row between them, so no inside route reached North Carolina
         st = [(geom, 1) for layer in ("PILPNT", "PYLONS") for f, geom in features(gp, layer) if area(geom)]
-        flags |= np.where(burn(grid, st, all_touched=True) > 0, STRUCT, 0).astype(np.uint8)
+        flags |= np.where(burn(grid, st) > 0, STRUCT, 0).astype(np.uint8)
         pro, resn = [], []
         for f, geom in features(gp, "RESARE"):
             codes = listval(fstr(f, "RESTRN"))
