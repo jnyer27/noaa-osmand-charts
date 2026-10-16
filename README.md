@@ -184,6 +184,29 @@ So a version built on public data could, at most, route from a US harbor to a US
 - **Licensing.** Route data is published openly on GitHub, and licensed foreign ENCs cannot be redistributed that way. Routing into foreign harbors in the same detail as US ones would need each user's own chart licenses, decrypted and processed on the phone.
 - **The pack format.** Packs are a 20 m grid, which is far too large for an ocean. Offshore legs would need a coarse grid (hundreds of meters per cell) that the planner joins to the detailed packs at each end.
 
+### Could the chart maps come from NOAA's ECDIS service instead of NCDS, for more current charts?
+
+Yes, for small areas. `noaa-ecdis-tiles.sh` already builds OsmAnd maps from NOAA's ECDIS Display Service, and adding small-area ECDIS maps to the app is a [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/1). The app offers NCDS maps today. The two sources trade off like this:
+
+| | NCDS (pre-built regional MBTiles) | ECDIS (live display service, tile by tile) |
+|---|---|---|
+| How current | Whatever NOAA last packaged; can be stale (region 04 was last published in May 2024) | NOAA's weekly Friday update, including Notice to Mariners corrections |
+| Look | Paper chart; every light is a magenta teardrop, so read the label | S-52 (the SiiTech look): true buoy and light colors and daymark shapes |
+| Depths | Feet | Meters (a feet option exists but is unverified) |
+| Area and zoom | Whole region, NOAA's fixed zoom levels | Any area, any zoom you choose |
+| Size | About 600 MB per region (about 1.7 times that converted) | About 3-8 KB per tile: a zoom-16 map of Middle River was 12 MB |
+| Download | One file: resumable, background, light on NOAA | Thousands of live requests: about 31,000 tiles and several hours for the northern Chesapeake at zoom 16 |
+| Reliability | A normal file download | Long runs are fragile: connections hung after about 32,000 tiles, and Friday updates cause failed tiles (the script resumes and retries) |
+| Refresh | Download the new file when NOAA publishes one | Every tile again; there is no "only what changed" |
+| In the app | Yes, including combining regions | Not yet (Termux script only) |
+
+ECDIS is not practical for whole regions at high zoom: each zoom level is about four times as many tiles, and every user pulling millions of tiles would put real load on NOAA's server. Pre-rendering whole regions centrally each week would mean the same scraping plus multi-gigabyte files. Small areas are cheap, though, so the plan is:
+
+- **NCDS for whole regions**, as the underlay.
+- **ECDIS for small areas**, as the overlay: the water within about a mile of a planned route, or a box around your home waters, at zoom 15-16. That is a few hundred to a few thousand tiles, minutes rather than hours, and the most current chart exactly where you will be.
+
+This is the same pattern recommended for the Termux scripts: a wide NCDS underlay and a sharp, current ECDIS overlay for home waters.
+
 ## How it works
 
 Regions are defined in `tools/areas.json`: each NCDS region's code and NOAA's region rectangle, plus reference routes. Every week, `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) builds a route pack for each region:
