@@ -40,7 +40,8 @@ Planes (0 always means "nothing here"):
             before this value read it as a 25.4 m deep obstruction (no effect).
   2 SOUND   shallowest sounding: 1 + DEPTH in dm (0-253), negative -> 1.
   3 FLAGS   bit 0 STRUCT   pier/pylon drawn as an area (blocks, no buffer)
-            bit 1 PROHIB   restricted area: entry prohibited / area to be avoided
+            bit 1 PROHIB   restricted area: entry prohibited (an area to be avoided
+                           is only reported: IMO routing measures for large ships)
             bit 2 DECK     bridge part without vertical clearance
             bit 3 SPAN     bridge part with vertical clearance (plane 4)
             bit 4 OPENING  opening bridge (swing, bascule, lift, draw...)
@@ -611,7 +612,10 @@ def build(cells, grid, work, depth=None, quiet=False):
         pro, resn = [], []
         for f, geom in features(gp, "RESARE"):
             codes = listval(fstr(f, "RESTRN"))
-            if "7" in codes or "14" in codes:
+            # Entry prohibited blocks. An area to be avoided (14) is only reported: on US
+            # charts these are IMO routing measures for large ships (the Aleutian ATBAs,
+            # for ships of 400 gross tons and up, cover Adak, Dutch Harbor and Sand Point)
+            if "7" in codes:
                 pro.append((geom, 1))
             rules = [RESTRN[c] for c in codes if c in RESTRN]
             if rules:

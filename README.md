@@ -95,7 +95,8 @@ Tap any NOAA region on the Regions map to open its card. Besides the route data,
 | Piers, seawalls, jetties and breakwaters charted as lines (shoreline construction) | Crossed only when there is no other way, for example into a slip. They cost 50 times as much as normal water and count as shore for the keep-off cost. Legs that run along or across one are flagged "runs along or across charted piers or seawalls: check" |
 | Single charted piles | Not avoided, because a 20 m grid cell would close narrow channels. Keep a lookout |
 | Bridges | Passed only under spans with a charted clearance (the navigation spans), and only if that clearance covers your air draft. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance. Check the opening schedule |
-| Entry prohibited / area to be avoided | Never used |
+| Entry prohibited | Never used |
+| Areas to be avoided | Used, but reported. On US charts these are IMO routing measures for large ships (the Aleutian ones apply to ships of 400 gross tons and up and surround Adak, Dutch Harbor and Sand Point) |
 | Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
 
 Routes keep off the shore. The cost of a cell rises within about 100 m of land, shallow water, piers, structures and hazard buffers, up to 3.4 times next to them, so the route only goes close where it has to. When the route is straightened into long legs, no leg is moved into the two grid cells nearest danger unless the planned path itself went there, and no leg crosses more piers or seawalls than the path did. Inside marinas and narrow bulkheaded harbors (such as Ego Alley), the route still runs close to piers and walls, because there is no other water.
