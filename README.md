@@ -29,7 +29,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (usually 2-7 MB; the largest, Arctic Alaska, is 14 MB).
 2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd.
-3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables.
+3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables. Check **Stay inside (avoid open ocean)** to keep the route on bays, sounds, rivers and the ICW.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
 5. Tap **Open in OsmAnd** to follow the route.
 
@@ -37,6 +37,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
 - **Depth-aware routing.** Routes stay on water charted at your safe operating depth wherever possible. Shallow stretches are flagged with their length and the shallowest nearby sounding. If no route exists, the app explains why: it names the limiting sounding or obstruction and its position, and gives the deepest depth setting that does work.
 - **Channel-aware routing.** Dredged channels are preferred. Lateral buoys and daybeacons are never passed on the wrong side, so "red right returning" holds in both directions.
+- **Stay inside.** An option keeps routes off the open ocean, for example down the Chesapeake and Pamlico Sound instead of outside the Outer Banks. Without it, the planner takes the shortest charted water, which can mean a long ocean run past capes like Hatteras.
 - **Bridges and cables.** Routes go only under navigation spans with a charted clearance, and only when that clearance covers your air draft. Opening bridges are reported with their closed clearance.
 - **Long trips.** Trips of 100+ nm (for example, the Chesapeake down the ICW to the Carolinas) are planned at 20 m detail end to end in seconds, and can cross between chart regions.
 - **Via points and places.** Add via points in order. Save and edit favorite spots under **Manage places**.
@@ -141,6 +142,7 @@ The region card also offers NOAA's vector charts (ENC) as two OsmAnd maps per re
 | Single charted piles | Not avoided, because a 20 m grid cell would close narrow channels. Keep a lookout |
 | Bridges | Passed only under spans with a charted clearance (the navigation spans), and only if that clearance covers your air draft. Opening bridges (swing, bascule, lift, draw) are passed and reported with their closed clearance. Check the opening schedule. Overhead cables charted with only a safe clearance (common for power lines) use that clearance. On the 20 m grid, the line through a narrow opening can run along one side of it instead of down the middle (for example right by the rest pier of the Amtrak swing bridge over the Bush River), so line up on the opening by eye |
 | Entry prohibited | Never used |
+| Open ocean, with **Stay inside** checked | Never used. Open ocean is the water reached from 12 nm offshore (NOAA's contiguous zone and EEZ) without crossing land or a COLREGS demarcation line (the lines across inlets and bay mouths, 33 CFR 80), with openings narrower than 600 m sealed and only water charted 6 ft or deeper flooded, then grown back 300 m to the beach. So the Chesapeake, Delaware Bay, Albemarle and Pamlico Sounds are inside, and the ocean along the beaches is not. If a point is out there, the planner says "open ocean (Stay inside is on)". Not yet: the planner cannot pass the ICW's Virginia Cut (Great Bridge), so a Chesapeake to North Carolina trip with Stay inside finds no route. A region whose data does not reach 12 nm offshore has no open ocean, and on the Great Lakes everything is inside |
 | Areas to be avoided | Used, but reported. On US charts these are IMO routing measures for large ships (the Aleutian ones apply to ships of 400 gross tons and up and surround Adak, Dutch Harbor and Sand Point) |
 | Other restricted areas (entry restricted, no wake, anchoring) | Used, but reported with the CFR rule |
 
