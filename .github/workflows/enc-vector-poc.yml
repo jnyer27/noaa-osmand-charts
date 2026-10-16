@@ -1,31 +1,69 @@
-name: ENC vector chart (proof of concept)
+name: ENC vector charts
 
-# Issue #2: NOAA ENC -> OSM seamark/depth tags (tools/enc_to_osm.py) -> .obf with
-# OsmAndMapCreator, for Middle River, MD. Inspects the .obf and compares the tags
-# written with the tags OsmAnd kept. Artifact: the .obf to import into OsmAnd, the
-# .osm, the conversion report and the inspector dump.
+# Issue #2: NOAA ENC -> OSM seamark/depth tags (tools/enc_to_osm.py) -> two OsmAnd maps
+# per area with OsmAndMapCreator, like OsmAnd's own depth maps:
+#   Depth_<name>.depth.obf  contours and depth areas, plus soundings in three map
+#                           sections (zoom 11-12 coastal, 13-14 approach, 15+ harbor)
+#   <Name>_seamarks.obf     marks, lights, hazards, piers, bridges, channels and areas
+# Builds the Middle River test box (quick check) and an NCDS region (04 by default).
+# Fails if an essential tag is not written or not kept (tools/obf_compare.py --require).
+# Chart cells and OsmAndMapCreator are cached for the ISO week.
 on:
   push:
     paths:
       - "tools/enc_to_osm.py"
       - "tools/obf_compare.py"
+      - "tools/build_route_pack.py"
       - ".github/workflows/enc-vector-poc.yml"
   workflow_dispatch:
+    inputs:
+      region:
+        description: "NCDS region code"
+        default: "04"
 
 jobs:
-  poc:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Test_middle_river
+            args: -b=-76.50,39.20,-76.33,39.37
+          - name: Ncds_${{ inputs.region || '04' }}
+            args: -r ${{ inputs.region || '04' }}
+    env:
+      NAME: ${{ matrix.name }}
+      JAVA_OPTS: -Xmx12g
     steps:
       - uses: actions/checkout@v4
+
+      - name: Week
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache chart cells
+        uses: actions/cache@v4
+        with:
+          path: enc-work
+          key: enc-cells-${{ matrix.name }}-${{ steps.week.outputs.week }}
+
+      - name: Cache OsmAndMapCreator
+        uses: actions/cache@v4
+        with:
+          path: omc
+          key: omc-${{ steps.week.outputs.week }}
 
       - name: Install GDAL
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy
 
-      - name: ENC to OSM (Middle River)
-        run: python3 tools/enc_to_osm.py -b=-76.50,39.20,-76.33,39.37 -o out/Noaa_enc_middle_river.osm
+      - name: ENC to OSM
+        run: |
+          python3 tools/enc_to_osm.py ${{ matrix.args }} -o "out/$NAME" -w enc-work
+          ls -l out
 
       - uses: actions/setup-java@v4
         with:
@@ -34,57 +72,76 @@ jobs:
 
       - name: OsmAndMapCreator
         run: |
-          curl -fsSL -o omc.zip https://download.osmand.net/latest-night-build/OsmAndMapCreator-main.zip
-          mkdir omc && unzip -q omc.zip -d omc
+          if [ ! -f omc/utilities.sh ]; then
+            curl -fsSL -o omc.zip https://download.osmand.net/latest-night-build/OsmAndMapCreator-main.zip
+            rm -rf omc && mkdir omc && unzip -q omc.zip -d omc && rm omc.zip
+          fi
           chmod +x omc/*.sh
 
       - name: OSM to OBF
         working-directory: out
         run: |
-          JAVA_OPTS="-Xmx4g" ../omc/utilities.sh generate-obf-no-address Noaa_enc_middle_river.osm 2>&1 | tail -40
-          ls -l
+          set -euo pipefail
+          OMC="$GITHUB_WORKSPACE/omc"
+          lower=$(echo "$NAME" | tr '[:upper:]' '[:lower:]')
+          # run CMD...: OsmAndMapCreator utilities in a folder of its own (it keeps work files
+          # there, named after the output); prints the folder
+          run() {
+            local d; d=$(mktemp -d)
+            (cd "$d" && bash "$OMC/utilities.sh" "$@" > log.txt 2>&1) || { tail -40 "$d/log.txt" >&2; return 1; }
+            echo "$d"
+          }
+          parts=()
+          for f in contours:: soundings_z11::11-12 soundings_z13::13-14 soundings_z15::15-; do
+            osm="$PWD/${NAME}_${f%%::*}.osm" zooms=${f#*::}
+            if ! grep -q -m1 '<node' "$osm"; then echo "$osm: empty, skipped"; continue; fi
+            d=$(run generate-map "$osm" ${zooms:+--map-zooms=$zooms})
+            obf=$(ls "$d"/*.obf | head -1)
+            echo "$(basename "$osm") -> $(du -h "$obf" | cut -f1)${zooms:+, zooms $zooms}"
+            parts+=("$obf")
+          done
+          depth="$PWD/Depth_${lower}.depth.obf"
+          rm -f "$depth"
+          if [ ${#parts[@]} -eq 1 ]; then mv "${parts[0]}" "$depth"; else run merge-index "$depth" "${parts[@]}" > /dev/null; fi
+          d=$(run generate-obf-no-address "$PWD/${NAME}_seamarks.osm")
+          mv "$(ls "$d"/*.obf | head -1)" "${NAME}_seamarks.obf"
+          ls -l *.obf
 
-      - name: Inspect the OBF
+      - name: Inspect the OBFs
         working-directory: out
         run: |
-          obf="$(ls *.obf | head -1)"
-          JAVA_OPTS="-Xmx2g" ../omc/inspector.sh -vmap -vmapobjects "$obf" > inspect.txt 2>&1 || true
-          wc -l inspect.txt
-          head -60 inspect.txt
-
-      - name: Reference, OsmAnd's own depth map (structure only, not redistributed)
-        run: |
-          set +e
-          curl -fsSL -o ref.zip "https://download.osmand.net/download?file=Swiss_Lakes_contours_2.depth.obf.zip&depth=yes"
-          mkdir ref && unzip -q ref.zip -d ref && ls -l ref
-          ref="$(ls ref/*.obf | head -1)"
-          JAVA_OPTS="-Xmx3g" omc/inspector.sh -vmap -vmapobjects "$ref" > full.txt 2>&1
-          out=out/reference-inspect.txt
-          grep -v -E '^(Point|Way|Polygon|Multipolygon)' full.txt | head -40 > $out
-          echo "== object kinds" >> $out
-          grep -oE '^(Point|Way|Polygon|Multipolygon)' full.txt | sort | uniq -c >> $out
-          echo "== type combinations" >> $out
-          grep -oE '(types|add_types) \[[^]]*\]' full.txt | sed -E 's/\([0-9]+\)//g' | sort | uniq -c | sort -rn | head -40 >> $out
-          for t in contour-depth contourarea-depth point-depth; do
-            echo "== sample $t" >> $out
-            grep -m 12 "$t" full.txt | cut -c1-300 >> $out
-          done
-          cat $out
-          exit 0
+          JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects Depth_*.depth.obf > inspect_depth.txt 2>&1 || true
+          JAVA_OPTS="-Xmx6g" ../omc/inspector.sh -vmap -vmapobjects "${NAME}_seamarks.obf" > inspect_seamarks.txt 2>&1 || true
+          wc -l inspect_*.txt
+          echo "== depth map sections"
+          grep -v -E '^(Point|Way|Polygon|Multipolygon|Relation) ' inspect_depth.txt | head -40
 
       - name: Compare tags written and kept
         run: |
-          python3 tools/obf_compare.py out/Noaa_enc_middle_river.osm out/inspect.txt | tee out/compare.md
-          cat out/compare.md >> "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          cd out
+          rc=0
+          python3 ../tools/obf_compare.py --title "$NAME depth map: tags written vs kept" \
+            --osm "${NAME}_contours.osm" "${NAME}"_soundings_z*.osm --dump inspect_depth.txt \
+            --require contour=depth contourarea=depth contourtype=5m point=depth depth \
+            > compare.md || rc=1
+          python3 ../tools/obf_compare.py --title "$NAME seamarks map: tags written vs kept" \
+            --osm "${NAME}_seamarks.osm" --dump inspect_seamarks.txt \
+            --require seamark:type=buoy_lateral seamark:buoy_lateral:colour seamark:buoy_lateral:shape \
+              seamark:type=beacon_lateral seamark:beacon_lateral:colour seamark:light:character \
+              seamark:light:colour seamark:type=fairway seamark:type=wreck seamark:type=obstruction \
+              seamark:type=bridge seamark:name name \
+            >> compare.md || rc=1
+          cat compare.md >> "$GITHUB_STEP_SUMMARY"
+          grep -A2 '^### Required' compare.md
+          exit $rc
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: enc-vector-middle-river
+          name: enc-vector-${{ matrix.name }}
           path: |
             out/*.obf
-            out/*.osm
             out/*.report.json
-            out/inspect.txt
-            out/reference-inspect.txt
             out/compare.md
           retention-days: 14

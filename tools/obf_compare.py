@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""obf_compare.py <file.osm> <inspector dump>
-Proof of concept (issue #2): which tags written by enc_to_osm.py survived into the .obf.
+"""obf_compare.py --osm A.osm [B.osm ...] --dump A.txt [...] [--require TAG ...] [--title T]
+Issue #2: which tags written by enc_to_osm.py survived into an .obf (the OSM files that
+went into one .obf against its inspector dump).
 Counts each key=value in the OSM file and in OsmAnd's BinaryInspector output
 (inspector.sh -vmap -vmapobjects). An object can appear once per map zoom section in
 the dump, so dump counts may be multiples; zero means OsmAnd dropped the tag.
 OsmAnd also folds seamark:<type>:<attr> into seamark:<attr> (rendering_types.xml),
-so the folded form is counted too. Prints a Markdown report."""
+so the folded form is counted too. Prints a Markdown report.
 
+--require: tags (key=value, or a key for any value) that must be written and kept; the
+exit status is 1 if one is missing, so a build fails instead of silently losing them."""
+
+import argparse
 import collections
 import re
 import sys
@@ -56,12 +61,24 @@ def dump_tags(path):
 
 
 def main():
-    osm, dump = sys.argv[1], sys.argv[2]
-    tags, objects = osm_tags(osm)
-    kept, lines = dump_tags(dump)
-    print("## ENC vector proof of concept: tags written vs kept in the .obf\n")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--osm", nargs="+", required=True)
+    ap.add_argument("--dump", nargs="+", required=True)
+    ap.add_argument("--require", nargs="*", default=[])
+    ap.add_argument("--title", default="tags written vs kept in the .obf")
+    a = ap.parse_args()
+    tags, objects, kept, lines = collections.Counter(), collections.Counter(), collections.Counter(), 0
+    for p in a.osm:
+        t, o = osm_tags(p)
+        tags.update(t)
+        objects.update(o)
+    for p in a.dump:
+        k, n = dump_tags(p)
+        kept.update(k)
+        lines += n
+    print(f"## {a.title}\n")
     print(f"OSM objects with tags: {dict(objects)}. Objects listed in the .obf dump: {lines} "
-          "(each object once per map zoom level, so dump counts are multiples).\n")
+          "(each object once per map zoom level, so dump counts can be multiples).\n")
     print("| Tag written | In .osm | In .obf dump | Kept? |")
     print("|---|---|---|---|")
     lost = []
@@ -76,7 +93,15 @@ def main():
     extra = sorted((k, v) for (k, v) in kept if (k, v) not in tags)
     print("\n### In the .obf but not written as such (OsmAnd's conversions)\n")
     print(", ".join(f"`{k}={v}`" if v is not None else f"`{k}`" for k, v in extra) or "None.")
+    missing = []
+    for r in a.require:
+        k, v = r.split("=", 1) if "=" in r else (r, None)
+        if not tags.get((k, v)) or not kept.get((k, v)):
+            missing.append(f"`{r}` ({'not kept' if tags.get((k, v)) else 'not written'})")
+    print("\n### Required tags\n")
+    print("**Missing:** " + ", ".join(missing) if missing else f"All {len(a.require)} present.")
+    return 1 if missing else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

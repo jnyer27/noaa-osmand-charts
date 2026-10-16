@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
 """enc_to_osm.py
-Proof of concept (issue #2): NOAA ENC (S-57) vector charts as an OsmAnd map.
+NOAA ENC (S-57) vector charts as OsmAnd maps (issue #2).
 
-  python3 tools/enc_to_osm.py -b=-76.50,39.24,-76.33,39.37 -o out/middle_river.osm
+  python3 tools/enc_to_osm.py -r 04 -o out/Ncds_04                     (an NCDS region)
+  python3 tools/enc_to_osm.py -b=-76.50,39.20,-76.33,39.37 -o out/Test  (a box)
 
-Reads every active ENC cell meeting the box from NOAA's catalog (GDAL applies the
+Reads every active ENC cell meeting the area from NOAA's catalog (GDAL applies the
 update files, so Notice to Mariners corrections are in), keeps each object from the
-most detailed chart that covers it (as the route packs do), and writes OSM XML with
-the tags OsmAnd keeps in an .obf (obf_creation/rendering_types.xml) and draws with
-its Marine style: OpenSeaMap seamark tags for marks, lights, wrecks, rocks,
-obstructions, piers, bridges, cables and areas; contour=depth, contourarea=depth and
-point=depth for depth contours, depth areas and soundings. OsmAndMapCreator turns the
-file into an .obf (see .github/workflows/enc-vector-poc.yml).
+most detailed chart that covers it (as the route packs do), and writes OSM XML with the
+tags OsmAnd keeps in an .obf (obf_creation/rendering_types.xml) and draws with its
+Nautical and Marine styles. Five files, built into two maps by
+.github/workflows/enc-vector-poc.yml, like OsmAnd's own depth maps:
 
-Also writes <out>.report.json: per S-57 class, how many objects were read, kept and
-written, and with which tags, so the tags found in the .obf can be compared.
-Depths in labels are feet (US charts); depth values are meters.
+  <out>_contours.osm       depth contours and depth areas    } merged into
+  <out>_soundings_z11.osm  soundings from coastal charts      } Depth_<name>.depth.obf,
+  <out>_soundings_z13.osm  ... from approach charts           } one map section each,
+  <out>_soundings_z15.osm  ... from harbor charts             } shown from zoom 11/13/15
+  <out>_seamarks.osm       marks, lights, hazards, piers, bridges, cables, channels and
+                           areas: <name>_seamarks.obf
+
+Each sounding set is what a chart of that scale shows: the most detailed chart up to
+band 3 (coastal), 4 (approach) or any band; storing every sounding at every zoom made
+low zooms heavy. A cell's coverage is its panel polygons in NOAA's catalog, indexed so
+an object is only cut against the more detailed cells that overlap it.
+
+Also writes <out>.report.json: per S-57 class, objects read, kept and written, and their
+tags, so tools/obf_compare.py can check them against the .obf.
+Depths in labels are whole feet (US charts).
 """
 
 import argparse
@@ -25,6 +36,8 @@ import json
 import math
 import os
 import sys
+import time
+import xml.etree.ElementTree as ET
 from xml.sax.saxutils import quoteattr
 
 from osgeo import gdal, ogr
@@ -342,214 +355,319 @@ def feature_tags(cls, f, geom):
 
 
 class OsmWriter:
-    """Points as nodes, lines as ways, polygons as closed ways (or multipolygon relations
-    when they have holes). Shared coordinates reuse one node."""
+    """Streams OSM XML: points as nodes, lines as ways, polygons as closed ways (or
+    multipolygon relations when they have holes). Nodes, ways and relations go to
+    separate temporary files joined at the end (OSM order), so a region does not have
+    to fit in memory."""
 
-    def __init__(self):
-        self.nodes, self.node_tags, self.ways, self.rels = {}, {}, [], []
+    def __init__(self, path):
+        self.path = path
+        self.parts = [open(path + k, "w") for k in (".nodes", ".ways", ".rels")]
         self.next = -1
+        self.count = 0
 
     def _id(self):
         i = self.next
         self.next -= 1
         return i
 
+    @staticmethod
+    def _tags(tags):
+        return "".join(f"<tag k={quoteattr(k)} v={quoteattr(str(v))}/>" for k, v in tags.items() if v is not None)
+
     def node(self, x, y, tags=None):
-        key = (round(x, 7), round(y, 7))
-        if tags:  # tagged nodes are their own object
-            i = self._id()
-            self.nodes[(key, i)] = i
-            self.node_tags[i] = (key, tags)
-            return i
-        if key not in self.nodes:
-            self.nodes[key] = self._id()
-        return self.nodes[key]
+        i = self._id()
+        t = self._tags(tags) if tags else ""
+        self.parts[0].write(f'<node id="{i}" version="1" lat="{y:.7f}" lon="{x:.7f}"' +
+                            (f">{t}</node>\n" if t else "/>\n"))
+        return i
 
     def way(self, pts, tags):
-        refs = [self.node(x, y) for x, y in pts]
-        refs = [r for k, r in enumerate(refs) if k == 0 or r != refs[k - 1]]
-        if len(refs) < 2:
+        pts = [p for k, p in enumerate(pts) if k == 0 or p[:2] != pts[k - 1][:2]]
+        if len(pts) < 2:
             return None
+        closed = len(pts) > 2 and pts[0][:2] == pts[-1][:2]
+        refs = [self.node(p[0], p[1]) for p in (pts[:-1] if closed else pts)]
+        if closed:
+            refs.append(refs[0])
         i = self._id()
-        self.ways.append((i, refs, tags))
+        nd = "".join(f'<nd ref="{r}"/>' for r in refs)
+        self.parts[1].write(f'<way id="{i}" version="1">{nd}{self._tags(tags)}</way>\n')
         return i
 
     def add(self, geom, tags):
         """Write one geometry with tags; returns the number of OSM objects written."""
         gt = ogr.GT_Flatten(geom.GetGeometryType())
+        n = 0
         if gt == ogr.wkbPoint:
             self.node(geom.GetX(), geom.GetY(), tags)
-            return 1
-        if gt in (ogr.wkbMultiPoint, ogr.wkbMultiLineString, ogr.wkbMultiPolygon, ogr.wkbGeometryCollection):
+            n = 1
+        elif gt in (ogr.wkbMultiPoint, ogr.wkbMultiLineString, ogr.wkbMultiPolygon, ogr.wkbGeometryCollection):
             return sum(self.add(geom.GetGeometryRef(k), tags) for k in range(geom.GetGeometryCount()))
-        if gt == ogr.wkbLineString:
-            return 1 if self.way(geom.GetPoints() or [], tags) else 0
-        if gt == ogr.wkbPolygon:
+        elif gt == ogr.wkbLineString:
+            n = 1 if self.way(geom.GetPoints() or [], tags) else 0
+        elif gt == ogr.wkbPolygon:
             rings = [geom.GetGeometryRef(k).GetPoints() or [] for k in range(geom.GetGeometryCount())]
             if len(rings) == 1:
-                return 1 if self.way(rings[0], tags) else 0
-            members = [(self.way(r, {}), "outer" if k == 0 else "inner") for k, r in enumerate(rings)]
-            members = [(w, role) for w, role in members if w]
-            self.rels.append((self._id(), members, dict(tags, type="multipolygon")))
-            return 1
-        return 0
+                n = 1 if self.way(rings[0], tags) else 0
+            else:
+                members = [(self.way(r, {}), "outer" if k == 0 else "inner") for k, r in enumerate(rings)]
+                mm = "".join(f'<member type="way" ref="{w}" role="{role}"/>' for w, role in members if w)
+                tg = self._tags(dict(tags, type="multipolygon"))
+                self.parts[2].write(f'<relation id="{self._id()}" version="1">{mm}{tg}</relation>\n')
+                n = 1
+        self.count += n
+        return n
 
-    def write(self, path):
-        def tagxml(tags):
-            return "".join(f"<tag k={quoteattr(k)} v={quoteattr(str(v))}/>" for k, v in tags.items() if v is not None)
-        with open(path, "w") as out:
+    def close(self):
+        for f in self.parts:
+            f.close()
+        with open(self.path, "w") as out:
             out.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6" generator="enc_to_osm.py">\n')
-            for key, i in self.nodes.items():
-                if isinstance(key[0], tuple):
-                    continue  # tagged node, below
-                out.write(f'<node id="{i}" version="1" lat="{key[1]}" lon="{key[0]}"/>\n')
-            for i, (key, tags) in self.node_tags.items():
-                out.write(f'<node id="{i}" version="1" lat="{key[1]}" lon="{key[0]}">{tagxml(tags)}</node>\n')
-            for i, refs, tags in self.ways:
-                nd = "".join(f'<nd ref="{r}"/>' for r in refs)
-                out.write(f'<way id="{i}" version="1">{nd}{tagxml(tags)}</way>\n')
-            for i, members, tags in self.rels:
-                mm = "".join(f'<member type="way" ref="{w}" role="{role}"/>' for w, role in members)
-                out.write(f'<relation id="{i}" version="1">{mm}{tagxml(tags)}</relation>\n')
+            for k in (".nodes", ".ways", ".rels"):
+                with open(self.path + k) as part:
+                    while True:
+                        chunk = part.read(1 << 20)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                os.remove(self.path + k)
             out.write("</osm>\n")
+
+
+class Coverage:
+    """Each cell's coverage (its panel polygons in NOAA's ENC catalog), in a 0.25 degree
+    grid so an object only meets the cells near it."""
+    STEP = 0.25
+
+    def __init__(self, catalog_path, names):
+        self.cells = {}  # name -> (band, polygon, envelope)
+        self.grid = collections.defaultdict(list)
+        for c in ET.parse(catalog_path).getroot().iter("cell"):
+            name = c.findtext("name")
+            if name not in names or c.findtext("status") != "Active":
+                continue
+            mp = ogr.Geometry(ogr.wkbMultiPolygon)
+            for panel in c.iter("panel"):
+                ring = ogr.Geometry(ogr.wkbLinearRing)
+                pts = []
+                for v in panel.iter("vertex"):
+                    lon, lat = float(v.findtext("long")), float(v.findtext("lat"))
+                    pts.append((lon + 360 if lon < -180 else lon, lat))
+                if len(pts) < 3:
+                    continue
+                for x, y in pts + [pts[0]]:
+                    ring.AddPoint_2D(x, y)
+                poly = ogr.Geometry(ogr.wkbPolygon)
+                poly.AddGeometry(ring)
+                mp.AddGeometry(poly)
+            if mp.GetGeometryCount() == 0:
+                continue
+            g = mp.MakeValid() if not mp.IsValid() else mp
+            env = g.GetEnvelope()  # minx, maxx, miny, maxy
+            self.cells[name] = (int(name[2]), g, env)
+            for gx in range(int(math.floor(env[0] / self.STEP)), int(math.floor(env[1] / self.STEP)) + 1):
+                for gy in range(int(math.floor(env[2] / self.STEP)), int(math.floor(env[3] / self.STEP)) + 1):
+                    self.grid[(gx, gy)].append(name)
+
+    def better(self, env, band, cap=99):
+        """Polygons of cells more detailed than band (up to cap) whose envelopes meet env."""
+        seen, out = set(), []
+        for gx in range(int(math.floor(env[0] / self.STEP)), int(math.floor(env[1] / self.STEP)) + 1):
+            for gy in range(int(math.floor(env[2] / self.STEP)), int(math.floor(env[3] / self.STEP)) + 1):
+                for name in self.grid.get((gx, gy), ()):
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    b, g, e = self.cells[name]
+                    if band < b <= cap and e[0] <= env[1] and e[1] >= env[0] and e[2] <= env[3] and e[3] >= env[2]:
+                        out.append(g)
+        return out
+
+    def keep(self, geom, band, cap=99):
+        """The part of geom that no more detailed chart (up to cap) covers, or None."""
+        cov = self.better(geom.GetEnvelope(), band, cap)
+        if not cov:
+            return geom
+        if ogr.GT_Flatten(geom.GetGeometryType()) == ogr.wkbPoint:
+            return None if any(c.Contains(geom) for c in cov) else geom
+        for c in cov:
+            geom = geom.Difference(c)
+            if geom is None or geom.IsEmpty():
+                return None
+        return geom
+
+
+# Outputs, and which classes go where
+DEPTH_CLASSES = {"DEPCNT", "DEPARE"}
+SOUNDING_SETS = (("z11", 3), ("z13", 4), ("z15", 99))  # (file suffix, most detailed band)
+# Areas OsmAnd outlines (or labels) are merged across chart cells: charts cut areas at
+# each cell's edge, and the edges showed as straight lines. Depth areas are fill only
+# (and not drawn by released OsmAnd), so they are not merged.
+MERGED = {"SBDARE", "DRGARE", "FAIRWY", "RESARE", "CBLARE", "PIPARE", "ACHARE", "SEAARE", "MARCUL"}
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-b", "--bbox", required=True, help="W,S,E,N")
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("-r", "--region", help="NCDS region code, e.g. 04")
+    ap.add_argument("-b", "--bbox", help="W,S,E,N instead of a region")
+    ap.add_argument("-o", "--out", required=True, help="output prefix, e.g. out/Ncds_04")
     ap.add_argument("-w", "--work", default="enc-work")
     a = ap.parse_args()
-    w, s, e, n = map(float, a.bbox.split(","))
-    box = ogr.CreateGeometryFromWkt(f"POLYGON(({w} {s},{e} {s},{e} {n},{w} {n},{w} {s}))")
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-
     enc = brp.enc_catalog(a.work)
-    cells = brp.fetch_cells([c for c in enc if brp.meets(c["bbox"], w, s, e, n)], a.work)
-    by_band = collections.defaultdict(list)
-    for name, path in sorted(cells.items()):
-        by_band[int(name[2])].append((name, path))
+    if a.region:
+        areas = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "areas.json")))["areas"]
+        area = next((x for x in areas if x.get("ncds") == a.region), None) or sys.exit(f"No region {a.region} in areas.json")
+        w, s, e, n = brp.region_bbox(area, enc)
+    elif a.bbox:
+        w, s, e, n = map(float, a.bbox.split(","))
+    else:
+        sys.exit("Give -r REGION or -b W,S,E,N")
+    box = ogr.CreateGeometryFromWkt(f"POLYGON(({w} {s},{e} {s},{e} {n},{w} {n},{w} {s}))")
+    t0 = time.time()
 
-    osm = OsmWriter()
+    cells = brp.fetch_cells([c for c in enc if brp.meets(c["bbox"], w, s, e, n)], a.work)
+    cov = Coverage(os.path.join(a.work, "ENCProdCat.xml"), set(cells))
+    print(f"Area {[round(x, 3) for x in (w, s, e, n)]}: {len(cells)} cells", flush=True)
+
+    out = {"contours": OsmWriter(a.out + "_contours.osm"), "seamarks": OsmWriter(a.out + "_seamarks.osm")}
+    for suffix, _ in SOUNDING_SETS:
+        out["soundings_" + suffix] = OsmWriter(a.out + f"_soundings_{suffix}.osm")
     report = collections.defaultdict(lambda: {"read": 0, "kept": 0, "written": 0, "tags": collections.Counter()})
     unmapped = collections.Counter()
-    covered = None  # coverage of the more detailed bands already written
-    lights = []  # lights are merged into the mark they stand on (OpenSeaMap tagging)
-    # Areas with the same tags are merged across chart cells before writing: charts cut
-    # areas at each cell's edge, and OsmAnd outlines some areas (seabed), which drew the
-    # cell edges as straight lines
-    areas = collections.OrderedDict()
-    marks = []   # (x, y, tags) of written marks
+    lights, marks = [], []  # lights are merged into the mark they stand on (OpenSeaMap tagging)
+    areas_by_tags = collections.OrderedDict()
 
-    for band in sorted(by_band, reverse=True):  # most detailed first
-        band_cov = None
-        for name, path in by_band[band]:
-            ds = ogr.Open(path)
-            for li in range(ds.GetLayerCount()):
-                lyr = ds.GetLayer(li)
-                cls = lyr.GetName()
-                if cls not in LAYERS:
-                    if cls not in ("DSID",) and lyr.GetFeatureCount() > 0:
-                        unmapped[cls] += lyr.GetFeatureCount()
+    def count_tags(cls, tags):
+        report[cls]["tags"].update(f"{k}={v}" if k in ("seamark:type", "contour", "contourarea", "contourtype",
+                                                        "areatype", "point") or
+                                   k.endswith((":category", ":colour", ":shape", ":restriction",
+                                               ":water_level", ":character")) else k
+                                   for k, v in tags.items())
+
+    for k, (name, path) in enumerate(sorted(cells.items())):
+        band = int(name[2])
+        if name not in cov.cells:
+            print(f"  {name}: no coverage in the catalog, skipped")
+            continue
+        ds = ogr.Open(path)
+        for li in range(ds.GetLayerCount()):
+            lyr = ds.GetLayer(li)
+            cls = lyr.GetName()
+            if cls not in LAYERS or cls == "M_COVR":
+                if cls not in ("DSID", "M_COVR"):
+                    unmapped[cls] += lyr.GetFeatureCount()
+                continue
+            lyr.SetSpatialFilter(box)
+            for f in lyr:
+                g = f.GetGeometryRef()
+                if g is None or g.IsEmpty():
                     continue
-                lyr.SetSpatialFilter(box)
-                for f in lyr:
-                    g = f.GetGeometryRef()
+                g = g.Clone()
+                report[cls]["read"] += 1
+                if not box.Contains(g):
+                    g = g.Intersection(box)
                     if g is None or g.IsEmpty():
                         continue
-                    g = g.Clone()
-                    if cls == "M_COVR":
-                        if val(f, "CATCOV") == 1:
-                            band_cov = g if band_cov is None else band_cov.Union(g)
-                        continue
-                    report[cls]["read"] += 1
-                    # Keep only what the more detailed charts do not cover
-                    if covered is not None:
-                        if ogr.GT_Flatten(g.GetGeometryType()) in (ogr.wkbPoint, ogr.wkbMultiPoint):
-                            if covered.Contains(g):
-                                continue
-                        else:
-                            g = g.Difference(covered)
-                            if g is None or g.IsEmpty():
-                                continue
-                    g = g.Intersection(box) if not box.Contains(g) else g
-                    if g is None or g.IsEmpty():
-                        continue
-                    if cls == "SOUNDG" and ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbMultiPoint:
-                        parts = [g.GetGeometryRef(k).Clone() for k in range(g.GetGeometryCount())]
-                    else:
-                        parts = [g]
-                    for p in parts:
+                if cls == "SOUNDG":
+                    pts = [g.GetGeometryRef(j).Clone() for j in range(g.GetGeometryCount())] \
+                        if ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbMultiPoint else [g]
+                    for p in pts:
                         tags = feature_tags(cls, f, p)
                         if tags is None:
                             continue
+                        flat = ogr.Geometry(ogr.wkbPoint)
+                        flat.AddPoint_2D(p.GetX(), p.GetY())
+                        for suffix, cap in SOUNDING_SETS:
+                            if band <= cap and cov.keep(flat, band, cap) is not None:
+                                report[cls]["written"] += out["soundings_" + suffix].add(flat, tags)
                         report[cls]["kept"] += 1
-                        if cls == "LIGHTS" and ogr.GT_Flatten(p.GetGeometryType()) == ogr.wkbPoint:
-                            lights.append((p.GetX(), p.GetY(), tags, f))
-                            continue
-                        if cls in MARKS and ogr.GT_Flatten(p.GetGeometryType()) == ogr.wkbPoint:
-                            marks.append([p.GetX(), p.GetY(), tags, cls])
-                            continue
-                        if cls == "DAYMAR":
-                            continue
-                        if ogr.GT_Flatten(p.GetGeometryType()) in (ogr.wkbPolygon, ogr.wkbMultiPolygon):
-                            key = (cls, tuple(sorted(tags.items())))
-                            areas.setdefault(key, []).append(p)
-                        else:
-                            report[cls]["written"] += osm.add(p, tags)
-                        report[cls]["tags"].update(f"{k}={v}" if k in ("seamark:type", "contour", "contourarea",
-                                                                         "contourtype", "areatype", "point") or
-                                                   k.endswith((":category", ":colour", ":shape", ":restriction",
-                                                               ":water_level", ":character")) else k
-                                                   for k, v in tags.items())
-        if band_cov is not None:
-            covered = band_cov if covered is None else covered.Union(band_cov)
+                    continue
+                g = cov.keep(g, band)
+                if g is None:
+                    continue
+                tags = feature_tags(cls, f, g)
+                if tags is None:
+                    continue
+                report[cls]["kept"] += 1
+                point = ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbPoint
+                if cls == "LIGHTS" and point:
+                    lights.append((g.GetX(), g.GetY(), tags, light_tags(f)))
+                    continue
+                if cls in MARKS and point:
+                    marks.append([g.GetX(), g.GetY(), tags, cls])
+                    continue
+                if cls == "DAYMAR":
+                    continue
+                if cls in MERGED and ogr.GT_Flatten(g.GetGeometryType()) in (ogr.wkbPolygon, ogr.wkbMultiPolygon):
+                    areas_by_tags.setdefault((cls, tuple(sorted(tags.items()))), []).append(g)
+                    continue
+                dest = out["contours"] if cls in DEPTH_CLASSES else out["seamarks"]
+                report[cls]["written"] += dest.add(g, tags)
+                count_tags(cls, tags)
+        ds = None
+        if (k + 1) % 25 == 0 or k + 1 == len(cells):
+            print(f"  {k + 1}/{len(cells)} cells, {time.time() - t0:.0f} s", flush=True)
 
     merged_from = 0
-    for (cls, tagitems), parts in areas.items():
-        mp = ogr.Geometry(ogr.wkbMultiPolygon)
-        for g in parts:
-            for k in range(g.GetGeometryCount()) if ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbMultiPolygon else [None]:
-                mp.AddGeometry(g if k is None else g.GetGeometryRef(k))
-        u = mp.UnionCascaded() if len(parts) > 1 else parts[0]
+    for (cls, tagitems), parts in areas_by_tags.items():
+        if len(parts) == 1:
+            u = parts[0]
+        else:
+            mp = ogr.Geometry(ogr.wkbMultiPolygon)
+            for g in parts:
+                for j in (range(g.GetGeometryCount()) if ogr.GT_Flatten(g.GetGeometryType()) == ogr.wkbMultiPolygon
+                          else [None]):
+                    mp.AddGeometry(g if j is None else g.GetGeometryRef(j))
+            u = mp.UnionCascaded()
         merged_from += len(parts)
-        report[cls]["written"] += osm.add(u, dict(tagitems))
-    print(f"Areas: {merged_from} pieces merged into {len(areas)} tag groups across cells")
+        report[cls]["written"] += out["seamarks"].add(u, dict(tagitems))
+        count_tags(cls, dict(tagitems))
+    print(f"Areas: {merged_from} pieces merged into {len(areas_by_tags)} tag groups across cells")
 
-    # A light within about 2 m of a mark goes on the mark's node; the rest stand alone
-    m_per_deg = 111320.0
-    for x, y, ltags, f in lights:
+    # A light within about 2 m of a mark goes on the mark's node (marks bucketed by
+    # about 100 m); the rest stand alone
+    bucket = collections.defaultdict(list)
+    for mk in marks:
+        bucket[(round(mk[0] * 1000), round(mk[1] * 1000))].append(mk)
+    for x, y, ltags, lattrs in lights:
         best = None
-        for mk in marks:
-            d = math.hypot((mk[0] - x) * m_per_deg * math.cos(math.radians(y)), (mk[1] - y) * m_per_deg)
-            if d < 2 and (best is None or d < best[0]):
-                best = (d, mk)
+        bx, by = round(x * 1000), round(y * 1000)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for mk in bucket.get((bx + dx, by + dy), ()):
+                    d = math.hypot((mk[0] - x) * 111320.0 * math.cos(math.radians(y)), (mk[1] - y) * 111320.0)
+                    if d < 2 and (best is None or d < best[0]):
+                        best = (d, mk)
         if best:
-            best[1][2].update({k: v for k, v in light_tags(f).items()})
+            best[1][2].update(lattrs)
             report["LIGHTS"]["tags"]["(merged into a mark)"] += 1
         else:
             pt = ogr.Geometry(ogr.wkbPoint)
             pt.AddPoint_2D(x, y)
-            report["LIGHTS"]["written"] += osm.add(pt, ltags)
-            report["LIGHTS"]["tags"].update(f"{k}={v}" if k == "seamark:type" else k for k in ltags for v in [ltags[k]])
+            report["LIGHTS"]["written"] += out["seamarks"].add(pt, ltags)
+            count_tags("LIGHTS", ltags)
     for x, y, tags, cls in marks:
         pt = ogr.Geometry(ogr.wkbPoint)
         pt.AddPoint_2D(x, y)
-        report[cls]["written"] += osm.add(pt, tags)
-        report[cls]["tags"].update(f"{k}={v}" if k == "seamark:type" or k.endswith((":category", ":colour", ":shape"))
-                                   else k for k, v in tags.items())
+        report[cls]["written"] += out["seamarks"].add(pt, tags)
+        count_tags(cls, tags)
 
-    osm.write(a.out)
-    rep = {"bbox": [w, s, e, n], "cells": sorted(cells),
+    for wtr in out.values():
+        wtr.close()
+    rep = {"area": [w, s, e, n], "cells": sorted(cells), "seconds": round(time.time() - t0),
+           "files": {k: {"path": v.path, "objects": v.count} for k, v in out.items()},
            "classes": {k: {"read": v["read"], "kept": v["kept"], "written": v["written"],
                            "tags": dict(v["tags"].most_common())} for k, v in sorted(report.items())},
            "not_mapped": dict(unmapped.most_common())}
     json.dump(rep, open(a.out + ".report.json", "w"), indent=1)
-    print(f"Wrote {a.out}: {len(osm.node_tags)} tagged nodes, {len(osm.ways)} ways, {len(osm.rels)} relations "
-          f"from {len(cells)} cells")
+    print(f"Done in {time.time() - t0:.0f} s from {len(cells)} cells:")
+    for k, v in out.items():
+        print(f"  {v.path}: {v.count} objects")
     for k, v in rep["classes"].items():
-        print(f"  {k:7} read {v['read']:5}  kept {v['kept']:5}  written {v['written']:5}")
+        print(f"  {k:7} read {v['read']:7}  kept {v['kept']:7}  written {v['written']:7}")
     print("  not mapped:", ", ".join(f"{k} {v}" for k, v in rep["not_mapped"].items()))
 
 
