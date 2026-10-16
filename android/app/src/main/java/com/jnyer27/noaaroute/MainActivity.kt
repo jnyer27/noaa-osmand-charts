@@ -61,6 +61,8 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val store by lazy { PackStore(this) }
     private val maps by lazy { ChartMaps(this) }
+    private val vmaps by lazy { VectorMaps(this) }
+    private var vcatalog: List<VectorMaps.Region> = emptyList()
     private var charts: ChartSet? = null
     private var chartsSig = ""
     private var catalog: List<AreaInfo> = emptyList()
@@ -224,7 +226,7 @@ class MainActivity : Activity() {
         // The background job may have updated or swapped packs
         if (store.signature() != chartsSig) { openCharts(); checkTrip() }
         // Chart map downloads may have finished, or a map was deleted in Files
-        worker.execute { maps.reconcile(); ui.post { regionsChanged?.invoke() } }
+        worker.execute { maps.reconcile(); vmaps.reconcile(); ui.post { regionsChanged?.invoke() } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -620,6 +622,18 @@ class MainActivity : Activity() {
             })
             val ready = entries.filter { !it.merged && !it.mbtilesOnly && it.state == ChartMaps.State.READY }
             if (ready.size >= 2) rows.addView(button("Combine chart maps for OsmAnd") { combineCharts(ready.map { it.key }) })
+
+            // Vector chart maps for OsmAnd
+            rows.addView(label("Vector charts for OsmAnd"))
+            val vec = vmaps.all().values.sortedBy { it.ncds }
+            if (vec.isEmpty()) rows.addView(TextView(this).apply {
+                text = "NOAA's vector charts (ENC) as OsmAnd maps: depths, buoys, lights and hazards drawn by OsmAnd itself. Tap a region on the map to download them."
+            })
+            for (e in vec) rows.addView(TextView(this).apply {
+                text = "Region ${e.ncds}\n" + vectorStatus(e)
+                setPadding(0, dp(10), 0, dp(10))
+                setOnClickListener { regionCard(e.ncds) }
+            })
         }
         fill()
         regionsChanged = { fill() }
@@ -631,8 +645,9 @@ class MainActivity : Activity() {
             override fun run() {
                 if (!d.isShowing) return
                 val all = maps.all().values
-                val now = all.joinToString { "${it.key}:${it.state}" }
-                if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING }) fill()
+                val vec = vmaps.all().values
+                val now = all.joinToString { "${it.key}:${it.state}" } + vec.joinToString { "${it.ncds}:${it.state}" }
+                if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING } || vec.any { it.state == VectorMaps.State.DOWNLOADING }) fill()
                 last = now
                 ui.postDelayed(this, 2000)
             }
@@ -644,6 +659,7 @@ class MainActivity : Activity() {
         d.setContentView(root)
         d.show()
         refreshCatalog(quiet = false) // statuses may be stale; fill() runs again via openCharts
+        refreshVectorCatalog()
     }
 
     private fun areaAction(id: String) {
@@ -678,6 +694,32 @@ class MainActivity : Activity() {
         ChartMaps.State.READY -> "ready: Download/${ChartMaps.SUBDIR}/${e.file} (%.0f MB)".format(e.size / 1e6) +
             if (e.mbtilesOnly) " (.mbtiles, not converted)" else ""
         ChartMaps.State.FAILED -> "failed: ${e.error}"
+    }
+
+    /** The published vector chart catalog (cached first, then fetched), then redraw. */
+    private fun refreshVectorCatalog(then: (() -> Unit)? = null) {
+        if (vcatalog.isEmpty()) vcatalog = vmaps.cachedCatalog()
+        worker.execute {
+            val list = try { vmaps.fetchCatalog() } catch (_: Exception) { null }
+            ui.post {
+                if (list != null) vcatalog = list
+                regionsChanged?.invoke()
+                then?.invoke()
+            }
+        }
+    }
+
+    /** Vector chart status line for the list and the card. */
+    private fun vectorStatus(e: VectorMaps.Entry): String = when (e.state) {
+        VectorMaps.State.DOWNLOADING -> vmaps.progress(e)?.let { (got, total) ->
+            "downloading: %.0f of %.0f MB (waits for Wi-Fi unless mobile data was allowed)".format(got / 1e6, total / 1e6)
+        } ?: "downloading"
+        VectorMaps.State.DOWNLOADED, VectorMaps.State.SAVING -> "saving to Download/${ChartMaps.SUBDIR}..."
+        VectorMaps.State.READY -> "ready: Download/${ChartMaps.SUBDIR}/" + e.names.values.joinToString(", ") +
+            " (%.0f MB, NOAA data from %s)".format(e.size / 1e6, e.created.take(10)) +
+            (if (vmaps.hasUpdate(e, vcatalog.firstOrNull { it.ncds == e.ncds })) "\nUPDATE available" else "") +
+            (e.error?.let { "\n$it" } ?: "")
+        VectorMaps.State.FAILED -> "failed: ${e.error}"
     }
 
     /** One NCDS region: its route planning data and its chart map for OsmAnd. */
@@ -746,7 +788,73 @@ class MainActivity : Activity() {
                 if (e.state == ChartMaps.State.DOWNLOADING) box.addView(act("Cancel download") { maps.cancel(code); regionsChanged?.invoke() })
             }
         }
+
+        box.addView(label("Vector charts for OsmAnd"))
+        val vstatus = TextView(this)
+        box.addView(vstatus)
+        val vbox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(vbox)
+        fun vectorSection() {
+            vbox.removeAllViews()
+            val r = vcatalog.firstOrNull { it.ncds == code }
+            val v = vmaps.get(code)
+            val about = "NOAA's vector charts (ENC) as two OsmAnd maps, drawn by OsmAnd itself: a depth map " +
+                "(contours and soundings, under Nautical maps) and a seamarks map (buoys, lights, hazards and channels, under Standard maps)."
+            when (v?.state) {
+                null -> {
+                    vstatus.text = if (r == null) "$about\nNot available for this region yet."
+                        else "$about\n%.0f MB, NOAA data from %s.".format(r.size / 1e6, r.created.take(10))
+                    if (r != null) vbox.addView(act("Download vector charts") { startVector(r) })
+                }
+                VectorMaps.State.READY -> {
+                    vstatus.text = vectorStatus(v)
+                    if (r != null && vmaps.hasUpdate(v, r)) vbox.addView(act("Update vector charts") { startVector(r) })
+                    for ((kind, uri) in v.uris) vbox.addView(act(if (kind == "depth") "Open depth map in OsmAnd" else "Open seamarks map in OsmAnd") {
+                        importInOsmAnd(Uri.parse(uri), v.names[kind] ?: "")
+                    })
+                    vbox.addView(act("Show in Files") { showFolder(ChartMaps.SUBDIR) })
+                    vbox.addView(act("Delete vector charts") { vmaps.delete(code); regionsChanged?.invoke() })
+                }
+                VectorMaps.State.FAILED -> {
+                    vstatus.text = vectorStatus(v)
+                    if (r != null) vbox.addView(act("Try again") { startVector(r) })
+                    vbox.addView(act("Remove") { vmaps.delete(code); regionsChanged?.invoke() })
+                }
+                else -> {
+                    vstatus.text = vectorStatus(v)
+                    if (v.state == VectorMaps.State.DOWNLOADING) vbox.addView(act("Cancel download") { vmaps.cancel(code); regionsChanged?.invoke() })
+                }
+            }
+        }
+        vectorSection()
+        if (vcatalog.isEmpty()) refreshVectorCatalog { if (d.isShowing) vectorSection() }
         d.show()
+    }
+
+    /** Check space, ask Wi-Fi or mobile data, then hand a region's vector chart downloads to Android. */
+    private fun startVector(r: VectorMaps.Region) {
+        val need = VectorMaps.spaceNeeded(r)
+        val free = vmaps.freeBytes()
+        if (free < need) {
+            AlertDialog.Builder(this).setTitle("Not enough space")
+                .setMessage("Region ${r.ncds}'s vector charts are %.0f MB; downloading and saving them needs about %.0f MB free, and %.0f MB is free.".format(r.size / 1e6, need / 1e6, free / 1e6))
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2) // for "ready" notices; optional
+        fun go(mobile: Boolean) {
+            vmaps.start(r, mobile)
+            status.text = "Region ${r.ncds}'s vector charts are downloading (see the notification); they are saved to " +
+                "Download/${ChartMaps.SUBDIR} when done, even if you close the app. Then open each in OsmAnd. After an update, " +
+                "delete the old maps in OsmAnd (Maps & Resources > Local) and open the new ones."
+            regionsChanged?.invoke()
+        }
+        AlertDialog.Builder(this).setTitle("Region ${r.ncds} vector charts, %.0f MB".format(r.size / 1e6))
+            .setMessage("Two maps for OsmAnd: depths and seamarks. Android downloads them in the background and resumes after interruptions.")
+            .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
+            .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
+            .setNegativeButton("Cancel", null).show()
     }
 
     /** A combined chart map's card: open it, add regions to it, or delete it. */
@@ -840,14 +948,16 @@ class MainActivity : Activity() {
     }
 
     /** Hand a chart map to OsmAnd; if it will not take it, show the folder. */
-    private fun openChart(e: ChartMaps.Entry) {
-        val uri = Uri.parse(e.uri ?: return)
+    private fun openChart(e: ChartMaps.Entry) = importInOsmAnd(Uri.parse(e.uri ?: return), e.file ?: "")
+
+    /** Hand a map file in Download/noaa-charts to OsmAnd to import; if it will not take it, show the folder. */
+    private fun importInOsmAnd(uri: Uri, name: String) {
         val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/octet-stream").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         osmandPackage()?.let { i.setPackage(it) }
         try {
             startActivity(i)
         } catch (_: Exception) {
-            toast("OsmAnd did not take it: tap ${e.file} in Files and pick OsmAnd.")
+            toast("OsmAnd did not take it: tap $name in Files and pick OsmAnd.")
             showFolder(ChartMaps.SUBDIR)
         }
     }

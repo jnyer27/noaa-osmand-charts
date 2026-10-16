@@ -26,6 +26,9 @@ android {
         val branch = System.getenv("GITHUB_REF_NAME")
         val packTag = if (branch == null || branch == "main") "route-pack" else "route-pack-beta"
         buildConfigField("String", "PACK_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$packTag/\"")
+        // Vector chart maps for OsmAnd (vector-maps.yml), the same way
+        val vectorTag = if (branch == null || branch == "main") "vector-maps" else "vector-maps-beta"
+        buildConfigField("String", "VECTOR_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$vectorTag/\"")
     }
 
     signingConfigs {
