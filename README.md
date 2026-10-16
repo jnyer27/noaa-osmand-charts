@@ -207,6 +207,22 @@ ECDIS is not practical for whole regions at high zoom: each zoom level is about 
 
 This is the same pattern recommended for the Termux scripts: a wide NCDS underlay and a sharp, current ECDIS overlay for home waters.
 
+### Could OsmAnd show vector ENC charts, like OpenCPN, instead of chart tiles?
+
+Possibly, and it is a [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/2). OpenCPN reads NOAA's vector ENC cells directly and draws them itself, so its charts are current every week, sharp at every zoom, and shown in the units and detail you choose. OsmAnd cannot read ENCs, but it does draw its own vector maps (`.obf`), and its Marine map style (with the Nautical map view plugin) already renders OpenSeaMap seamarks (buoys and beacons in their real colors and shapes, lights, harbors), depth contours and depth points, with paper or ECDIS color schemes and a safety contour option.
+
+So the path would be: NOAA ENC, read with GDAL so that NOAA's update files are applied, then translated to OpenStreetMap seamark and depth tags (modeled on S-57, so most chart objects have a match), then built into one `.obf` per region with OsmAndMapCreator on GitHub Actions each week, like the route packs. NOAA ENC data is public domain, so the maps can be published openly.
+
+| | Raster tiles (NCDS, ECDIS) | Vector `.obf` from ENC |
+|---|---|---|
+| Sharpness | Fixed zoom levels | Sharp at every zoom |
+| Size | About 600 MB per NCDS region | Tens of MB per region |
+| Current | NCDS can be stale; ECDIS is weekly but tile by tile | Weekly, with Notice to Mariners corrections |
+| Completeness | Everything NOAA draws | What OsmAnd's Marine style knows: common objects look good, rarer ones (some restricted areas, cables, light sectors) may be missing or simplified. Not full S-52 |
+| Overlap | Separate overlay | Shares the map with OsmAnd's own data: seamarks that OpenStreetMap volunteers mapped may show twice, and ENC land sits over OsmAnd's coastline |
+
+This was tried once and dropped: the converter used then (JOSM's `js57toosm`) ignored NOAA's update files, so the maps missed Notice to Mariners corrections. Reading the charts with GDAL, as the route pack builder does, solves that. Still open: whether OsmAnd renders depth contours and soundings from your own `.obf` with only the free plugin (OsmAnd sells its own nautical depth data), and how much of a chart its Marine style draws. The first step would be a small proof of concept (Middle River, with marks, lights, and depth areas and contours) compared on the phone against the NCDS and ECDIS maps.
+
 ## How it works
 
 Regions are defined in `tools/areas.json`: each NCDS region's code and NOAA's region rectangle, plus reference routes. Every week, `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) builds a route pack for each region:
