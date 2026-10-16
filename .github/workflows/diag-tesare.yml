@@ -1,0 +1,31 @@
+name: diag TESARE (temporary)
+on:
+  push:
+    paths: [".github/workflows/diag-tesare.yml"]
+jobs:
+  diag:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends gdal-bin python3-gdal > /dev/null
+          for c in US2ATLOC US3VA1AC US4NC1JK; do curl -fsSL -o $c.zip https://www.charts.noaa.gov/ENCs/$c.zip; unzip -oq $c.zip -d $c; done
+          python3 - <<'PY'
+          import glob, os
+          from osgeo import ogr, gdal
+          gdal.UseExceptions(); os.environ["OGR_S57_OPTIONS"] = "UPDATES=APPLY,SPLIT_MULTIPOINT=ON"
+          pts = {"off Corolla 1.5 km": (-75.8268, 36.4243), "off Corolla 10 km": (-75.73, 36.42), "off Corolla 30 km": (-75.50, 36.42), "Currituck Sound": (-75.90, 36.40), "Chesapeake": (-76.2, 37.5)}
+          for c in ("US2ATLOC", "US3VA1AC", "US4NC1JK"):
+              f = glob.glob(f"{c}/**/{c}.000", recursive=True)[0]
+              ds = ogr.Open(f)
+              for l in ("TESARE", "CONZNE", "EXEZNE", "M_COVR"):
+                  lyr = ds.GetLayerByName(l)
+                  if lyr is None:
+                      print(c, l, "no layer"); continue
+                  for ft in lyr:
+                      g = ft.GetGeometryRef()
+                      if g is None:
+                          print(c, l, "no geometry"); continue
+                      inside = [k for k, (x, y) in pts.items() if g.Contains(ogr.CreateGeometryFromWkt(f"POINT({x} {y})"))]
+                      print(c, l, g.GetGeometryName(), "rings", g.GetGeometryCount(), "valid", g.IsValid(), "env", [round(v, 3) for v in g.GetEnvelope()],
+                            "area", round(g.GetArea(), 4), "contains", inside, ft.GetField("CATCOV") if l == "M_COVR" else "")
+          PY
