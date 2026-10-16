@@ -238,6 +238,90 @@
       "name": "Region 30: The western Aleutians",
       "description": "The Rat and Near Islands: Kiska, Shemya and Attu.",
       "ncds_bbox": [165.67, 47.87, 180.0, 68.0]
+    },
+    {
+      "id": "ncds_09",
+      "ncds": "09",
+      "name": "Region 09: Puerto Rico and the Virgin Islands",
+      "description": "Puerto Rico (San Juan, Fajardo, Ponce), Vieques and Culebra, and the US Virgin Islands (St. Thomas, St. John, St. Croix).",
+      "ncds_bbox": [-80.6, 8.64, -64.2, 23.1]
+    },
+    {
+      "id": "ncds_20c",
+      "ncds": "20c",
+      "name": "Region 20c: Puget Sound and the San Juan Islands",
+      "description": "Puget Sound from Olympia to Seattle and Everett, Hood Canal, the Strait of Juan de Fuca, the San Juan Islands, Bellingham, and the Washington coast north of Grays Harbor.",
+      "ncds_bbox": [-129.92, 47.01, -116.33, 60.33]
+    },
+    {
+      "id": "ncds_24a",
+      "ncds": "24a",
+      "name": "Region 24a: Prince William Sound and Yakutat",
+      "description": "Prince William Sound (Valdez, Cordova, Whittier), the Copper River delta, and the coast east to Yakutat Bay.",
+      "ncds_bbox": [-148.8, 44.7, -138.09, 61.58]
+    },
+    {
+      "id": "ncds_24b",
+      "ncds": "24b",
+      "name": "Region 24b: Kenai Peninsula and Kodiak",
+      "description": "Seward and Resurrection Bay, Kenai Fjords, Cook Inlet (Homer, Seldovia, Anchorage), and Kodiak.",
+      "ncds_bbox": [-152.76, 44.7, -148.8, 61.58]
+    },
+    {
+      "id": "ncds_25a",
+      "ncds": "25a",
+      "name": "Region 25a: Alaska Peninsula and Bristol Bay east",
+      "description": "Shelikof Strait, the Alaska Peninsula's Pacific coast to Chignik, and eastern Bristol Bay (Naknek, Dillingham).",
+      "ncds_bbox": [-159.0, 44.7, -152.76, 61.58]
+    },
+    {
+      "id": "ncds_25b",
+      "ncds": "25b",
+      "name": "Region 25b: Shumagin Islands, King Cove and Cold Bay",
+      "description": "The Shumagin Islands and Sand Point, King Cove, Cold Bay, False Pass and western Bristol Bay.",
+      "ncds_bbox": [-165.75, 44.7, -159.0, 61.58]
+    },
+    {
+      "id": "ncds_26a",
+      "ncds": "26a",
+      "name": "Region 26a: Unalaska and the eastern Aleutians",
+      "description": "Dutch Harbor and Unalaska, Akutan, Umnak and the Islands of Four Mountains, and the Pribilof Islands.",
+      "ncds_bbox": [-173.4, 44.7, -165.75, 61.58]
+    },
+    {
+      "id": "ncds_27",
+      "ncds": "27",
+      "name": "Region 27: Arctic and western Alaska",
+      "description": "Norton Sound and Nome, the Yukon delta, Bering Strait, Kotzebue Sound, and the Arctic coast to Utqiagvik and Prudhoe Bay.",
+      "ncds_bbox": [-180.0, 61.58, -134.0, 81.6]
+    },
+    {
+      "id": "ncds_28a",
+      "ncds": "28a",
+      "name": "Region 28a: Northwestern Hawaiian Islands and Johnston Atoll",
+      "description": "Nihoa, Necker, French Frigate Shoals, Gardner Pinnacles, Midway and Johnston Atoll.",
+      "ncds_bbox": [-180.0, 15.0, -162.68, 44.7]
+    },
+    {
+      "id": "ncds_29",
+      "ncds": "29",
+      "name": "Region 29: American Samoa and the central Pacific",
+      "description": "Tutuila (Pago Pago), the Manu'a Islands, Swains Island, Rose Atoll, Palmyra, Kingman Reef, Jarvis, Howland and Baker Islands.",
+      "ncds_bbox": [-180.0, -17.56, -154.0, 15.0]
+    },
+    {
+      "id": "ncds_31a",
+      "ncds": "31a",
+      "name": "Region 31a: Guam and the Northern Mariana Islands",
+      "description": "Guam (Apra Harbor), Rota, Tinian and Saipan, and the northern Marianas.",
+      "ncds_bbox": [131.05, 0.0, 154.08, 26.0]
+    },
+    {
+      "id": "ncds_31b",
+      "ncds": "31b",
+      "name": "Region 31b: Micronesia and Wake Island",
+      "description": "Pohnpei, Kosrae and other islands of the Federated States of Micronesia, and Wake Island.",
+      "ncds_bbox": [154.08, 0.0, 173.53, 26.0]
     }
   ],
   "tests": [
@@ -317,6 +401,21 @@
     {"name": "Haines to Skagway", "points": ["59.2350,-135.4400", "59.4450,-135.3250"], "depth": 4, "air": 10, "areas": ["ncds_23b"], "nm": [11, 18]},
     {"name": "Adak: Sweeper Cove to Kuluk Bay", "points": ["51.8600,-176.6400", "51.9000,-176.5500"], "depth": 4, "air": 10, "areas": ["ncds_26b"], "nm": [3, 9]},
     {"name": "Maui: Lahaina to Manele Bay, Lanai", "points": ["20.8720,-156.6800", "20.7430,-156.8870"], "depth": 4, "air": 10, "areas": ["ncds_28b"], "nm": [11, 18]},
-    {"name": "Ala Wai Harbor at 40 ft is boxed in", "points": ["21.2860,-157.8430", "21.3050,-157.8700"], "depth": 40, "air": 10, "areas": ["ncds_28b"], "fail": true}
+    {"name": "Ala Wai Harbor at 40 ft is boxed in", "points": ["21.2860,-157.8430", "21.3050,-157.8700"], "depth": 40, "air": 10, "areas": ["ncds_28b"], "fail": true},
+    {"name": "San Juan to Fajardo", "points": ["18.4500,-66.1150", "18.3400,-65.6200"], "depth": 4, "air": 10, "areas": ["ncds_09"], "nm": [25, 45]},
+    {"name": "St. Thomas: Charlotte Amalie to Cruz Bay, St. John", "points": ["18.3350,-64.9300", "18.3310,-64.7960"], "depth": 4, "air": 10, "areas": ["ncds_09"], "nm": [6, 13]},
+    {"name": "Puget Sound: Seattle to Bremerton", "points": ["47.6050,-122.3500", "47.5600,-122.6250"], "depth": 4, "air": 10, "areas": ["ncds_20c"], "nm": [12, 18]},
+    {"name": "Seattle to Friday Harbor", "points": ["47.6050,-122.3500", "48.5400,-123.0100"], "depth": 4, "air": 10, "areas": ["ncds_20c"], "nm": [70, 90]},
+    {"name": "Prince William Sound: Valdez to Cordova", "points": ["61.1220,-146.3600", "60.5500,-145.7800"], "depth": 4, "air": 10, "areas": ["ncds_24a"], "nm": [55, 95]},
+    {"name": "Resurrection Bay: Seward to the entrance", "points": ["60.1000,-149.4400", "59.9000,-149.3500"], "depth": 4, "air": 10, "areas": ["ncds_24b"], "nm": [10, 16]},
+    {"name": "Kachemak Bay: Homer to Seldovia", "points": ["59.6050,-151.4150", "59.4400,-151.7150"], "depth": 4, "air": 10, "areas": ["ncds_24b"], "nm": [11, 18]},
+    {"name": "Chignik Bay", "points": ["56.2950,-158.4050", "56.3500,-158.2500"], "depth": 4, "air": 10, "areas": ["ncds_25a"], "nm": [4, 14]},
+    {"name": "Sand Point to King Cove", "points": ["55.3360,-160.4970", "55.0550,-162.3200"], "depth": 4, "air": 10, "areas": ["ncds_25b"], "nm": [60, 100]},
+    {"name": "Dutch Harbor to Akutan", "points": ["53.8880,-166.5400", "54.1350,-165.7700"], "depth": 4, "air": 10, "areas": ["ncds_26a"], "nm": [30, 50]},
+    {"name": "Nome harbor to Norton Sound", "points": ["64.4950,-165.4300", "64.4500,-165.4500"], "depth": 4, "air": 10, "areas": ["ncds_27"], "nm": [2, 6]},
+    {"name": "Nome at 30 ft is boxed in", "points": ["64.4950,-165.4300", "64.4500,-165.4500"], "depth": 30, "air": 10, "areas": ["ncds_27"], "fail": true},
+    {"name": "Pago Pago harbor to the entrance", "points": ["-14.2750,-170.6900", "-14.3000,-170.6600"], "depth": 4, "air": 10, "areas": ["ncds_29"], "nm": [2, 6]},
+    {"name": "Guam: Apra Harbor to the open sea", "points": ["13.4430,144.6600", "13.4600,144.6000"], "depth": 4, "air": 10, "areas": ["ncds_31a"], "nm": [2, 7]},
+    {"name": "Saipan to Tinian", "points": ["15.2250,145.7150", "14.9600,145.6200"], "depth": 4, "air": 10, "areas": ["ncds_31a"], "nm": [15, 22]}
   ]
 }
