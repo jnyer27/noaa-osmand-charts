@@ -43,6 +43,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 - **Works with OsmAnd.** You can share a position from OsmAnd into the app (tap a spot, then **Share > NOAA Route**). Map links, `geo:` links, plain coordinates and GPX files also work. The app asks whether the shared point is the **Start**, **Destination**, a **Via point**, or should be **saved as a place**. For a GPX file, you can pick a waypoint, use a route or track's first and last points as the trip, or save all its waypoints as places.
 - **Weekly NOAA data.** Route data is rebuilt every week from NOAA's current charts, with Notices to Mariners corrections applied. The app can update your regions automatically on Wi-Fi.
 - **Chart maps for OsmAnd.** The app downloads NOAA's paper-chart style maps, converts them for OsmAnd and can combine several regions into one map.
+- **Vector charts for OsmAnd.** NOAA's vector charts as OsmAnd maps that OsmAnd draws itself: depth contours and soundings, buoys and beacons in their real colors and shapes, lights, wrecks, obstructions, channels and bridges. Rebuilt weekly with Notices to Mariners corrections, sharp at every zoom and only tens of MB per region.
 - **Fully offline once a region is downloaded.**
 
 ## Chart regions
@@ -114,6 +115,15 @@ Tap any NOAA region on the Regions map to open its card. Besides the route data,
 - A converted map is about 1.7 times the size of NOAA's file, and converting needs about 2.8 times that size in free space. The app checks the space first. Ready maps open in OsmAnd or Files.
 - **Combine chart maps for OsmAnd:** OsmAnd shows one chart overlay at a time, so this merges two or more regions into one map (`ncds_04_05.sqlitedb`). Where regions overlap, the more detailed tile wins. A combined map's card can **Add regions** later: the new region is merged into the combined file in place and the file is renamed (`ncds_04_05_06.sqlitedb`). After that, the region's own map can be deleted.
 - OsmAnd keeps its own copy of an imported map. After adding regions, delete the old map in OsmAnd and import the new file. The app cannot amend combined maps that were made in Termux, because Android does not let one app open another app's files.
+
+### Vector charts for OsmAnd
+
+The region card also offers NOAA's vector charts (ENC) as two OsmAnd maps per region, built every week from the current charts with Notices to Mariners corrections:
+
+- **Depth map** (`Ncds_XX_depth.depth.obf`): depth contours, depth areas and soundings. OsmAnd lists it under **Nautical maps**, and it follows the Nautical depth switch. Soundings thin out as you zoom out, like a chart of that scale: coastal charts' soundings from zoom 11, approach charts' from 13 and harbor charts' from 15.
+- **Seamarks map** (`Ncds_XX_seamarks.obf`): buoys and beacons, lights, wrecks, rocks and obstructions, piers, bridges, overhead cables, fairways and dredged channels (drawn as named green fairways), and restricted, anchorage and cable areas. OsmAnd lists it under **Standard maps**, so you can deactivate it on its own.
+- **Download vector charts** fetches both with Android's download manager (Wi-Fi only or mobile data too), checks them and saves them to `Download/noaa-charts`. Tap the "ready" notice or open the region card, then **Open depth map in OsmAnd** and **Open seamarks map in OsmAnd** to import them. An **Update** button appears when a newer weekly build is out: delete the old maps in OsmAnd (Maps & Resources > Local) and open the new ones.
+- Use the Nautical map style. Depth labels are in whole feet. Seamarks that OpenStreetMap volunteers mapped also come with OsmAnd's own maps, so some buoys show twice. Daymarks and light sectors are not drawn yet.
 
 ## How the planner decides where you can go
 
@@ -209,7 +219,7 @@ This is the same pattern recommended for the Termux scripts: a wide NCDS underla
 
 ### Could OsmAnd show vector ENC charts, like OpenCPN, instead of chart tiles?
 
-Possibly, and it is a [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/2). OpenCPN reads NOAA's vector ENC cells directly and draws them itself, so its charts are current every week, sharp at every zoom, and shown in the units and detail you choose. OsmAnd cannot read ENCs, but it does draw its own vector maps (`.obf`), and its Marine map style (with the Nautical map view plugin) already renders OpenSeaMap seamarks (buoys and beacons in their real colors and shapes, lights, harbors), depth contours and depth points, with paper or ECDIS color schemes and a safety contour option.
+Yes: see [Vector charts for OsmAnd](#vector-charts-for-osmand). This started as a [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/2), and the notes below are how it was weighed. OpenCPN reads NOAA's vector ENC cells directly and draws them itself, so its charts are current every week, sharp at every zoom, and shown in the units and detail you choose. OsmAnd cannot read ENCs, but it does draw its own vector maps (`.obf`), and its Marine map style (with the Nautical map view plugin) already renders OpenSeaMap seamarks (buoys and beacons in their real colors and shapes, lights, harbors), depth contours and depth points, with paper or ECDIS color schemes and a safety contour option.
 
 So the path would be: NOAA ENC, read with GDAL so that NOAA's update files are applied, then translated to OpenStreetMap seamark and depth tags (modeled on S-57, so most chart objects have a match), then built into one `.obf` per region with OsmAndMapCreator on GitHub Actions each week, like the route packs. NOAA ENC data is public domain, so the maps can be published openly.
 
