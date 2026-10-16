@@ -42,6 +42,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
+        const val SKIP_GUIDES = 3 // a full-detail piece may reach this many guide points ahead, skipping those between
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
         const val BLOCKED = 0
         const val SAFE = 1
@@ -759,7 +760,29 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val moved = HashSet<Int>()             // user points already reported as moved
     }
 
-    private class Piece(val wps: List<LatLon>, val legs: List<Leg>, val res: Double)
+    /** [cost]: the A* cost of the piece's full-detail path (to compare a shortcut with the stretches it replaces). */
+    private class Piece(val wps: List<LatLon>, val legs: List<Leg>, val res: Double, val cost: Double)
+
+    /** Notes, messages and moved points so far, so a trial piece can be undone. */
+    private class Snap(val seen: Set<String>, val nMsg: Int, val moved: Set<Int>)
+    private fun Ctx.snap() = Snap(HashSet(seen), messages.size, HashSet(moved))
+    private fun Ctx.restore(s: Snap) {
+        seen.clear(); seen.addAll(s.seen)
+        while (messages.size > s.nMsg) messages.removeAt(messages.size - 1)
+        moved.clear(); moved.addAll(s.moved)
+    }
+
+    /** A* cost of a full-detail path, as astar counts it. */
+    private fun pathCost(a: Area, g: Grid, path: IntArray): Double {
+        var t = 0.0
+        for (k in 1 until path.size) {
+            val i = path[k - 1]
+            val j = path[k]
+            val step = if (i / a.w != j / a.w && i % a.w != j % a.w) 1.4142135 else 1.0
+            t += step * a.res * (g.cost[i] + g.cost[j]) * 0.5
+        }
+        return t
+    }
 
     private val widths = doubleArrayOf(1.0, 2.5, 5.0)
 
@@ -831,6 +854,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             if (path != null) {
+                val cost = pathCost(a, g, path)
                 var idx = simplify(a, g, path)
                 val wps = idx.map { a.latlon(it) }.toMutableList()
                 // An end that was moved to usable water (snapped or cut off) keeps that
@@ -848,7 +872,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])
                 if (tail) ls[ls.size - 1] = offWater(ls[ls.size - 1])
-                return Piece(wps, ls, a.res)
+                return Piece(wps, ls, a.res, cost)
             }
             val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
             val closed = (0..1).filter { !ends[it].edge }
@@ -1217,14 +1241,53 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 progress("Guide points (overview %.0f m): ".format(gr) + guide.joinToString("; ") { "%.5f,%.5f".format(it.lat, it.lon) })
                 listOf(p) + guide + listOf(q)
             }
-            for (j in 0 until chain.size - 1) {
-                progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
-                val piece = planPiece(chain[j], chain[j + 1], if (j == 0) k + 1 else null,
-                                      if (j == chain.size - 2) k + 2 else null, c)
+            fun label(j: Int) = if (j == 0) k + 1 else if (j == chain.size - 1) k + 2 else null
+            fun add(piece: Piece, what: String) {
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 res = max(res, piece.res)
-                progress("Stretch ${j + 1}: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
+                progress("$what: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
+            }
+            // Stretches between guide points, in order. A guide point off the best water (the
+            // overview at 200 m lost the ICW's Coinjock land cut and put points in shallow
+            // Currituck Sound; one in open water drew a 1.5 nm out-and-back spike) is skipped
+            // when a full-detail piece from the last kept point to one up to SKIP_GUIDES
+            // further is cheaper than the stretches it replaces. Pieces planned ahead stay
+            // valid when no shortcut is taken; a trial piece's notes and messages are undone.
+            val ahead = ArrayList<Pair<Piece, Snap>>() // stretches a -> a+1 -> ... with the state after each
+            var a = 0
+            var atA = c.snap()
+            fun stretch(j: Int): Piece {
+                progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
+                return planPiece(chain[j], chain[j + 1], label(j), label(j + 1), c)
+            }
+            while (a < chain.size - 1) {
+                if (ahead.isEmpty()) ahead.add(stretch(a) to c.snap())
+                var took = false
+                for (b in min(a + SKIP_GUIDES, chain.size - 1) downTo a + 2) {
+                    if (area(listOf(chain[a], chain[b]), 1.0).f != 1) continue
+                    while (ahead.size < b - a) ahead.add(stretch(a + ahead.size) to c.snap())
+                    val viaCost = ahead.take(b - a).sumOf { it.first.cost }
+                    val viaRes = ahead.take(b - a).maxOf { it.first.res }
+                    val after = c.snap()
+                    c.restore(atA)
+                    val direct = try { planPiece(chain[a], chain[b], label(a), label(b), c) } catch (_: PlanException) { null }
+                    if (direct != null && direct.res <= viaRes && direct.cost < viaCost * 0.97) {
+                        add(direct, "Stretches ${a + 1}-$b in one")
+                        a = b
+                        atA = c.snap()
+                        ahead.clear()
+                        took = true
+                        break
+                    }
+                    c.restore(after)
+                }
+                if (!took) {
+                    val (piece, state) = ahead.removeAt(0)
+                    add(piece, "Stretch ${a + 1}")
+                    a += 1
+                    atA = state
+                }
             }
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
