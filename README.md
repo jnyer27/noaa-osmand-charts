@@ -160,6 +160,30 @@ When NOAA publishes an update, download it again from the region card. OsmAnd ke
 - **A black dot with a height (for example, "15ft") is a fixed beacon on a pile**, not a buoy.
 - Even numbers are red and odd numbers are green ("red right returning").
 
+## FAQ
+
+### Can it plan a trip from the Chesapeake to San Francisco through the Panama Canal?
+
+No. NOAA Route only has charts for US waters, so its route data stops at the Florida Keys, Puerto Rico and the Virgin Islands, the Texas border and San Diego. Water with no chart data is never used, so the app warns that part of the trip is outside every region and refuses to plan it. The trip is also about 5,000 nm. The longest tested route is about 400 nm (Maryland Marina to Carolina Beach), so even with charts all the way it would be far beyond what the planner and a phone's memory are built for.
+
+What works is planning each end on its own, for example the Chesapeake down the ICW to Florida and into the Gulf, and San Diego to San Francisco. Long open-water legs are where the planner adds least anyway: there it mostly draws a straight line, and its value is the careful routing near shore.
+
+Covering a trip like this would need data that is mostly not public:
+
+| Stretch | Data needed | Public? |
+|---|---|---|
+| US waters | NOAA ENCs | Yes, already used |
+| Open ocean (Caribbean, Pacific off Mexico and Central America) | Depths and a coastline | Yes, at a coarse scale: [GEBCO](https://www.gebco.net/) global bathymetry (about 450 m grid) and an OpenStreetMap or GSHHG coastline |
+| The Bahamas, Cuba, Colombia, Panama, Central America, Mexico | Each country's official ENCs (the same S-57 format NOAA uses) | No. They are sold through distributors (IC-ENC, PRIMAR) as encrypted S-63 cells, licensed per vessel, and may not be redistributed |
+| The Panama Canal | Canal charts and transit rules | Not as free vector data. Transits are scheduled by the canal authority and taken with a pilot |
+| Buoys, lights and harbor features abroad | Aids to navigation | Partly: [OpenSeaMap](https://www.openseamap.org/) is free, but its coverage is uneven and it has almost no depths |
+| Foreign ports | Locations and basic facts | Yes: NGA's World Port Index and Sailing Directions |
+
+So a version built on public data could, at most, route from a US harbor to a US harbor on a deep-water offshore track, leaving the foreign coast and the canal to you. Two things stand in the way of more:
+
+- **Licensing.** Route data is published openly on GitHub, and licensed foreign ENCs cannot be redistributed that way. Routing into foreign harbors in the same detail as US ones would need each user's own chart licenses, decrypted and processed on the phone.
+- **The pack format.** Packs are a 20 m grid, which is far too large for an ocean. Offshore legs would need a coarse grid (hundreds of meters per cell) that the planner joins to the detailed packs at each end.
+
 ## How it works
 
 Regions are defined in `tools/areas.json`: each NCDS region's code and NOAA's region rectangle, plus reference routes. Every week, `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) builds a route pack for each region:
