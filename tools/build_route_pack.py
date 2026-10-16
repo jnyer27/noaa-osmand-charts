@@ -784,9 +784,10 @@ def colregs_lines():
 
 
 SEA_GAP_M = 300.0  # openings narrower than twice this are sealed before the open sea is flooded
+SEA_DEEP_M = 1.8   # only water charted this deep or more (US 6 ft line) is flooded
 
 
-def mark_sea(grid, tiles):
+def mark_sea(grid, tiles, depth_table):
     """Open sea for the app's "Stay inside": the water reached from the seed cells build()
     marked from CONZNE/EXEZNE (12 nm and more offshore) without crossing land or a COLREGS
     demarcation line (33 CFR 80: the lines across inlets and bay mouths), so bays, sounds,
@@ -795,7 +796,9 @@ def mark_sea(grid, tiles):
     Lines alone leaked everywhere (the Chesapeake flooded around Smith Island through the
     seaside marsh creeks; inlets migrate, line ends miss the charted shore, small channels
     have no line), so the flood runs on water eroded by SEA_GAP_M: every opening narrower
-    than twice that is sealed, while the open coast stays wide. The flooded sea is then
+    than twice that is sealed, while the open coast stays wide. Only water charted
+    SEA_DEEP_M or deeper is flooded: Hatteras and Oregon Inlets have widened past their
+    lines' ends into broad shoals, which the 6 ft line seals. The flooded sea is then
     grown back by SEA_GAP_M over water, restoring the strip along the beaches (it stops at a
     line or the land and does not reach behind a barrier island wider than nothing).
 
@@ -819,6 +822,9 @@ def mark_sea(grid, tiles):
     halo = R + 1
     S = TILE + 2 * halo
     four = ndimage.generate_binary_structure(2, 1)
+    deep = np.zeros(256, bool)
+    for k, e in enumerate(depth_table):
+        deep[k] = bool(e) and e[0] is not None and e[0] >= SEA_DEEP_M
 
     def walls(tx, ty):
         """COLREGS lines in the tile and its halo, or None."""
@@ -857,12 +863,13 @@ def mark_sea(grid, tiles):
 
     def water_of(tx, ty):
         t = tile_at((tx, ty))
-        return None if t is None else t[DEPTH] > 0
+        return None if t is None else deep[t[DEPTH]]
 
     def eroded(tx, ty):
-        """The tile's water farther than R cells from land, a line or a missing tile."""
+        """The tile's deep water farther than R cells from shallower water, land, a line or
+        a missing tile."""
         t = tile_at((tx, ty))
-        if t is None or not (t[DEPTH] > 0).any():
+        if t is None or not deep[t[DEPTH]].any():
             return None
         wat = window(tx, ty, water_of)
         w = walls(tx, ty)
@@ -1056,7 +1063,7 @@ def main():
             planes, depth_table, notes, datums = build_blocks(cells, grid, a.work, detail)
         else:
             planes, depth_table, notes, datums = build(cells, grid, a.work)
-        mark_sea(grid, planes)
+        mark_sea(grid, planes, depth_table)
         if datums and datums != [12]:
             log(f"Note: sounding datums {datums}; the app reports Low Water Datum if 25 (Great Lakes, IGLD 1985) is among them, else MLLW")
         path = os.path.join(a.out, area["id"] + ".bin")
