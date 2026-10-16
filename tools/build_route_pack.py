@@ -523,10 +523,6 @@ def build(cells, grid, work, depth=None, quiet=False):
     """Rasterize the charts into the grid's planes. depth: (depth_table, depth_index)
     shared by the blocks of a region built in blocks (build_blocks)."""
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
-    # Open sea (1), reset per band like the planes. Kept to one byte per cell and updated in
-    # place: region 28b's grid is just under BLOCK_CELLS, and full-size temporaries ran
-    # the runner out of memory
-    sea = np.zeros((grid.h, grid.w), np.uint8)
     depth_table, depth_index = depth or ([None], {})  # index 0 = no water
     coarsened = 0
     notes = []
@@ -552,10 +548,16 @@ def build(cells, grid, work, depth=None, quiet=False):
         cov = burn(grid, [(geom, 1) for f, geom in features(gp, "M_COVR")
                           if fnum(f, "CATCOV") == 1]) > 0
         planes[:, cov] = 0
-        sea[cov] = 0
+        # Open sea, straight into SPANCLR (cleared with this band's coverage above; bridge
+        # spans burned later in the band overwrite it): an array of its own, even one byte
+        # per cell, ran regions 20a and 28b (grids just under BLOCK_CELLS) out of memory
         zones = [(geom, 1) for layer in SEA_LAYERS for f, geom in features(gp, layer)]
         if zones:
-            sea |= burn(grid, zones)
+            z = burn(grid, zones)
+            for r0 in range(0, grid.h, 1024):
+                sc = planes[SPANCLR][r0:r0 + 1024]
+                sc[(z[r0:r0 + 1024] > 0) & (sc == 0)] = SEA_MARK
+            del z
 
         # Depth areas -> depth table index
         depth_feats = []
@@ -705,15 +707,8 @@ def build(cells, grid, work, depth=None, quiet=False):
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
             say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
 
-    # Open sea where no bridge span needs the plane (planes[FLAGS] is final by now), in
-    # strips of rows to keep temporaries small
-    n_sea = 0
-    for r0 in range(0, grid.h, 1024):
-        rs = slice(r0, r0 + 1024)
-        m = (sea[rs] > 0) & ((planes[FLAGS][rs] & SPAN) == 0)
-        planes[SPANCLR][rs][m] = SEA_MARK
-        n_sea += int((m & (planes[DEPTH][rs] > 0)).sum())
-    del sea
+    n_sea = sum(int(((planes[SPANCLR][r0:r0 + 1024] == SEA_MARK) & ((planes[FLAGS][r0:r0 + 1024] & SPAN) == 0) &
+                     (planes[DEPTH][r0:r0 + 1024] > 0)).sum()) for r0 in range(0, grid.h, 1024))
     say(f"Open sea: {n_sea} water cells")
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
