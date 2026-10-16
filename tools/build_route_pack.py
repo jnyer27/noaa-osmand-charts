@@ -66,6 +66,7 @@ File layout:
 
 import argparse
 import concurrent.futures
+import functools
 import hashlib
 import json
 import math
@@ -236,6 +237,7 @@ def fetch_cells(metas, work):
     return cells
 
 
+@functools.lru_cache(maxsize=None)
 def check_units(name, path):
     """Depths must be meters; returns the sounding datum code (12 = MLLW)."""
     ds = ogr.Open(path)
@@ -296,6 +298,13 @@ class Grid:
         self.srs = osr.SpatialReference()
         self.srs.ImportFromEPSG(4326)
         self.srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+
+    @classmethod
+    def tiles(cls, tx0, ty0, tx1, ty1):
+        """The grid covering tiles tx0..tx1-1, ty0..ty1-1 of the global grid."""
+        e = 1e-9  # keep the edges inside their tiles
+        return cls(-180 + tx0 * TILE * GRID_DLON + e, 90 - ty1 * TILE * GRID_DLAT + e,
+                   -180 + tx1 * TILE * GRID_DLON - e, 90 - ty0 * TILE * GRID_DLAT - e)
 
     def mem(self):
         ds = gdal.GetDriverByName("MEM").Create("", self.w, self.h, 1, gdal.GDT_Byte)
@@ -502,12 +511,14 @@ def half_m(v):
     return int(min(255, max(1, round(v * 2))))
 
 
-def build(cells, grid, work):
+def build(cells, grid, work, depth=None, quiet=False):
+    """Rasterize the charts into the grid's planes. depth: (depth_table, depth_index)
+    shared by the blocks of a region built in blocks (build_blocks)."""
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
-    depth_table = [None]  # index 0 = no water
-    depth_index = {}
+    depth_table, depth_index = depth or ([None], {})  # index 0 = no water
     coarsened = 0
     notes = []
+    say = (lambda m: None) if quiet else log
 
     def inside(e):
         return e and e[0] < grid.west + grid.w * grid.dlon and e[1] > grid.west \
@@ -521,11 +532,11 @@ def build(cells, grid, work):
         if inside(e):
             datums.add(check_units(name, path))
             by_band.setdefault(int(name[2]), []).append((g, have))
-    log(f"{sum(len(v) for v in by_band.values())} cells in area, sounding datum codes {sorted(d for d in datums if d is not None)}")
+    say(f"{sum(len(v) for v in by_band.values())} cells in area, sounding datum codes {sorted(d for d in datums if d is not None)}")
 
     for band in sorted(by_band):
         gp = by_band[band]
-        log(f"Band {band}: {len(gp)} cells")
+        say(f"Band {band}: {len(gp)} cells")
         cov = burn(grid, [(geom, 1) for f, geom in features(gp, "M_COVR")
                           if fnum(f, "CATCOV") == 1]) > 0
         planes[:, cov] = 0
@@ -668,11 +679,68 @@ def build(cells, grid, work):
                 gl.append((pt, 1))
             gate = burn(grid, gl) > 0
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
-            log(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
+            say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
 
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
+
+
+# Regions whose box is larger than this many grid cells are built in blocks: their whole
+# grid would not fit in memory (region 29, American Samoa and the central Pacific atolls,
+# is 8.8 billion cells, about 53 GB of planes, with charts in 254 of its tiles)
+BLOCK_CELLS = 0.8e9
+BLOCK = 16       # tiles per block side (4096 x 4096 cells, about 100 MB of planes)
+NEAR_TILES = 2   # tiles kept around approach and harbor charts (band 4+), about 10 km
+
+
+def build_blocks(cells, grid, work, detail):
+    """Build a large region block by block: only blocks within NEAR_TILES of the band 4+
+    charts in detail [(w, s, e, n)], each rasterized with a one-tile margin so features
+    reaching in from a neighbor (a hazard buffer, a mark's wrong-side line) are complete,
+    keeping its inner tiles. Every step of build() looks at most a few hundred meters
+    around a feature, so the tiles match a whole-grid build. Returns ({(tx, ty): tile
+    array}, depth_table, notes, datums); tx, ty are relative to grid."""
+    tw, th = grid.w // TILE, grid.h // TILE
+    want = set()
+    for w, s, e, n in detail:
+        x0 = int(math.floor((w + 180) / (GRID_DLON * TILE))) - grid.tx0 - NEAR_TILES
+        x1 = int(math.floor((e + 180) / (GRID_DLON * TILE))) - grid.tx0 + NEAR_TILES
+        y0 = int(math.floor((90 - n) / (GRID_DLAT * TILE))) - grid.ty0 - NEAR_TILES
+        y1 = int(math.floor((90 - s) / (GRID_DLAT * TILE))) - grid.ty0 + NEAR_TILES
+        for ty in range(max(0, y0), min(th - 1, y1) + 1):
+            for tx in range(max(0, x0), min(tw - 1, x1) + 1):
+                want.add((tx // BLOCK, ty // BLOCK))
+    blocks = sorted(want, key=lambda b: (b[1], b[0]))
+    # Each cell's coverage once (minx, maxx, miny, maxy), so a block only opens its own cells
+    ext = {n: coverage_extent(to_gpkg(n, p, work)[0]) for n, p in cells.items()}
+    log(f"Building in {len(blocks)} blocks of {BLOCK} x {BLOCK} tiles (region grid {tw} x {th} tiles)")
+    depth = ([None], {})
+    tiles, notes, seen, datums = {}, [], set(), set()
+    for k, (bx, by) in enumerate(blocks):
+        x0, y0 = bx * BLOCK, by * BLOCK
+        x1, y1 = min(tw, x0 + BLOCK), min(th, y0 + BLOCK)
+        m = 1  # margin in tiles
+        sub = Grid.tiles(grid.tx0 + x0 - m, grid.ty0 + y0 - m, grid.tx0 + x1 + m, grid.ty0 + y1 + m)
+        sw, ss, se, sn = sub.west, sub.north - sub.h * sub.dlat, sub.west + sub.w * sub.dlon, sub.north
+        mine = {n: p for n, p in cells.items()
+                if ext[n] and ext[n][0] < se and ext[n][1] > sw and ext[n][2] < sn and ext[n][3] > ss}
+        planes, _, block_notes, ds = build(mine, sub, work, depth, quiet=True)
+        datums.update(ds)
+        for nt in block_notes:  # a feature meeting several blocks is noted by each
+            key = json.dumps(nt, sort_keys=True)
+            if key not in seen:
+                seen.add(key)
+                notes.append(nt)
+        for ty in range(y0, y1):
+            for tx in range(x0, x1):
+                ox, oy = (tx - x0 + m) * TILE, (ty - y0 + m) * TILE
+                t = planes[:, oy:oy + TILE, ox:ox + TILE]
+                if t.any():
+                    tiles[(tx, ty)] = np.ascontiguousarray(t)
+        if (k + 1) % 10 == 0 or k + 1 == len(blocks):
+            log(f"Block {k + 1}/{len(blocks)}: {len(tiles)} tiles with data, {len(depth[0]) - 1} depth ranges, {len(notes)} notes")
+    return tiles, depth[0], notes, sorted(datums)
 
 
 def note(kind, band, geom, **attrs):
@@ -693,8 +761,15 @@ def note(kind, band, geom, **attrs):
 
 # ---------------------------------------------------------------- output
 
-def write_pack(path, area, grid, planes, depth_table, notes, datums, created):
+def write_pack(path, area, grid, tiles, depth_table, notes, datums, created):
+    """tiles: the region's planes (NPLANES x h x w), or {(tx, ty): tile} from build_blocks."""
     tw, th = grid.w // TILE, grid.h // TILE
+    if isinstance(tiles, dict):
+        tile_at = tiles.get
+    else:
+        def tile_at(k, planes=tiles):
+            tx, ty = k
+            return planes[:, ty * TILE:(ty + 1) * TILE, tx * TILE:(tx + 1) * TILE]
     header = {
         "format": "NRPK", "version": 2, "created": created,
         "area": {"id": area["id"], "name": area["name"], "bbox": area["bbox"]},
@@ -710,8 +785,8 @@ def write_pack(path, area, grid, planes, depth_table, notes, datums, created):
     index, blobs = [], []
     for ty in range(th):
         for tx in range(tw):
-            t = planes[:, ty * TILE:(ty + 1) * TILE, tx * TILE:(tx + 1) * TILE]
-            if not t.any():
+            t = tile_at((tx, ty))
+            if t is None or not t.any():
                 index.append(None)
                 continue
             blobs.append(zlib.compress(np.ascontiguousarray(t).tobytes(), 9))
@@ -740,6 +815,7 @@ def main():
     ap.add_argument("--areas", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "areas.json"))
     ap.add_argument("-w", "--work", default="enc-work")
     ap.add_argument("-o", "--out", default="packs")
+    ap.add_argument("--blocks", action="store_true", help="build in blocks whatever the region's size (for checking build_blocks)")
     a = ap.parse_args()
     areas = json.load(open(a.areas))["areas"]
     if a.area:
@@ -761,7 +837,11 @@ def main():
             cells = fetch(area["states"], a.work)
             grid = Grid(*area["bbox"])
         log(f"Grid {grid.w} x {grid.h} (tiles from {grid.tx0},{grid.ty0})")
-        planes, depth_table, notes, datums = build(cells, grid, a.work)
+        if "ncds" in area and (a.blocks or grid.w * grid.h > BLOCK_CELLS):
+            detail = [c["bbox"] for c in enc if c["band"] >= 4 and meets(c["bbox"], gw, gs, ge, gn)]
+            planes, depth_table, notes, datums = build_blocks(cells, grid, a.work, detail)
+        else:
+            planes, depth_table, notes, datums = build(cells, grid, a.work)
         if datums and datums != [12]:
             log(f"Note: sounding datums {datums}; the app reports Low Water Datum if 25 (Great Lakes, IGLD 1985) is among them, else MLLW")
         path = os.path.join(a.out, area["id"] + ".bin")
