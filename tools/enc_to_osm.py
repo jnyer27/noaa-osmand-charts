@@ -2,7 +2,7 @@
 """enc_to_osm.py
 Proof of concept (issue #2): NOAA ENC (S-57) vector charts as an OsmAnd map.
 
-  python3 tools/enc_to_osm.py -b -76.50,39.24,-76.33,39.37 -o out/middle_river.osm
+  python3 tools/enc_to_osm.py -b=-76.50,39.24,-76.33,39.37 -o out/middle_river.osm
 
 Reads every active ENC cell meeting the box from NOAA's catalog (GDAL applies the
 update files, so Notice to Mariners corrections are in), keeps each object from the
