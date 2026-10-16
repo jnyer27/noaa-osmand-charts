@@ -125,7 +125,10 @@ def codes(f, name):
 
 
 def feet(m):
-    return f"{m / FT:.0f}" if m >= 10 * FT else f"{m / FT:.1f}".rstrip("0").rstrip(".")
+    """Whole feet, as NOAA charts print them: NOAA stores feet rounded to 0.1 m, so the
+    6 ft line is 1.8 m (5.9 ft) and a 10 ft sounding 3.0 m (9.8 ft). Under a foot, tenths."""
+    f = m / FT
+    return f"{f:.0f}" if abs(f) >= 0.95 else f"{f:.1f}"
 
 
 def contourtype(m):
@@ -224,7 +227,7 @@ def feature_tags(cls, f, geom):
             t["seamark:wreck:water_level"] = w
         d = val(f, "VALSOU")
         if d is not None:
-            t["depth"] = f"{d:g}"
+            t["depth"] = feet(d)  # OsmAnd prints it beside the symbol
         return t
     if cls == "UWTROC":
         t = {"seamark:type": "rock"}
@@ -233,7 +236,7 @@ def feature_tags(cls, f, geom):
             t["seamark:rock:water_level"] = w
         d = val(f, "VALSOU")
         if d is not None:
-            t["depth"] = f"{d:g}"
+            t["depth"] = feet(d)  # OsmAnd prints it beside the symbol
         return t
     if cls == "OBSTRN":
         t = {"seamark:type": "obstruction"}
@@ -245,7 +248,7 @@ def feature_tags(cls, f, geom):
             t["seamark:obstruction:water_level"] = w
         d = val(f, "VALSOU")
         if d is not None:
-            t["depth"] = f"{d:g}"
+            t["depth"] = feet(d)  # OsmAnd prints it beside the symbol
         return t
     if cls == "PILPNT":
         return {"seamark:type": "pile"}
@@ -253,12 +256,14 @@ def feature_tags(cls, f, geom):
         z = geom.GetZ() if geom.GetCoordinateDimension() == 3 else val(f, "DEPTH")
         if z is None:
             return None
-        return {"point": "depth", "depth": f"{z:.1f}", "name": feet(z)}
+        # One label: OsmAnd prints every text tag (a meters depth tag gave "9.8 / 3.0")
+        return {"point": "depth", "name": feet(z)}
     if cls == "DEPCNT":
         v = val(f, "VALDCO")
         if v is None:
             return None
-        return {"contour": "depth", "contourtype": contourtype(v), "depth": f"{v:g}", "name": feet(v)}
+        # name and depth both carry the label, as in OsmAnd's own depth maps
+        return {"contour": "depth", "contourtype": contourtype(v), "depth": feet(v), "name": feet(v)}
     if cls in ("DEPARE", "DRGARE"):
         a = areatype(val(f, "DRVAL1"))
         if a is None:
