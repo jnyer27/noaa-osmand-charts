@@ -72,8 +72,6 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // is still reachable, never taken as a shortcut)
         private const val MARG_SHORE_M = 40.0
         private const val MARG_SHORE_COST = 10f
-        // A gap of a dredged channel reaches this many cells each side (Coinjock: 6 in a row)
-        private const val GAP_CELLS = 4
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
@@ -172,7 +170,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray)
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray) {
+        /**
+         * A dredged channel cell deep enough. A step between two of them may cut a blocked
+         * corner: the ICW's Coinjock cut is charted as a 1-cell dredged staircase along the
+         * bank, and going round each land corner through the 0-6 ft cell beside it (10x near
+         * shore) made the cut cost more than 12 nm of open Currituck Sound.
+         */
+        fun channel(i: Int) = nav[i].toInt() == SAFE && planes[Pack.P_DEPTH][i].toInt() and DREDGED != 0
+    }
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
@@ -337,22 +343,6 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
-        // Marginal water in a gap of a dredged channel (channel cells on both sides within
-        // GAP_CELLS, along a row, column or diagonal) is the channel's charted edge, not a
-        // gut: the ICW's Coinjock cut is charted as a 1-cell dredged line with 0-6 ft
-        // slivers and a fender in it, and at 10x those cells outweighed 12 nm of open
-        // Currituck Sound. Beside the line (Sneads Ferry) the 10x stays, or the route
-        // stepped out of the channel cell by cell.
-        val channel = BooleanArray(n) { dredged[it] && nav[it].toInt() == SAFE && ok[it] }
-        val gapCell = BooleanArray(n)
-        for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL) {
-            val r = i / w
-            val c = i % w
-            fun ch(rr: Int, cc: Int) = rr in 0 until h && cc in 0 until w && channel[rr * w + cc]
-            for ((dr, dc) in arrayOf(0 to 1, 1 to 0, 1 to 1, 1 to -1)) {
-                if ((1..GAP_CELLS).any { ch(r + it * dr, c + it * dc) } && (1..GAP_CELLS).any { ch(r - it * dr, c - it * dc) }) { gapCell[i] = true; break }
-            }
-        }
         for (i in 0 until n) if (ok[i]) {
             val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
@@ -367,7 +357,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing && !gapCell[i]) c *= MARG_SHORE_COST
+                if (dist[i] <= margRing) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
@@ -521,7 +511,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
                     // slipping diagonally between pier cells crosses the pier
                     if (pier[o1]) cs = max(cs, cost[o1])
                     if (pier[o2]) cs = max(cs, cost[o2])
@@ -1122,7 +1112,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
                     if (pier[o1]) cs = max(cs, cost[o1])
                     if (pier[o2]) cs = max(cs, cost[o2])
                 }
