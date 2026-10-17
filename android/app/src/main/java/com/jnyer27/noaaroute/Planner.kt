@@ -335,15 +335,6 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
-        // Marginal water this close to a dredged channel is the channel's charted edge, not a
-        // gut: the ICW's Coinjock cut is charted as a 1-cell dredged line with 0-6 ft slivers
-        // and a fender in it, and at 10x those cells outweighed 12 nm of open Currituck Sound
-        val nearChannel = BooleanArray(n)
-        for (i in 0 until n) if (dredged[i] && nav[i].toInt() == SAFE && ok[i]) {
-            val r = i / w
-            val c = i % w
-            for (rr in max(r - margRing, 0)..min(r + margRing, h - 1)) for (cc in max(c - margRing, 0)..min(c + margRing, w - 1)) nearChannel[rr * w + cc] = true
-        }
         for (i in 0 until n) if (ok[i]) {
             val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
@@ -358,7 +349,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing && !nearChannel[i]) c *= MARG_SHORE_COST
+                if (dist[i] <= margRing) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
