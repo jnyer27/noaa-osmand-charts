@@ -15,7 +15,7 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 > **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
 
-What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+**[User guide](https://jnyer27.github.io/noaa-osmand-charts/)**: installing, planning, reading the route report, OsmAnd, regions, safety and troubleshooting. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 The project began as a set of Termux scripts, which are kept in this repository as the [proof of concept](#proof-of-concept-the-termux-scripts) that the app grew from.
 
