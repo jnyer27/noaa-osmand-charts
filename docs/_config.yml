@@ -1,0 +1,19 @@
+title: NOAA Route user guide
+description: Offline boat route planning on NOAA charts, for Android
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+plugins:
+  - jekyll-remote-theme
+url: https://jnyer27.github.io
+baseurl: /noaa-osmand-charts
+search_enabled: true
+heading_anchors: true
+color_scheme: light
+aux_links:
+  "Download the app": https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app
+  "GitHub": https://github.com/jnyer27/noaa-osmand-charts
+aux_links_new_tab: true
+back_to_top: true
+back_to_top_text: Back to top
+footer_content: "NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart."
+exclude:
+  - README.md
