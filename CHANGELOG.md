@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased
+## 2026-10-17: app 0.1.105 (route packs build 111 unchanged)
 
 Routing and safety:
 - **Coinjock bridge on the long-trip overview.** A 320 m overview cell that stands for a channel has no bridge when the channel water in it has none over it, and otherwise the bridge's highest span. It used to take the lowest span and any deck anywhere in the cell, so depending on how the trip's grid lined up, the Coinjock bridge cell closed for a 10 ft air draft and a Maryland to Little River trip went round Piney Island down the open side of Currituck Sound. New reference route: the same trip with the end point shifted (the alignment that failed).
