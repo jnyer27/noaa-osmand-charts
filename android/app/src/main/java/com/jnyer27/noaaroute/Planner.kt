@@ -64,6 +64,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
         private const val SHORE_M = 100.0
         private const val K_MIN = 5
+        // Centering: cost rises gently (up to x(1 + FAR_COST)) within FAR_M of danger
+        private const val FAR_M = 300.0
+        private const val FAR_COST = 0.3f
+        // 0-6 ft water this close to danger costs MARG_SHORE_COST times more (a creek or slip
+        // is still reachable, never taken as a shortcut)
+        private const val MARG_SHORE_M = 40.0
+        private const val MARG_SHORE_COST = 10f
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
@@ -291,7 +298,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
         }
         val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER && !fender[it] || snag[it] || gate[it] || sideSpan[it]) }
-        val dist = ByteArray(n) { k.toByte() }
+        // The spread reaches kf cells: k for the shore proximity cost, farther for the
+        // centering cost (FAR_M)
+        val kf = min(120, max(k, ceil(FAR_M / a.res).toInt()))
+        val dist = ByteArray(n) { kf.toByte() }
         var frontier = IntArray(n)
         var next = IntArray(n)
         var fn = 0
@@ -304,7 +314,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) if (ok[rr * w + cc] && !pier[rr * w + cc]) edge = true
             if (edge) frontier[fn++] = i
         }
-        for (step in 1 until k) {
+        for (step in 1 until kf) {
             val diag = step % 2 == 1
             var nn = 0
             for (f in 0 until fn) {
@@ -323,12 +333,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
+        val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
         for (i in 0 until n) if (ok[i]) {
-            val p = k - dist[i]
+            val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
             val inChannel = dredged[i] && nav[i].toInt() == SAFE
             var c = 1f + pc * p * (if (inChannel) DREDGED_PROX else 1f)
-            if (nav[i].toInt() == MARGINAL) c *= 4f
+            // Centering: a gentle rise over FAR_M, so in a gap narrower than twice that (between
+            // shoals, in a river) the route keeps to the middle instead of the edge of the
+            // steep zone (routes hugged the 100 m line around buffered shoal soundings)
+            c *= 1f + FAR_COST * (kf - dist[i]) / kf * (if (inChannel) DREDGED_PROX else 1f)
+            if (nav[i].toInt() == MARGINAL) {
+                c *= 4f
+                // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
+                // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
+                // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
+                if (dist[i] <= margRing) c *= MARG_SHORE_COST
+            }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
                 (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !fender[i] || sideSpan[i] -> c *= PIER_COST
