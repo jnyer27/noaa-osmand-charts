@@ -106,7 +106,7 @@ CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
 REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
-          "BOYLAT", "BCNLAT", "FAIRWY", "CONZNE", "EXEZNE"]
+          "BOYLAT", "BCNLAT", "FAIRWY", "CONZNE", "EXEZNE", "RECTRC"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -387,18 +387,22 @@ def depth_key(d1, d2, kind, step=None):
 # Lateral marks (buoys BOYLAT, daybeacons BCNLAT). A mark's channel side is the same
 # whichever way a boat goes, so red right returning (green right going out) is: never pass
 # between a mark and the water it guards. Each mark gets a "wrong side" line GATE_M long,
-# pointing away from its channel (from the side of the nearest fairway or dredged area
-# within CHANNEL_M, else toward the nearest opposite-colour mark within PAIR_M); crossing
-# it, or the mark's own cell, costs GATE_COST like a pier and is flagged.
+# pointing away from its channel (from the side of the nearest fairway or dredged area or
+# from the nearest recommended track, such as the ICW's, within CHANNEL_M, else toward the
+# nearest opposite-colour mark within PAIR_M); crossing it, or the mark's own cell, costs
+# GATE_COST like a pier and is flagged. Marks staggered along a channel point at each
+# other: in Bogue Sound (ICW charted only as a track) buoys 12, 11A and 10A drew their
+# lines along the 60 m channel and a 5 ft route left it through 3 ft water.
 GATE_M = 100.0
 CHANNEL_M = 150.0
 PAIR_M = 400.0
 
 
-def channel_gates(marks, fairways, dredged):
+def channel_gates(marks, fairways, dredged, tracks=()):
     """Wrong-side lines of lateral marks. marks: [(lon, lat, catlam)], catlam 1 = port-hand
     (green in the US), 2 = starboard-hand (red), 3/4 = preferred channel (no line).
-    fairways, dredged: lists of exterior rings [(lon, lat), ...]. Returns
+    fairways, dredged: lists of exterior rings [(lon, lat), ...]; tracks: recommended
+    track lines [(lon, lat), ...] (a channel's middle). Returns
     [((lon, lat), (lon, lat))]: from each mark GATE_M away from its channel, kept out of
     fairways and dredged areas (a wrong guess can never block a charted channel)."""
     if not marks:
@@ -408,6 +412,8 @@ def channel_gates(marks, fairways, dredged):
     to = lambda lon, lat: (lon * kx, lat * ky)
     back = lambda x, y: (x / kx, y / ky)
     rings = [[[to(*p) for p in r] for r in group if len(r) >= 3] for group in (fairways, dredged)]
+    lines = [[to(*p) for p in t] for t in tracks if len(t) >= 2]
+    lboxes = [(min(p[0] for p in t), min(p[1] for p in t), max(p[0] for p in t), max(p[1] for p in t)) for t in lines]
     # Bounding boxes, so each mark only looks at channels near it (a region has thousands)
     boxes = [[(min(p[0] for p in r), min(p[1] for p in r), max(p[0] for p in r), max(p[1] for p in r)) for r in g] for g in rings]
 
@@ -460,6 +466,7 @@ def channel_gates(marks, fairways, dredged):
         if cat not in (1, 2):
             continue
         v = None
+        vd = CHANNEL_M
         for g in (0, 1):
             cand = [(nearest_side(x, y, r), r) for r in near(g, x, y, CHANNEL_M)]
             cand = [(n, r) for n, r in cand if n is not None and n[0] <= CHANNEL_M]
@@ -471,7 +478,41 @@ def channel_gates(marks, fairways, dredged):
             L = math.hypot(dx, dy) or 1.0
             n = (-dy / L, dx / L)
             v = n if inside(mx + 3 * n[0], my + 3 * n[1], ring) else (-n[0], -n[1])
+            vd = d
             break
+        # A recommended track nearer than that channel side: toward the track. A mark on
+        # the track itself: across the track, away from the nearest opposite-colour mark's
+        # side (none, or one in line with it along the track: no line)
+        tr = None
+        for t, b in zip(lines, lboxes):
+            if not (b[0] - vd <= x <= b[2] + vd and b[1] - vd <= y <= b[3] + vd):
+                continue
+            for i in range(1, len(t)):
+                (ax, ay), (bx, by) = t[i - 1], t[i]
+                dx, dy = bx - ax, by - ay
+                L2 = dx * dx + dy * dy or 1e-9
+                u = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+                px, py = ax + u * dx, ay + u * dy
+                d = math.hypot(px - x, py - y)
+                if d < vd and (tr is None or d < tr[0]):
+                    tr = (d, px, py, dx, dy)
+        if tr is not None:
+            d, px, py, dx, dy = tr
+            if d >= 5.0:
+                v = (px - x, py - y)
+            else:
+                v = None
+                L = math.hypot(dx, dy) or 1.0
+                n = (-dy / L, dx / L)
+                opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
+                opp = [o for o in opp if o[0] <= PAIR_M]
+                if opp:
+                    _, ox, oy = min(opp)
+                    side = n[0] * (ox - x) + n[1] * (oy - y)
+                    if abs(side) >= 5.0:
+                        v = n if side > 0 else (-n[0], -n[1])
+                if v is None:
+                    continue
         if v is None:
             opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
             opp = [o for o in opp if o[0] <= PAIR_M]
@@ -505,6 +546,15 @@ def channel_gates(marks, fairways, dredged):
             continue
         out.append((back(x + ux * start, y + uy * start), back(x + ux * end, y + uy * end)))
     return out
+
+
+def line_parts(geom):
+    """Points [(lon, lat), ...] of each part of a line or multiline."""
+    g = geom.Clone()
+    g.FlattenTo2D()
+    t = g.GetGeometryType()
+    parts = [g] if t == ogr.wkbLineString else [g.GetGeometryRef(i) for i in range(g.GetGeometryCount())] if t == ogr.wkbMultiLineString else []
+    return [[(x, y) for x, y in p.GetPoints()] for p in parts if p.GetPointCount() >= 2]
 
 
 def exterior_rings(geom):
@@ -751,8 +801,9 @@ def build(cells, grid, work, depth=None, quiet=False):
         if marks:
             fair = [r for f, geom in features(gp, "FAIRWY") for r in exterior_rings(geom)]
             drg = [r for f, geom in features(gp, "DRGARE") for r in exterior_rings(geom)]
+            trk = [t for f, geom in features(gp, "RECTRC") for t in line_parts(geom)]
             gl = []
-            for a, b in channel_gates(marks, fair, drg):
+            for a, b in channel_gates(marks, fair, drg, trk):
                 ln = ogr.Geometry(ogr.wkbLineString)
                 ln.AddPoint_2D(*a)
                 ln.AddPoint_2D(*b)
