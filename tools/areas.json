@@ -1,669 +1,438 @@
 {
- "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), (legacy areas built from state sets, with states + bbox, still work). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused, 'avoid' lists [lat, lon, meters] the route must keep away from. Nothing is published unless every test passes.",
- "areas": [
-  {
-   "id": "ncds_02a",
-   "ncds": "02a",
-   "name": "Region 02a: Long Island Sound and the Hudson",
-   "description": "Long Island Sound north of 41.1 N and its east end, the Hudson River from Haverstraw to Troy, the Connecticut and Rhode Island coasts, Block Island Sound and Narragansett Bay.",
-   "ncds_bbox": [
-    -76.68,
-    41.1,
-    -71.08,
-    42.8
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_03",
-   "ncds": "03",
-   "name": "Region 03: New York Harbor and New Jersey",
-   "description": "New York Harbor and the Hudson to the Tappan Zee, western Long Island Sound, Long Island's south shore, the NJ coast north of Barnegat, and the Delaware River from Wilmington to Trenton.",
-   "ncds_bbox": [
-    -76.68,
-    39.73,
-    -64.95,
-    41.1
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_04",
-   "ncds": "04",
-   "name": "Region 04: Upper Chesapeake and Delaware Bay",
-   "description": "Upper and mid Chesapeake (Susquehanna Flats to Solomons), the Potomac to Washington, the C&D Canal, Delaware Bay and River to Wilmington, the NJ coast from Cape May to Barnegat.",
-   "ncds_bbox": [
-    -77.81,
-    38.23,
-    -64.95,
-    39.73
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_05",
-   "ncds": "05",
-   "name": "Region 05: Lower Chesapeake and Hampton Roads",
-   "description": "Lower Chesapeake, the lower Potomac, Hampton Roads and Norfolk, the Delmarva and Virginia Atlantic coast, Albemarle Sound.",
-   "ncds_bbox": [
-    -77.81,
-    35.5,
-    -64.95,
-    38.23
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_06",
-   "ncds": "06",
-   "name": "Region 06: North Carolina and northern South Carolina",
-   "description": "Pamlico Sound and Hatteras, the Neuse and Pamlico Rivers, Beaufort and Morehead City, Wilmington and Cape Fear, Myrtle Beach, Charleston, and the Savannah River to Augusta.",
-   "ncds_bbox": [
-    -82.2,
-    32.54,
-    -64.95,
-    35.5
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_07",
-   "ncds": "07",
-   "name": "Region 07: Southern South Carolina, Georgia and northeast Florida",
-   "description": "Beaufort and Hilton Head, Savannah, the Georgia sea islands, Fernandina, Jacksonville and the St. Johns River, and the Florida coast to Cape Canaveral.",
-   "ncds_bbox": [
-    -82.2,
-    28.1,
-    -66.7,
-    32.54
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_02b",
-   "ncds": "02b",
-   "name": "Region 02b: Massachusetts and Cape Cod",
-   "description": "Buzzards Bay, the Elizabeth Islands, Martha's Vineyard and Nantucket, the Cape Cod Canal, Cape Cod Bay, Boston Harbor and Massachusetts Bay north to about Cape Ann.",
-   "ncds_bbox": [
-    -71.08,
-    41.1,
-    -64.95,
-    42.8
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_08",
-   "ncds": "08",
-   "name": "Region 08: Southeast Florida",
-   "description": "The Indian River Lagoon south of Cape Canaveral, the Atlantic coast and ICW from Sebastian to Miami, Biscayne Bay, and the upper Keys to Key Largo.",
-   "ncds_bbox": [
-    -80.6,
-    23.1,
-    -66.7,
-    28.1
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_10",
-   "ncds": "10",
-   "name": "Region 10: Southwest Florida and the Keys",
-   "description": "Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers and the Caloosahatchee, Naples, the Everglades coast, Florida Bay, and the Keys from Islamorada to Key West and the Dry Tortugas.",
-   "ncds_bbox": [
-    -89.07,
-    17.6,
-    -80.6,
-    28.1
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_11",
-   "ncds": "11",
-   "name": "Region 11: Florida Big Bend to Mississippi Sound",
-   "description": "The Gulf coast from Tarpon Springs and the Big Bend to Apalachicola, Panama City, Destin, Pensacola, Mobile Bay and Mississippi Sound to Biloxi.",
-   "ncds_bbox": [
-    -89.07,
-    28.1,
-    -82.2,
-    33.93
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_15",
-   "ncds": "15",
-   "name": "Region 15: Lake Erie",
-   "description": "Lake Erie's US shore from Toledo and the Bass Islands to Sandusky, Cleveland, Erie and Dunkirk, the Detroit River and Lake St. Clair. Great Lakes depths are charted to Low Water Datum, not MLLW.",
-   "ncds_bbox": [
-    -83.9,
-    41.1,
-    -76.68,
-    42.8
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_01a",
-   "ncds": "01a",
-   "name": "Region 01a: Southern Maine, Lake Champlain and eastern Lake Ontario",
-   "description": "The New Hampshire and Maine coast from Portsmouth to Casco Bay and Boothbay, Lake Champlain, eastern Lake Ontario (Oswego, Sackets Harbor) and the St. Lawrence through the Thousand Islands.",
-   "ncds_bbox": [
-    -76.68,
-    42.8,
-    -69.15,
-    45.5
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_01b",
-   "ncds": "01b",
-   "name": "Region 01b: Penobscot Bay to Downeast Maine",
-   "description": "Rockland, Camden and Penobscot Bay, Blue Hill Bay, Mount Desert Island and Bar Harbor, Frenchman Bay, Jonesport and Machias Bay.",
-   "ncds_bbox": [
-    -69.15,
-    42.8,
-    -67.3,
-    45.5
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_01c",
-   "ncds": "01c",
-   "name": "Region 01c: Eastport and Passamaquoddy Bay",
-   "description": "Eastport, Lubec, Cobscook Bay and Passamaquoddy Bay on the Canadian border.",
-   "ncds_bbox": [
-    -67.3,
-    42.8,
-    -64.95,
-    45.5
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_12",
-   "ncds": "12",
-   "name": "Region 12: New Orleans, Lake Pontchartrain and Mississippi Sound",
-   "description": "The Mississippi River from Baton Rouge past New Orleans, Lake Pontchartrain and Lake Borgne, western Mississippi Sound (Gulfport), Morgan City and the Intracoastal Waterway across Louisiana.",
-   "ncds_bbox": [
-    -92.46,
-    29.33,
-    -89.07,
-    33.93
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_13",
-   "ncds": "13",
-   "name": "Region 13: The Mississippi Delta and Louisiana bayous",
-   "description": "Louisiana's coast south of 29.33 N: the Mississippi River below Venice and its passes, Barataria Bay and Grand Isle, Terrebonne and Timbalier Bays, and Atchafalaya Bay.",
-   "ncds_bbox": [
-    -92.46,
-    17.6,
-    -89.07,
-    29.33
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_14",
-   "ncds": "14",
-   "name": "Region 14: Texas and western Louisiana",
-   "description": "Lake Charles and the Calcasieu, Sabine Pass, Galveston Bay and the Houston Ship Channel, Freeport, Matagorda Bay, Corpus Christi, and the Laguna Madre to Brownsville.",
-   "ncds_bbox": [
-    -98.29,
-    17.6,
-    -92.46,
-    33.93
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_16",
-   "ncds": "16",
-   "name": "Region 16: Lake Ontario, the Niagara River and Lake Huron",
-   "description": "Lake Ontario's US shore from Niagara to Sodus Bay, Buffalo and the Niagara River, the St. Clair River, and Lake Huron's Michigan shore from Port Huron and Saginaw Bay to Alpena and Drummond Island.",
-   "ncds_bbox": [
-    -83.93,
-    42.8,
-    -76.68,
-    47.2
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_17a",
-   "ncds": "17a",
-   "name": "Region 17a: Northern Lake Michigan and the Straits of Mackinac",
-   "description": "Green Bay and Door County, Grand Traverse Bay, Charlevoix, Petoskey, Mackinac Island, Cheboygan and the Straits of Mackinac, and Lake Michigan's shores north of Ludington and Manitowoc.",
-   "ncds_bbox": [
-    -88.93,
-    43.8,
-    -83.9,
-    46.0
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_17b",
-   "ncds": "17b",
-   "name": "Region 17b: Southern Lake Michigan",
-   "description": "Chicago, Milwaukee, Sheboygan, Michigan City, St. Joseph, Holland, Grand Haven and Muskegon.",
-   "ncds_bbox": [
-    -88.93,
-    41.38,
-    -83.9,
-    43.8
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_18",
-   "ncds": "18",
-   "name": "Region 18: Lake Superior",
-   "description": "Lake Superior's US shore: Duluth and Two Harbors, the Apostle Islands, Isle Royale, Marquette, Munising, Whitefish Bay, and the St. Marys River at Sault Ste. Marie.",
-   "ncds_bbox": [
-    -92.7,
-    46.0,
-    -83.9,
-    49.46
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_19a",
-   "ncds": "19a",
-   "name": "Region 19a: Southern California",
-   "description": "San Diego Bay, Mission Bay, Oceanside, Dana Point, Newport Beach, Long Beach and Los Angeles harbors, and Catalina Island.",
-   "ncds_bbox": [
-    -123.5,
-    15.0,
-    -116.17,
-    33.78
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_19b",
-   "ncds": "19b",
-   "name": "Region 19b: Central California",
-   "description": "Santa Monica Bay and Marina del Rey, the Channel Islands, Ventura, Santa Barbara, Morro Bay and Monterey Bay.",
-   "ncds_bbox": [
-    -123.5,
-    33.78,
-    -113.91,
-    37.17
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_19c",
-   "ncds": "19c",
-   "name": "Region 19c: San Francisco Bay",
-   "description": "San Francisco Bay, San Pablo Bay, the Sacramento-San Joaquin Delta to Sacramento and Stockton, and the coast from Half Moon Bay to Bodega Bay.",
-   "ncds_bbox": [
-    -123.5,
-    37.17,
-    -116.17,
-    39.05
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_19d",
-   "ncds": "19d",
-   "name": "Region 19d: Offshore approaches to San Francisco Bay",
-   "description": "Offshore waters west of San Francisco Bay: the Farallon Islands, Cordell Bank and Bodega Canyon.",
-   "ncds_bbox": [
-    -144.0,
-    15.0,
-    -123.5,
-    39.05
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_20a",
-   "ncds": "20a",
-   "name": "Region 20a: Northern California and southern Oregon",
-   "description": "Fort Bragg, Humboldt Bay and Eureka, Crescent City, Brookings, Coos Bay, Florence and Newport (Yaquina Bay).",
-   "ncds_bbox": [
-    -144.0,
-    39.05,
-    -116.17,
-    44.7
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_20b",
-   "ncds": "20b",
-   "name": "Region 20b: The Columbia River and northern Oregon",
-   "description": "The Columbia River from the bar to Portland and the Willamette, Tillamook Bay, Willapa Bay and Grays Harbor.",
-   "ncds_bbox": [
-    -129.92,
-    44.7,
-    -116.2,
-    47.01
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_22a",
-   "ncds": "22a",
-   "name": "Region 22a: Ketchikan and southern Southeast Alaska",
-   "description": "Ketchikan and Tongass Narrows, Metlakatla, Prince of Wales Island (Craig), Clarence Strait and Dixon Entrance.",
-   "ncds_bbox": [
-    -138.09,
-    52.49,
-    -129.92,
-    55.78
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_22b",
-   "ncds": "22b",
-   "name": "Region 22b: Wrangell and Petersburg",
-   "description": "Wrangell, Wrangell Narrows, Petersburg and Sumner Strait.",
-   "ncds_bbox": [
-    -138.09,
-    55.78,
-    -129.92,
-    56.83
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_23a",
-   "ncds": "23a",
-   "name": "Region 23a: Sitka and Frederick Sound",
-   "description": "Sitka and Sitka Sound, the outer coasts of Baranof and Chichagof Islands, Chatham Strait, Kake and Frederick Sound.",
-   "ncds_bbox": [
-    -138.09,
-    56.83,
-    -129.92,
-    57.73
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_23b",
-   "ncds": "23b",
-   "name": "Region 23b: Juneau, Glacier Bay and Lynn Canal",
-   "description": "Juneau and Auke Bay, Stephens Passage, Icy Strait, Glacier Bay, Lynn Canal to Haines and Skagway, and Yakutat.",
-   "ncds_bbox": [
-    -138.09,
-    57.73,
-    -129.92,
-    61.25
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_26b",
-   "ncds": "26b",
-   "name": "Region 26b: Adak and the central Aleutians",
-   "description": "Adak, Atka and the Andreanof Islands.",
-   "ncds_bbox": [
-    -180.0,
-    44.7,
-    -173.4,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_28b",
-   "ncds": "28b",
-   "name": "Region 28b: The main Hawaiian Islands",
-   "description": "Oahu and Honolulu, Maui, Lanai, Molokai, the Big Island (Hilo, Kona) and Kauai.",
-   "ncds_bbox": [
-    -162.68,
-    15.0,
-    -144.0,
-    44.7
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_30",
-   "ncds": "30",
-   "name": "Region 30: The western Aleutians",
-   "description": "The Rat and Near Islands: Kiska, Shemya and Attu.",
-   "ncds_bbox": [
-    165.67,
-    47.87,
-    180.0,
-    68.0
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_09",
-   "ncds": "09",
-   "name": "Region 09: Puerto Rico and the Virgin Islands",
-   "description": "Puerto Rico (San Juan, Fajardo, Ponce), Vieques and Culebra, and the US Virgin Islands (St. Thomas, St. John, St. Croix).",
-   "ncds_bbox": [
-    -80.6,
-    8.64,
-    -64.2,
-    23.1
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_20c",
-   "ncds": "20c",
-   "name": "Region 20c: Puget Sound and the San Juan Islands",
-   "description": "Puget Sound from Olympia to Seattle and Everett, Hood Canal, the Strait of Juan de Fuca, the San Juan Islands, Bellingham, and the Washington coast north of Grays Harbor.",
-   "ncds_bbox": [
-    -129.92,
-    47.01,
-    -116.33,
-    60.33
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_24a",
-   "ncds": "24a",
-   "name": "Region 24a: Prince William Sound and Yakutat",
-   "description": "Prince William Sound (Valdez, Cordova, Whittier), the Copper River delta, and the coast east to Yakutat Bay.",
-   "ncds_bbox": [
-    -148.8,
-    44.7,
-    -138.09,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_24b",
-   "ncds": "24b",
-   "name": "Region 24b: Kenai Peninsula and Kodiak",
-   "description": "Seward and Resurrection Bay, Kenai Fjords, Cook Inlet (Homer, Seldovia, Anchorage), and Kodiak.",
-   "ncds_bbox": [
-    -152.76,
-    44.7,
-    -148.8,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_25a",
-   "ncds": "25a",
-   "name": "Region 25a: Alaska Peninsula and Bristol Bay east",
-   "description": "Shelikof Strait, the Alaska Peninsula's Pacific coast to Chignik, and eastern Bristol Bay (Naknek, Dillingham).",
-   "ncds_bbox": [
-    -159.0,
-    44.7,
-    -152.76,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_25b",
-   "ncds": "25b",
-   "name": "Region 25b: Shumagin Islands, King Cove and Cold Bay",
-   "description": "The Shumagin Islands and Sand Point, King Cove, Cold Bay, False Pass and western Bristol Bay.",
-   "ncds_bbox": [
-    -165.75,
-    44.7,
-    -159.0,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_26a",
-   "ncds": "26a",
-   "name": "Region 26a: Unalaska and the eastern Aleutians",
-   "description": "Dutch Harbor and Unalaska, Akutan, Umnak and the Islands of Four Mountains, and the Pribilof Islands.",
-   "ncds_bbox": [
-    -173.4,
-    44.7,
-    -165.75,
-    61.58
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_27",
-   "ncds": "27",
-   "name": "Region 27: Arctic and western Alaska",
-   "description": "Norton Sound and Nome, the Yukon delta, Bering Strait, Kotzebue Sound, and the Arctic coast to Utqiagvik and Prudhoe Bay.",
-   "ncds_bbox": [
-    -180.0,
-    61.58,
-    -134.0,
-    81.6
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_28a",
-   "ncds": "28a",
-   "name": "Region 28a: Northwestern Hawaiian Islands and Johnston Atoll",
-   "description": "Nihoa, Necker, French Frigate Shoals, Gardner Pinnacles, Midway and Johnston Atoll.",
-   "ncds_bbox": [
-    -180.0,
-    15.0,
-    -162.68,
-    44.7
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_29",
-   "ncds": "29",
-   "name": "Region 29: American Samoa and the central Pacific",
-   "description": "Tutuila (Pago Pago), the Manu'a Islands, Swains Island, Rose Atoll, Palmyra, Kingman Reef, Jarvis, Howland and Baker Islands.",
-   "ncds_bbox": [
-    -180.0,
-    -17.56,
-    -154.0,
-    15.0
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_31a",
-   "ncds": "31a",
-   "name": "Region 31a: Guam and the Northern Mariana Islands",
-   "description": "Guam (Apra Harbor), Rota, Tinian and Saipan, and the northern Marianas.",
-   "ncds_bbox": [
-    131.05,
-    0.0,
-    154.08,
-    26.0
-   ],
-   "tests": []
-  },
-  {
-   "id": "ncds_31b",
-   "ncds": "31b",
-   "name": "Region 31b: Micronesia and Wake Island",
-   "description": "Pohnpei, Kosrae and other islands of the Federated States of Micronesia, and Wake Island.",
-   "ncds_bbox": [
-    154.08,
-    0.0,
-    173.53,
-    26.0
-   ],
-   "tests": []
-  }
- ],
- "tests": [
-  {
-   "name": "DEBUG variant 1",
-   "points": [
-    "39.32371,-76.39998",
-    "33.89393,-78.43462"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  },
-  {
-   "name": "DEBUG variant 3",
-   "points": [
-    "39.32371,-76.39998",
-    "33.89393,-78.44062"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  }
- ]
+  "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), (legacy areas built from state sets, with states + bbox, still work). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused, 'avoid' lists [lat, lon, meters] the route must keep away from. Nothing is published unless every test passes.",
+  "areas": [
+    {
+      "id": "ncds_02a",
+      "ncds": "02a",
+      "name": "Region 02a: Long Island Sound and the Hudson",
+      "description": "Long Island Sound north of 41.1 N and its east end, the Hudson River from Haverstraw to Troy, the Connecticut and Rhode Island coasts, Block Island Sound and Narragansett Bay.",
+      "ncds_bbox": [-76.68, 41.1, -71.08, 42.8]
+    },
+    {
+      "id": "ncds_03",
+      "ncds": "03",
+      "name": "Region 03: New York Harbor and New Jersey",
+      "description": "New York Harbor and the Hudson to the Tappan Zee, western Long Island Sound, Long Island's south shore, the NJ coast north of Barnegat, and the Delaware River from Wilmington to Trenton.",
+      "ncds_bbox": [-76.68, 39.73, -64.95, 41.1]
+    },
+    {
+      "id": "ncds_04",
+      "ncds": "04",
+      "name": "Region 04: Upper Chesapeake and Delaware Bay",
+      "description": "Upper and mid Chesapeake (Susquehanna Flats to Solomons), the Potomac to Washington, the C&D Canal, Delaware Bay and River to Wilmington, the NJ coast from Cape May to Barnegat.",
+      "ncds_bbox": [-77.81, 38.23, -64.95, 39.73]
+    },
+    {
+      "id": "ncds_05",
+      "ncds": "05",
+      "name": "Region 05: Lower Chesapeake and Hampton Roads",
+      "description": "Lower Chesapeake, the lower Potomac, Hampton Roads and Norfolk, the Delmarva and Virginia Atlantic coast, Albemarle Sound.",
+      "ncds_bbox": [-77.81, 35.5, -64.95, 38.23]
+    },
+    {
+      "id": "ncds_06",
+      "ncds": "06",
+      "name": "Region 06: North Carolina and northern South Carolina",
+      "description": "Pamlico Sound and Hatteras, the Neuse and Pamlico Rivers, Beaufort and Morehead City, Wilmington and Cape Fear, Myrtle Beach, Charleston, and the Savannah River to Augusta.",
+      "ncds_bbox": [-82.2, 32.54, -64.95, 35.5]
+    },
+    {
+      "id": "ncds_07",
+      "ncds": "07",
+      "name": "Region 07: Southern South Carolina, Georgia and northeast Florida",
+      "description": "Beaufort and Hilton Head, Savannah, the Georgia sea islands, Fernandina, Jacksonville and the St. Johns River, and the Florida coast to Cape Canaveral.",
+      "ncds_bbox": [-82.2, 28.1, -66.7, 32.54]
+    },
+    {
+      "id": "ncds_02b",
+      "ncds": "02b",
+      "name": "Region 02b: Massachusetts and Cape Cod",
+      "description": "Buzzards Bay, the Elizabeth Islands, Martha's Vineyard and Nantucket, the Cape Cod Canal, Cape Cod Bay, Boston Harbor and Massachusetts Bay north to about Cape Ann.",
+      "ncds_bbox": [-71.08, 41.1, -64.95, 42.8]
+    },
+    {
+      "id": "ncds_08",
+      "ncds": "08",
+      "name": "Region 08: Southeast Florida",
+      "description": "The Indian River Lagoon south of Cape Canaveral, the Atlantic coast and ICW from Sebastian to Miami, Biscayne Bay, and the upper Keys to Key Largo.",
+      "ncds_bbox": [-80.6, 23.1, -66.7, 28.1]
+    },
+    {
+      "id": "ncds_10",
+      "ncds": "10",
+      "name": "Region 10: Southwest Florida and the Keys",
+      "description": "Tampa Bay, Sarasota, Charlotte Harbor, Fort Myers and the Caloosahatchee, Naples, the Everglades coast, Florida Bay, and the Keys from Islamorada to Key West and the Dry Tortugas.",
+      "ncds_bbox": [-89.07, 17.6, -80.6, 28.1]
+    },
+    {
+      "id": "ncds_11",
+      "ncds": "11",
+      "name": "Region 11: Florida Big Bend to Mississippi Sound",
+      "description": "The Gulf coast from Tarpon Springs and the Big Bend to Apalachicola, Panama City, Destin, Pensacola, Mobile Bay and Mississippi Sound to Biloxi.",
+      "ncds_bbox": [-89.07, 28.1, -82.2, 33.93]
+    },
+    {
+      "id": "ncds_15",
+      "ncds": "15",
+      "name": "Region 15: Lake Erie",
+      "description": "Lake Erie's US shore from Toledo and the Bass Islands to Sandusky, Cleveland, Erie and Dunkirk, the Detroit River and Lake St. Clair. Great Lakes depths are charted to Low Water Datum, not MLLW.",
+      "ncds_bbox": [-83.9, 41.1, -76.68, 42.8]
+    },
+    {
+      "id": "ncds_01a",
+      "ncds": "01a",
+      "name": "Region 01a: Southern Maine, Lake Champlain and eastern Lake Ontario",
+      "description": "The New Hampshire and Maine coast from Portsmouth to Casco Bay and Boothbay, Lake Champlain, eastern Lake Ontario (Oswego, Sackets Harbor) and the St. Lawrence through the Thousand Islands.",
+      "ncds_bbox": [-76.68, 42.8, -69.15, 45.5]
+    },
+    {
+      "id": "ncds_01b",
+      "ncds": "01b",
+      "name": "Region 01b: Penobscot Bay to Downeast Maine",
+      "description": "Rockland, Camden and Penobscot Bay, Blue Hill Bay, Mount Desert Island and Bar Harbor, Frenchman Bay, Jonesport and Machias Bay.",
+      "ncds_bbox": [-69.15, 42.8, -67.3, 45.5]
+    },
+    {
+      "id": "ncds_01c",
+      "ncds": "01c",
+      "name": "Region 01c: Eastport and Passamaquoddy Bay",
+      "description": "Eastport, Lubec, Cobscook Bay and Passamaquoddy Bay on the Canadian border.",
+      "ncds_bbox": [-67.3, 42.8, -64.95, 45.5]
+    },
+    {
+      "id": "ncds_12",
+      "ncds": "12",
+      "name": "Region 12: New Orleans, Lake Pontchartrain and Mississippi Sound",
+      "description": "The Mississippi River from Baton Rouge past New Orleans, Lake Pontchartrain and Lake Borgne, western Mississippi Sound (Gulfport), Morgan City and the Intracoastal Waterway across Louisiana.",
+      "ncds_bbox": [-92.46, 29.33, -89.07, 33.93]
+    },
+    {
+      "id": "ncds_13",
+      "ncds": "13",
+      "name": "Region 13: The Mississippi Delta and Louisiana bayous",
+      "description": "Louisiana's coast south of 29.33 N: the Mississippi River below Venice and its passes, Barataria Bay and Grand Isle, Terrebonne and Timbalier Bays, and Atchafalaya Bay.",
+      "ncds_bbox": [-92.46, 17.6, -89.07, 29.33]
+    },
+    {
+      "id": "ncds_14",
+      "ncds": "14",
+      "name": "Region 14: Texas and western Louisiana",
+      "description": "Lake Charles and the Calcasieu, Sabine Pass, Galveston Bay and the Houston Ship Channel, Freeport, Matagorda Bay, Corpus Christi, and the Laguna Madre to Brownsville.",
+      "ncds_bbox": [-98.29, 17.6, -92.46, 33.93]
+    },
+    {
+      "id": "ncds_16",
+      "ncds": "16",
+      "name": "Region 16: Lake Ontario, the Niagara River and Lake Huron",
+      "description": "Lake Ontario's US shore from Niagara to Sodus Bay, Buffalo and the Niagara River, the St. Clair River, and Lake Huron's Michigan shore from Port Huron and Saginaw Bay to Alpena and Drummond Island.",
+      "ncds_bbox": [-83.93, 42.8, -76.68, 47.2]
+    },
+    {
+      "id": "ncds_17a",
+      "ncds": "17a",
+      "name": "Region 17a: Northern Lake Michigan and the Straits of Mackinac",
+      "description": "Green Bay and Door County, Grand Traverse Bay, Charlevoix, Petoskey, Mackinac Island, Cheboygan and the Straits of Mackinac, and Lake Michigan's shores north of Ludington and Manitowoc.",
+      "ncds_bbox": [-88.93, 43.8, -83.9, 46.0]
+    },
+    {
+      "id": "ncds_17b",
+      "ncds": "17b",
+      "name": "Region 17b: Southern Lake Michigan",
+      "description": "Chicago, Milwaukee, Sheboygan, Michigan City, St. Joseph, Holland, Grand Haven and Muskegon.",
+      "ncds_bbox": [-88.93, 41.38, -83.9, 43.8]
+    },
+    {
+      "id": "ncds_18",
+      "ncds": "18",
+      "name": "Region 18: Lake Superior",
+      "description": "Lake Superior's US shore: Duluth and Two Harbors, the Apostle Islands, Isle Royale, Marquette, Munising, Whitefish Bay, and the St. Marys River at Sault Ste. Marie.",
+      "ncds_bbox": [-92.7, 46.0, -83.9, 49.46]
+    },
+    {
+      "id": "ncds_19a",
+      "ncds": "19a",
+      "name": "Region 19a: Southern California",
+      "description": "San Diego Bay, Mission Bay, Oceanside, Dana Point, Newport Beach, Long Beach and Los Angeles harbors, and Catalina Island.",
+      "ncds_bbox": [-123.5, 15.0, -116.17, 33.78]
+    },
+    {
+      "id": "ncds_19b",
+      "ncds": "19b",
+      "name": "Region 19b: Central California",
+      "description": "Santa Monica Bay and Marina del Rey, the Channel Islands, Ventura, Santa Barbara, Morro Bay and Monterey Bay.",
+      "ncds_bbox": [-123.5, 33.78, -113.91, 37.17]
+    },
+    {
+      "id": "ncds_19c",
+      "ncds": "19c",
+      "name": "Region 19c: San Francisco Bay",
+      "description": "San Francisco Bay, San Pablo Bay, the Sacramento-San Joaquin Delta to Sacramento and Stockton, and the coast from Half Moon Bay to Bodega Bay.",
+      "ncds_bbox": [-123.5, 37.17, -116.17, 39.05]
+    },
+    {
+      "id": "ncds_19d",
+      "ncds": "19d",
+      "name": "Region 19d: Offshore approaches to San Francisco Bay",
+      "description": "Offshore waters west of San Francisco Bay: the Farallon Islands, Cordell Bank and Bodega Canyon.",
+      "ncds_bbox": [-144.0, 15.0, -123.5, 39.05]
+    },
+    {
+      "id": "ncds_20a",
+      "ncds": "20a",
+      "name": "Region 20a: Northern California and southern Oregon",
+      "description": "Fort Bragg, Humboldt Bay and Eureka, Crescent City, Brookings, Coos Bay, Florence and Newport (Yaquina Bay).",
+      "ncds_bbox": [-144.0, 39.05, -116.17, 44.7]
+    },
+    {
+      "id": "ncds_20b",
+      "ncds": "20b",
+      "name": "Region 20b: The Columbia River and northern Oregon",
+      "description": "The Columbia River from the bar to Portland and the Willamette, Tillamook Bay, Willapa Bay and Grays Harbor.",
+      "ncds_bbox": [-129.92, 44.7, -116.2, 47.01]
+    },
+    {
+      "id": "ncds_22a",
+      "ncds": "22a",
+      "name": "Region 22a: Ketchikan and southern Southeast Alaska",
+      "description": "Ketchikan and Tongass Narrows, Metlakatla, Prince of Wales Island (Craig), Clarence Strait and Dixon Entrance.",
+      "ncds_bbox": [-138.09, 52.49, -129.92, 55.78]
+    },
+    {
+      "id": "ncds_22b",
+      "ncds": "22b",
+      "name": "Region 22b: Wrangell and Petersburg",
+      "description": "Wrangell, Wrangell Narrows, Petersburg and Sumner Strait.",
+      "ncds_bbox": [-138.09, 55.78, -129.92, 56.83]
+    },
+    {
+      "id": "ncds_23a",
+      "ncds": "23a",
+      "name": "Region 23a: Sitka and Frederick Sound",
+      "description": "Sitka and Sitka Sound, the outer coasts of Baranof and Chichagof Islands, Chatham Strait, Kake and Frederick Sound.",
+      "ncds_bbox": [-138.09, 56.83, -129.92, 57.73]
+    },
+    {
+      "id": "ncds_23b",
+      "ncds": "23b",
+      "name": "Region 23b: Juneau, Glacier Bay and Lynn Canal",
+      "description": "Juneau and Auke Bay, Stephens Passage, Icy Strait, Glacier Bay, Lynn Canal to Haines and Skagway, and Yakutat.",
+      "ncds_bbox": [-138.09, 57.73, -129.92, 61.25]
+    },
+    {
+      "id": "ncds_26b",
+      "ncds": "26b",
+      "name": "Region 26b: Adak and the central Aleutians",
+      "description": "Adak, Atka and the Andreanof Islands.",
+      "ncds_bbox": [-180.0, 44.7, -173.4, 61.58]
+    },
+    {
+      "id": "ncds_28b",
+      "ncds": "28b",
+      "name": "Region 28b: The main Hawaiian Islands",
+      "description": "Oahu and Honolulu, Maui, Lanai, Molokai, the Big Island (Hilo, Kona) and Kauai.",
+      "ncds_bbox": [-162.68, 15.0, -144.0, 44.7]
+    },
+    {
+      "id": "ncds_30",
+      "ncds": "30",
+      "name": "Region 30: The western Aleutians",
+      "description": "The Rat and Near Islands: Kiska, Shemya and Attu.",
+      "ncds_bbox": [165.67, 47.87, 180.0, 68.0]
+    },
+    {
+      "id": "ncds_09",
+      "ncds": "09",
+      "name": "Region 09: Puerto Rico and the Virgin Islands",
+      "description": "Puerto Rico (San Juan, Fajardo, Ponce), Vieques and Culebra, and the US Virgin Islands (St. Thomas, St. John, St. Croix).",
+      "ncds_bbox": [-80.6, 8.64, -64.2, 23.1]
+    },
+    {
+      "id": "ncds_20c",
+      "ncds": "20c",
+      "name": "Region 20c: Puget Sound and the San Juan Islands",
+      "description": "Puget Sound from Olympia to Seattle and Everett, Hood Canal, the Strait of Juan de Fuca, the San Juan Islands, Bellingham, and the Washington coast north of Grays Harbor.",
+      "ncds_bbox": [-129.92, 47.01, -116.33, 60.33]
+    },
+    {
+      "id": "ncds_24a",
+      "ncds": "24a",
+      "name": "Region 24a: Prince William Sound and Yakutat",
+      "description": "Prince William Sound (Valdez, Cordova, Whittier), the Copper River delta, and the coast east to Yakutat Bay.",
+      "ncds_bbox": [-148.8, 44.7, -138.09, 61.58]
+    },
+    {
+      "id": "ncds_24b",
+      "ncds": "24b",
+      "name": "Region 24b: Kenai Peninsula and Kodiak",
+      "description": "Seward and Resurrection Bay, Kenai Fjords, Cook Inlet (Homer, Seldovia, Anchorage), and Kodiak.",
+      "ncds_bbox": [-152.76, 44.7, -148.8, 61.58]
+    },
+    {
+      "id": "ncds_25a",
+      "ncds": "25a",
+      "name": "Region 25a: Alaska Peninsula and Bristol Bay east",
+      "description": "Shelikof Strait, the Alaska Peninsula's Pacific coast to Chignik, and eastern Bristol Bay (Naknek, Dillingham).",
+      "ncds_bbox": [-159.0, 44.7, -152.76, 61.58]
+    },
+    {
+      "id": "ncds_25b",
+      "ncds": "25b",
+      "name": "Region 25b: Shumagin Islands, King Cove and Cold Bay",
+      "description": "The Shumagin Islands and Sand Point, King Cove, Cold Bay, False Pass and western Bristol Bay.",
+      "ncds_bbox": [-165.75, 44.7, -159.0, 61.58]
+    },
+    {
+      "id": "ncds_26a",
+      "ncds": "26a",
+      "name": "Region 26a: Unalaska and the eastern Aleutians",
+      "description": "Dutch Harbor and Unalaska, Akutan, Umnak and the Islands of Four Mountains, and the Pribilof Islands.",
+      "ncds_bbox": [-173.4, 44.7, -165.75, 61.58]
+    },
+    {
+      "id": "ncds_27",
+      "ncds": "27",
+      "name": "Region 27: Arctic and western Alaska",
+      "description": "Norton Sound and Nome, the Yukon delta, Bering Strait, Kotzebue Sound, and the Arctic coast to Utqiagvik and Prudhoe Bay.",
+      "ncds_bbox": [-180.0, 61.58, -134.0, 81.6]
+    },
+    {
+      "id": "ncds_28a",
+      "ncds": "28a",
+      "name": "Region 28a: Northwestern Hawaiian Islands and Johnston Atoll",
+      "description": "Nihoa, Necker, French Frigate Shoals, Gardner Pinnacles, Midway and Johnston Atoll.",
+      "ncds_bbox": [-180.0, 15.0, -162.68, 44.7]
+    },
+    {
+      "id": "ncds_29",
+      "ncds": "29",
+      "name": "Region 29: American Samoa and the central Pacific",
+      "description": "Tutuila (Pago Pago), the Manu'a Islands, Swains Island, Rose Atoll, Palmyra, Kingman Reef, Jarvis, Howland and Baker Islands.",
+      "ncds_bbox": [-180.0, -17.56, -154.0, 15.0]
+    },
+    {
+      "id": "ncds_31a",
+      "ncds": "31a",
+      "name": "Region 31a: Guam and the Northern Mariana Islands",
+      "description": "Guam (Apra Harbor), Rota, Tinian and Saipan, and the northern Marianas.",
+      "ncds_bbox": [131.05, 0.0, 154.08, 26.0]
+    },
+    {
+      "id": "ncds_31b",
+      "ncds": "31b",
+      "name": "Region 31b: Micronesia and Wake Island",
+      "description": "Pohnpei, Kosrae and other islands of the Federated States of Micronesia, and Wake Island.",
+      "ncds_bbox": [154.08, 0.0, 173.53, 26.0]
+    }
+  ],
+  "tests": [
+    {"name": "Maryland Marina to Ego Alley", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 3, "air": 10, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Hart-Miller to Bear Creek (opening bridges)", "points": ["39.2470,-76.3880", "39.25084,-76.48861"], "depth": 3, "air": 10, "nm": [9, 12], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Rock Hall", "points": ["39.32371,-76.39998", "39.13276,-76.24449"], "depth": 3, "air": 10, "nm": [14, 18], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to upper Bush River (Amtrak swing bridge, cables with only a safe clearance)", "points": ["39.32371,-76.39998", "39.44288,-76.23491"], "depth": 3, "air": 10, "nm": [15, 20], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Chesapeake City (C&D Canal)", "points": ["39.32,-76.40", "39.5268,-75.8107"], "depth": 3, "nm": [31, 38], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Delaware City (whole C&D Canal, DE charts)", "points": ["39.32371,-76.39998", "39.56139,-75.52338"], "depth": 3, "air": 10, "nm": [38, 50], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina at 6 ft is boxed in", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "fail": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Norfolk Waterside to Hampton River", "points": ["36.8440,-76.2930", "37.0180,-76.3380"], "depth": 4, "nm": [10, 14], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Solomons to off Stingray Point (Deltaville)", "points": ["38.3240,-76.4560", "37.5600,-76.2750"], "depth": 4, "nm": [46, 56], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Potomac: Point Lookout to Colonial Beach", "points": ["38.0480,-76.3300", "38.2560,-76.9600"], "depth": 4, "nm": [29, 37], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Annapolis to Norfolk (MD to VA)", "points": ["38.9600,-76.4300", "36.9600,-76.3300"], "depth": 4, "nm": [120, 150], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Mobjack Bay (long trip from a creek)", "points": ["39.32337,-76.40191", "37.42198,-76.40197"], "depth": 3, "air": 10, "nm": [128, 145], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Norfolk to Coinjock (ICW Virginia Cut: ruined railway bridge, Centerville Turnpike swing bridge pivot)", "points": ["36.85,-76.30", "36.345,-75.948"], "depth": 3, "air": 10, "nm": [40, 47], "maxShort": 16, "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Maryland Marina to the Neuse, Stay inside (ICW, no open ocean)", "points": ["39.32371,-76.39998", "35.09016,-76.50920"], "depth": 3, "air": 10, "inside": true, "nm": [285, 315], "avoid": [[35.2235, -75.5295, 5000], [36.4, -75.80, 3000]], "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Currituck Sound at 5 ft: around Goosecastle Point, not through the marsh gut beside it", "points": ["36.4331,-75.9584", "36.4001,-75.9111"], "depth": 5, "air": 10, "nm": [4.0, 6.5], "avoid": [[36.4280, -75.9366, 60]], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Jordan Bridge: under the channel span (piers not charted), not a cell west of the dredged channel", "points": ["36.8114,-76.2904", "36.7962,-76.2931"], "depth": 3, "air": 10, "nm": [0.8, 1.3], "avoid": [[36.8081, -76.2911, 35]], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "North Landing River bridge: through the channel span between the fenders, not the next span west", "points": ["36.6228,-76.0505", "36.6115,-76.0523"], "depth": 3, "air": 10, "nm": [0.6, 1.2], "avoid": [[36.6147, -76.0507, 50]], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Kitty Hawk Bay, Stay inside (no out-and-back spike off the North Landing River)", "points": ["39.32371,-76.39998", "35.98768,-75.68734"], "depth": 3, "air": 10, "inside": true, "nm": [225, 240], "maxShort": 20, "avoid": [[36.524, -76.0023, 1000]], "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Wanchese to Hatteras village, Stay inside (Pamlico Sound, no open ocean)", "points": ["35.82,-75.64", "35.23,-75.70"], "depth": 3, "air": 10, "inside": true, "nm": [33, 43], "avoid": [[35.60, -75.44, 3000], [35.35, -75.48, 3000]], "areas": ["ncds_05", "ncds_06"]},
+    {"name": "Maryland Marina to the Neuse, outside allowed (Stay inside off still plans)", "points": ["39.32371,-76.39998", "35.09016,-76.50920"], "depth": 3, "air": 10, "nm": [260, 380], "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Stay inside refuses a point off Nags Head", "points": ["39.32371,-76.39998", "35.95,-75.55"], "depth": 3, "air": 10, "inside": true, "fail": true, "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Maryland Marina to Salt Ponds basin, Hampton (cut-off end)", "points": ["39.32371,-76.39998", "37.06055,-76.28595"], "depth": 3, "air": 10, "nm": [132, 150], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "New York Harbor: the Battery to Atlantic Highlands", "points": ["40.7000,-74.0200", "40.4175,-74.0350"], "depth": 3, "air": 10, "areas": ["ncds_03"], "nm": [16, 20]},
+    {"name": "Long Island Sound: City Island to New Haven (03 to 02a)", "points": ["40.8470,-73.7830", "41.2800,-72.9050"], "depth": 4, "air": 10, "areas": ["ncds_03", "ncds_02a"], "nm": [45, 55]},
+    {"name": "Hudson River: Haverstraw Bay to Kingston (Poughkeepsie bridges)", "points": ["41.1950,-73.9550", "41.9170,-73.9550"], "depth": 4, "air": 10, "areas": ["ncds_02a"], "nm": [42, 51]},
+    {"name": "Delaware River: Delaware City to Philadelphia (04 to 03)", "points": ["39.56139,-75.52338", "39.9450,-75.1390"], "depth": 4, "air": 10, "areas": ["ncds_04", "ncds_03"], "nm": [33, 41]},
+    {"name": "Morehead City to Oriental (ICW, Adams Creek Canal past charted piles)", "points": ["34.7140,-76.7000", "35.0250,-76.6920"], "depth": 3, "air": 10, "areas": ["ncds_06"], "nm": [18, 24]},
+    {"name": "Maryland Marina to Carolina Beach (long trip at 5 ft: in at Masonboro, down the ICW, never in the sound)", "points": ["39.32371,-76.39998", "34.05312,-77.92213"], "depth": 5, "air": 10, "areas": ["ncds_04", "ncds_05", "ncds_06"], "nm": [395, 425], "avoid": [[34.118, -77.8627, 150], [33.88, -78.0, 2000]]},
+    {"name": "Elizabeth City to Hatteras (05 to 06)", "points": ["36.2980,-76.2150", "35.2090,-75.6900"], "depth": 3, "air": 10, "areas": ["ncds_05", "ncds_06"], "nm": [73, 89]},
+    {"name": "Maryland Marina to Little River SC at 5 ft, Stay inside: down the ICW from Currituck Sound Light 111 through Coinjock (the 320 m overview keeps the 1-cell channel), in the Oak Island fairway, no guide point left in a pocket off Topsail", "points": ["39.32371,-76.39998", "33.891933,-78.437618"], "depth": 5, "air": 10, "inside": true, "nm": [425, 455], "avoid": [[36.3892, -75.8902, 2000], [33.9202, -78.0665, 30]], "areas": ["ncds_04", "ncds_05", "ncds_06", "ncds_07"]},
+    {"name": "Maryland Marina to Little River SC at 5 ft, Stay inside, end shifted 330 m west and 220 m north: the 320 m overview keeps the Coinjock bridge open (the block took a low approach span's clearance and the trip went round Piney Island)", "points": ["39.32371,-76.39998", "33.89393,-78.44062"], "depth": 5, "air": 10, "inside": true, "nm": [425, 455], "avoid": [[36.3892, -75.8902, 2000], [33.9202, -78.0665, 30]], "areas": ["ncds_04", "ncds_05", "ncds_06", "ncds_07"]},
+    {"name": "Currituck Sound Light 111 to Albemarle Sound at 5 ft: down the ICW through the Coinjock cut (1-cell dredged line, fender at the bridge), not 12 nm more of open sound", "points": ["36.4600,-75.9750", "36.0500,-75.9500"], "depth": 5, "air": 10, "nm": [26, 32], "avoid": [[36.3892, -75.8902, 2000]], "areas": ["ncds_04", "ncds_05", "ncds_06"]},
+    {"name": "Bogue Sound ICW at 5 ft past buoys 10A, 11A and 12 (ICW charted only as a recommended track; marker lines across it, not along it)", "points": ["34.7228,-76.8200", "34.7240,-76.8450"], "depth": 5, "air": 10, "nm": [1.2, 1.8], "avoid": [[34.7257, -76.8305, 60]], "areas": ["ncds_06"]},
+    {"name": "ICW near Sneads Ferry at 5 ft: along the 1-cell dredged line, no 20 m steps into the 0-6 ft water beside it", "points": ["34.6585,-77.1550", "34.6500,-77.1700"], "depth": 5, "air": 10, "nm": [0.9, 1.3], "maxShort": 4, "areas": ["ncds_06"]},
+    {"name": "Snows Cut into the Cape Fear River at 5 ft: no 20 m steps where the cut meets the river", "points": ["34.0420,-77.9290", "34.0200,-77.9420"], "depth": 5, "air": 10, "nm": [1.3, 1.9], "maxShort": 4, "areas": ["ncds_06"]},
+    {"name": "ICW along Oak Island at 5 ft: in the charted fairway past the drying patch (no dredged area charted)", "points": ["33.9178,-78.0416", "33.9221,-78.0750"], "depth": 5, "air": 10, "nm": [1.6, 2.4], "avoid": [[33.9202, -78.0665, 30]], "areas": ["ncds_06"]},
+    {"name": "Wrightsville Beach to Southport (ICW): through Snows Cut and down the Cape Fear River, not out Masonboro Inlet", "points": ["34.2130,-77.8100", "33.9150,-78.0170"], "depth": 4, "air": 10, "areas": ["ncds_06"], "nm": [20, 26], "avoid": [[34.0940, -77.8130, 2000]]},
+    {"name": "Charleston to Beaufort SC (ICW, 06 to 07)", "points": ["32.7700,-79.9150", "32.4300,-80.6700"], "depth": 4, "air": 10, "areas": ["ncds_06", "ncds_07"], "nm": [55, 77]},
+    {"name": "Fernandina to Jacksonville", "points": ["30.6720,-81.4670", "30.3220,-81.6600"], "depth": 4, "air": 10, "areas": ["ncds_07"], "nm": [40, 50]},
+    {"name": "Newport to Cuttyhunk (02a to 02b)", "points": ["41.4850,-71.3250", "41.4250,-70.9250"], "depth": 4, "air": 10, "areas": ["ncds_02a", "ncds_02b"], "nm": [21, 28]},
+    {"name": "Cape Cod Canal: Cape Cod Bay to Buzzards Bay", "points": ["41.7780,-70.4900", "41.6850,-70.6900"], "depth": 4, "air": 10, "areas": ["ncds_02b"], "nm": [10, 14]},
+    {"name": "Hyannis to Nantucket", "points": ["41.6380,-70.2800", "41.2900,-70.0950"], "depth": 4, "air": 10, "areas": ["ncds_02b"], "nm": [22, 28]},
+    {"name": "Nantucket at 40 ft is boxed in", "points": ["41.6380,-70.2800", "41.2900,-70.0950"], "depth": 40, "air": 10, "fail": true, "areas": ["ncds_02b"]},
+    {"name": "Cocoa to Sebastian (Indian River, 07 to 08)", "points": ["28.3560,-80.7180", "27.8150,-80.4700"], "depth": 4, "air": 10, "areas": ["ncds_07", "ncds_08", "ncds_10"], "nm": [33, 40]},
+    {"name": "Fort Lauderdale to Miami", "points": ["26.0930,-80.1180", "25.7780,-80.1850"], "depth": 4, "air": 10, "areas": ["ncds_08"], "nm": [22, 28]},
+    {"name": "Dinner Key at 20 ft is boxed in", "points": ["25.7700,-80.1400", "25.7270,-80.2320"], "depth": 20, "air": 10, "fail": true, "areas": ["ncds_08"]},
+    {"name": "Key West to Marathon (Boot Key Harbor)", "points": ["24.5610,-81.8010", "24.7060,-81.1140"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [38, 47]},
+    {"name": "Tampa Bay: St. Petersburg to Tampa", "points": ["27.7700,-82.6250", "27.9400,-82.4550"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [15, 19]},
+    {"name": "Clearwater to Tarpon Springs (ICW, 10 to 11)", "points": ["27.9770,-82.8280", "28.1540,-82.7600"], "depth": 3, "air": 10, "areas": ["ncds_10", "ncds_11"], "nm": [17, 22]},
+    {"name": "Mobile Bay: Fairhope to the bay entrance off Fort Gaines", "points": ["30.5230,-87.9100", "30.2420,-88.0600"], "depth": 4, "air": 10, "areas": ["ncds_11"], "nm": [18, 23]},
+    {"name": "Pensacola to Mobile: the GIWW inside (Big Lagoon, Gulf Shores canal, Mobile Bay), not out Pensacola Pass", "points": ["30.4060,-87.2130", "30.6900,-88.0380"], "depth": 4, "air": 10, "areas": ["ncds_11"], "nm": [58, 70], "avoid": [[30.2390, -87.7230, 2000]]},
+    {"name": "Fairhope at 30 ft is boxed in", "points": ["30.5230,-87.9100", "30.2420,-88.0600"], "depth": 30, "air": 10, "fail": true, "areas": ["ncds_11"]},
+    {"name": "Lake Erie: Cleveland to Put-in-Bay", "points": ["41.5070,-81.7100", "41.6540,-82.8130"], "depth": 4, "air": 10, "areas": ["ncds_15"], "nm": [50, 58]},
+    {"name": "Detroit River: Detroit to Lake Erie", "points": ["42.3270,-83.0420", "41.9700,-83.1700"], "depth": 4, "air": 10, "areas": ["ncds_15"], "nm": [21, 26]},
+    {"name": "Put-in-Bay at 40 ft is boxed in", "points": ["41.5070,-81.7100", "41.6540,-82.8130"], "depth": 40, "air": 10, "fail": true, "areas": ["ncds_15"]},
+    {"name": "Casco Bay: Portland to Boothbay Harbor", "points": ["43.6530,-70.2380", "43.8470,-69.6310"], "depth": 4, "air": 10, "areas": ["ncds_01a"], "nm": [26, 45]},
+    {"name": "Lake Champlain: Burlington to Plattsburgh", "points": ["44.4770,-73.2260", "44.6900,-73.4300"], "depth": 4, "air": 10, "areas": ["ncds_01a"], "nm": [14, 28]},
+    {"name": "Boothbay Harbor to Rockland (01a to 01b)", "points": ["43.8470,-69.6310", "44.1000,-69.1000"], "depth": 4, "air": 10, "areas": ["ncds_01a", "ncds_01b"], "nm": [20, 45]},
+    {"name": "Bar Harbor to Southwest Harbor", "points": ["44.3900,-68.2000", "44.2770,-68.3180"], "depth": 4, "air": 10, "areas": ["ncds_01b"], "nm": [10, 15]},
+    {"name": "Eastport to Lubec", "points": ["44.9050,-66.9850", "44.8600,-66.9850"], "depth": 4, "air": 10, "areas": ["ncds_01c"], "nm": [2.7, 9]},
+    {"name": "Lake Pontchartrain: New Orleans to Mandeville", "points": ["30.0350,-90.1100", "30.3450,-90.0700"], "depth": 4, "air": 10, "areas": ["ncds_12"], "nm": [18, 30]},
+    {"name": "Lake Pontchartrain at 30 ft is too shallow", "points": ["30.0350,-90.1100", "30.3450,-90.0700"], "depth": 30, "air": 10, "areas": ["ncds_12"], "fail": true},
+    {"name": "Biloxi to Gulfport (11 to 12)", "points": ["30.3800,-88.8850", "30.3400,-89.0850"], "depth": 4, "air": 10, "areas": ["ncds_11", "ncds_12"], "nm": [9, 18]},
+    {"name": "Mississippi River: Venice to Head of Passes", "points": ["29.2770,-89.3540", "29.1500,-89.2500"], "depth": 4, "air": 10, "areas": ["ncds_13"], "nm": [8, 14]},
+    {"name": "Galveston to Kemah", "points": ["29.3090,-94.7930", "29.5450,-95.0000"], "depth": 4, "air": 10, "areas": ["ncds_14"], "nm": [16, 28]},
+    {"name": "Kemah at 20 ft is boxed in", "points": ["29.3090,-94.7930", "29.5450,-95.0000"], "depth": 20, "air": 10, "areas": ["ncds_14"], "fail": true},
+    {"name": "Corpus Christi to Port Aransas", "points": ["27.7950,-97.3900", "27.8380,-97.0600"], "depth": 4, "air": 10, "areas": ["ncds_14"], "nm": [16, 26]},
+    {"name": "Lake Ontario: Rochester to Sodus Bay", "points": ["43.2700,-77.6000", "43.2850,-76.9800"], "depth": 4, "air": 10, "areas": ["ncds_16"], "nm": [22, 32]},
+    {"name": "Lake Huron: Port Huron to Harbor Beach", "points": ["43.0100,-82.4150", "43.8450,-82.6350"], "depth": 4, "air": 10, "areas": ["ncds_16"], "nm": [50, 62]},
+    {"name": "Lake Erie: Buffalo to Dunkirk (16 to 15)", "points": ["42.8850,-78.8950", "42.4950,-79.3400"], "depth": 4, "air": 10, "areas": ["ncds_16", "ncds_15"], "nm": [27, 38]},
+    {"name": "Straits of Mackinac: Mackinaw City to Mackinac Island", "points": ["45.7820,-84.7200", "45.8470,-84.6150"], "depth": 4, "air": 10, "areas": ["ncds_17a"], "nm": [4, 9]},
+    {"name": "Lake Michigan: Traverse City to Charlevoix", "points": ["44.7750,-85.6150", "45.3200,-85.2850"], "depth": 4, "air": 10, "areas": ["ncds_17a"], "nm": [34, 44]},
+    {"name": "Lake Michigan: Chicago to Michigan City", "points": ["41.8820,-87.6100", "41.7350,-86.9150"], "depth": 4, "air": 10, "areas": ["ncds_17b"], "nm": [30, 42]},
+    {"name": "Lake Michigan: Ludington to Muskegon (17a to 17b)", "points": ["43.9550,-86.4900", "43.2250,-86.3600"], "depth": 4, "air": 10, "areas": ["ncds_17a", "ncds_17b"], "nm": [40, 55]},
+    {"name": "Lake Superior: Duluth to Two Harbors", "points": ["46.7780,-92.0800", "47.0100,-91.6650"], "depth": 4, "air": 10, "areas": ["ncds_18"], "nm": [19, 28]},
+    {"name": "Dana Point to Newport Beach", "points": ["33.4600,-117.6980", "33.6000,-117.8800"], "depth": 4, "air": 10, "areas": ["ncds_19a"], "nm": [12, 22]},
+    {"name": "Long Beach to Avalon, Catalina", "points": ["33.7300,-118.1700", "33.3480,-118.3230"], "depth": 4, "air": 10, "areas": ["ncds_19a"], "nm": [22, 32]},
+    {"name": "Santa Barbara to Ventura", "points": ["34.3980,-119.6850", "34.2400,-119.2750"], "depth": 4, "air": 10, "areas": ["ncds_19b"], "nm": [20, 30]},
+    {"name": "Monterey to Santa Cruz", "points": ["36.6100,-121.8850", "36.9550,-122.0000"], "depth": 4, "air": 10, "areas": ["ncds_19b"], "nm": [18, 28]},
+    {"name": "Long Beach to Marina del Rey (19a to 19b)", "points": ["33.7300,-118.1700", "33.9600,-118.4700"], "depth": 4, "air": 10, "areas": ["ncds_19a", "ncds_19b"], "nm": [25, 38]},
+    {"name": "San Francisco Bay: Sausalito to Oakland", "points": ["37.8580,-122.4750", "37.7930,-122.2750"], "depth": 4, "air": 10, "areas": ["ncds_19c"], "nm": [9, 16]},
+    {"name": "Half Moon Bay to Sausalito (Golden Gate)", "points": ["37.5020,-122.4830", "37.8580,-122.4750"], "depth": 4, "air": 10, "areas": ["ncds_19c"], "nm": [24, 34]},
+    {"name": "Humboldt Bay: Eureka to Fields Landing", "points": ["40.8040,-124.1680", "40.7250,-124.2170"], "depth": 4, "air": 10, "areas": ["ncds_20a"], "nm": [5, 10]},
+    {"name": "Coos Bay: Charleston to North Bend", "points": ["43.3450,-124.3220", "43.4100,-124.2150"], "depth": 4, "air": 10, "areas": ["ncds_20a"], "nm": [7, 13]},
+    {"name": "Columbia River: Astoria to Ilwaco", "points": ["46.1900,-123.8300", "46.3000,-124.0400"], "depth": 4, "air": 10, "areas": ["ncds_20b"], "nm": [9, 16]},
+    {"name": "Ilwaco at 30 ft is boxed in", "points": ["46.1900,-123.8300", "46.3000,-124.0400"], "depth": 30, "air": 10, "areas": ["ncds_20b"], "fail": true},
+    {"name": "Ketchikan to Metlakatla", "points": ["55.3400,-131.6500", "55.1300,-131.5750"], "depth": 4, "air": 10, "areas": ["ncds_22a"], "nm": [12, 20]},
+    {"name": "Wrangell to Petersburg (Wrangell Narrows)", "points": ["56.4700,-132.3850", "56.8150,-132.9700"], "depth": 4, "air": 10, "areas": ["ncds_22b"], "nm": [35, 50]},
+    {"name": "Sitka harbor to Sitka Sound", "points": ["57.0480,-135.3450", "56.9800,-135.4500"], "depth": 4, "air": 10, "areas": ["ncds_23a"], "nm": [4, 10]},
+    {"name": "Juneau to Auke Bay (around Douglas Island)", "points": ["58.2950,-134.4150", "58.3800,-134.6500"], "depth": 4, "air": 10, "areas": ["ncds_23b"], "nm": [22, 40]},
+    {"name": "Haines to Skagway", "points": ["59.2350,-135.4400", "59.4450,-135.3250"], "depth": 4, "air": 10, "areas": ["ncds_23b"], "nm": [11, 18]},
+    {"name": "Adak: Sweeper Cove to Kuluk Bay", "points": ["51.8600,-176.6400", "51.9000,-176.5500"], "depth": 4, "air": 10, "areas": ["ncds_26b"], "nm": [3, 9]},
+    {"name": "Maui: Lahaina to Manele Bay, Lanai", "points": ["20.8720,-156.6800", "20.7430,-156.8870"], "depth": 4, "air": 10, "areas": ["ncds_28b"], "nm": [11, 18]},
+    {"name": "Ala Wai Harbor at 40 ft is boxed in", "points": ["21.2860,-157.8430", "21.3050,-157.8700"], "depth": 40, "air": 10, "areas": ["ncds_28b"], "fail": true},
+    {"name": "San Juan to Fajardo", "points": ["18.4500,-66.1150", "18.3400,-65.6200"], "depth": 4, "air": 10, "areas": ["ncds_09"], "nm": [25, 45]},
+    {"name": "St. Thomas: Charlotte Amalie to Cruz Bay, St. John", "points": ["18.3350,-64.9300", "18.3310,-64.7960"], "depth": 4, "air": 10, "areas": ["ncds_09"], "nm": [6, 13]},
+    {"name": "Puget Sound: Seattle to Bremerton", "points": ["47.6050,-122.3500", "47.5600,-122.6250"], "depth": 4, "air": 10, "areas": ["ncds_20c"], "nm": [12, 18]},
+    {"name": "Seattle to Friday Harbor", "points": ["47.6050,-122.3500", "48.5400,-123.0100"], "depth": 4, "air": 10, "areas": ["ncds_20c"], "nm": [60, 72]},
+    {"name": "Prince William Sound: Valdez to Cordova", "points": ["61.1220,-146.3600", "60.5500,-145.7800"], "depth": 4, "air": 10, "areas": ["ncds_24a"], "nm": [55, 95]},
+    {"name": "Resurrection Bay: Seward to the entrance", "points": ["60.1000,-149.4400", "59.9000,-149.3500"], "depth": 4, "air": 10, "areas": ["ncds_24b"], "nm": [10, 16]},
+    {"name": "Kachemak Bay: Homer to Seldovia", "points": ["59.6050,-151.4150", "59.4400,-151.7150"], "depth": 4, "air": 10, "areas": ["ncds_24b"], "nm": [11, 18]},
+    {"name": "Chignik Bay", "points": ["56.2950,-158.4050", "56.3500,-158.2500"], "depth": 4, "air": 10, "areas": ["ncds_25a"], "nm": [4, 14]},
+    {"name": "Sand Point to King Cove", "points": ["55.3250,-160.5100", "55.0550,-162.3200"], "depth": 4, "air": 10, "areas": ["ncds_25b"], "nm": [60, 100]},
+    {"name": "Dutch Harbor to Akutan", "points": ["53.8880,-166.5400", "54.1350,-165.7700"], "depth": 4, "air": 10, "areas": ["ncds_26a"], "nm": [30, 50]},
+    {"name": "Nome harbor to Norton Sound", "points": ["64.4950,-165.4300", "64.4500,-165.4500"], "depth": 4, "air": 10, "areas": ["ncds_27"], "nm": [2, 6]},
+    {"name": "Nome at 30 ft is boxed in", "points": ["64.4950,-165.4300", "64.4500,-165.4500"], "depth": 30, "air": 10, "areas": ["ncds_27"], "fail": true},
+    {"name": "Pago Pago harbor to the entrance", "points": ["-14.2750,-170.6900", "-14.3000,-170.6600"], "depth": 4, "air": 10, "areas": ["ncds_29"], "nm": [2, 6]},
+    {"name": "Guam: Apra Harbor to the open sea", "points": ["13.4430,144.6600", "13.4600,144.6000"], "depth": 4, "air": 10, "areas": ["ncds_31a"], "nm": [2, 7]},
+    {"name": "Saipan to Tinian", "points": ["15.2250,145.7150", "14.9600,145.6200"], "depth": 4, "air": 10, "areas": ["ncds_31a"], "nm": [15, 22]}
+  ]
 }

@@ -1244,28 +1244,6 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 c.progress("Overview at ${a.res.roundToInt()} m (${a.w} x ${a.h})" + if (optimistic) ", keeping narrow channels" else "")
                 val g = buildGrid(a, c.depthM, c.airM, c.bufM, optimistic)
                 val found = astarEnds(a, g, box, best[0].mapValues { ap.cost[it.value] }, best[1].mapValues { aq.cost[it.value] }, a.cell(q))
-                run { // DEBUG
-                    val top = a.cell(LatLon(36.46, -76.00)); val bot = a.cell(LatLon(36.28, -75.86))
-                    val sb = StringBuilder("DEBUG ov opt=$optimistic f=${a.f} r0=${a.r0} c0=${a.c0} found=${found?.second} meet=$meet\n")
-                    for (r in top / a.w..bot / a.w) {
-                        sb.append("%.4f ".format(a.latlon(r * a.w).lat))
-                        for (cc in top % a.w..bot % a.w) {
-                            val i = r * a.w + cc
-                            val d = g.planes[Pack.P_DEPTH][i].toInt()
-                            val ch = when {
-                                !g.ok[i] -> if (g.nav[i].toInt() == MARGINAL) 'M' else if (g.nav[i].toInt() == SAFE) 'S' else '#'
-                                d == SAFE or DREDGED -> 'D'
-                                g.nav[i].toInt() == SAFE -> if (g.cost[i] > 8) 's' else '.'
-                                g.nav[i].toInt() == MARGINAL -> if (g.cost[i] > 30) 'x' else 'm'
-                                else -> '?'
-                            }
-                            sb.append(if (found != null && i in found.first) '*' else ch)
-                        }
-                        sb.append("\n")
-                    }
-                    sb.append("cols from %.4f".format(a.latlon(top % a.w).lon))
-                    c.progress(sb.toString().replace("\n", " | "))
-                }
                 // Points along the whole path, each with its overview cell (-1: a 20 m point)
                 val pts = ArrayList<LatLon>()
                 val cells = ArrayList<Int>()
