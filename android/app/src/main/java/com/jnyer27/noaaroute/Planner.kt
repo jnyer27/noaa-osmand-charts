@@ -63,6 +63,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val DREDGED_SOFT_COST = 1.5f
         // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
         private const val SHORE_M = 100.0
+        // Straightened legs keep at least this far from danger (see simplify)
+        private const val LINE_CLEAR_M = 60.0
         private const val K_MIN = 5
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
@@ -659,21 +661,30 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun simplify(a: Area, g: Grid, path: IntArray): IntArray {
         fun marg(i: Int) = g.nav[i].toInt() == MARGINAL
         fun px(i: Int) = if (g.pier[i]) 0 else g.prox[i].toInt() // a pier cell is next to danger by definition
+        // A line may always come this close to danger (60 m: hazard walls are already a
+        // buffer around the hazard): a path tracing the edge of the keep-off zone around a
+        // shoal otherwise kept a waypoint at every bend of it
+        val floor = g.k - ceil(LINE_CLEAR_M / a.res).toInt()
         fun fits(p: Int, q: Int, maxp: Int, nmarg: Int, npier: Int, nsoft: Int): Boolean {
             // One level of grid staircase tolerance, but never into the two rings
             // nearest danger unless the path itself went there
-            val lim = if (maxp + 1 <= g.k - 3) maxp + 1 else maxp
+            val lim = max(if (maxp + 1 <= g.k - 3) maxp + 1 else maxp, floor)
             var m = 0
             var sf = 0
             val corners = ArrayList<Int>()
             val cells = lineCells(a, path[p], path[q], corners)
             if (corners.any { !g.ok[it] }) return false
+            // 0-6 ft and buffer cells are compared as shares of the cells crossed, plus one:
+            // a diagonal line samples more cells than the 8-direction path over the same
+            // water, so counts refused every line across open 0-6 ft water (Currituck Sound)
+            val pn = q - p + 1
+            val n = cells.size
             for (i in cells) {
                 if (!g.ok[i]) return false
                 if (g.pier[i]) continue // counted below
                 if (g.prox[i] > lim) return false
-                if (marg(i)) { m++; if (m > nmarg + 1) return false }
-                if (g.soft[i]) { sf++; if (sf > nsoft + 1) return false }
+                if (marg(i)) { m++; if (m * pn > (nmarg + 1) * n) return false }
+                if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
             return pierSteps(a, cells) { g.pier[it] } <= npier
         }
