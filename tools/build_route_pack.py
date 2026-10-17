@@ -32,7 +32,10 @@ chart wins (same rule as noaa-route.py).
 
 Planes (0 always means "nothing here"):
   0 DEPTH   index into header depth_table: [drval1_m|null, drval2_m|null, kind]
-            kind 0 = DEPARE, 1 = DRGARE. 0 = land, uncharted or no data.
+            kind 0 = DEPARE, 1 = DRGARE, 2 = DEPARE inside a charted fairway or on a recommended track (FAIRWY, RECTRC:
+            the ICW where no dredged area is charted, such as along Oak Island; the
+            app follows it like a dredged channel, older apps read it as kind 0).
+            0 = land, uncharted or no data.
   1 HAZARD  shallowest OBSTRN/WRECKS/UWTROC: 1 + VALSOU in dm (0-253); unknown
             depth is stored as 1 (0.0 m) so it is a hazard for any boat.
             255 = shoreline construction (SLCONS: pier, seawall, jetty) and no
@@ -103,7 +106,7 @@ CATALOG_URL = "https://charts.noaa.gov/ENCs/ENCProdCat.xml"
 REGION_MARGIN = 0.1  # degrees kept around a region's band 4+ charts
 LAYERS = ["M_COVR", "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
           "SOUNDG", "PILPNT", "PYLONS", "SLCONS", "RESARE", "BRIDGE", "CBLOHD",
-          "BOYLAT", "BCNLAT", "FAIRWY", "CONZNE", "EXEZNE"]
+          "BOYLAT", "BCNLAT", "FAIRWY", "CONZNE", "EXEZNE", "RECTRC"]
 M_PER_DEG = 111320.0
 TILE = 256
 GRID_DLAT = 20.0 / M_PER_DEG
@@ -384,18 +387,25 @@ def depth_key(d1, d2, kind, step=None):
 # Lateral marks (buoys BOYLAT, daybeacons BCNLAT). A mark's channel side is the same
 # whichever way a boat goes, so red right returning (green right going out) is: never pass
 # between a mark and the water it guards. Each mark gets a "wrong side" line GATE_M long,
-# pointing away from its channel (from the side of the nearest fairway or dredged area
-# within CHANNEL_M, else toward the nearest opposite-colour mark within PAIR_M); crossing
-# it, or the mark's own cell, costs GATE_COST like a pier and is flagged.
+# pointing away from its channel (from the side of the nearest fairway or dredged area or
+# from the nearest recommended track, such as the ICW's, within CHANNEL_M, else toward the
+# nearest opposite-colour mark within PAIR_M); crossing it, or the mark's own cell, costs
+# GATE_COST like a pier and is flagged. Marks staggered along a channel point at each
+# other: in Bogue Sound (ICW charted only as a track) buoys 12, 11A and 10A drew their
+# lines along the 60 m channel and a 5 ft route left it through 3 ft water.
 GATE_M = 100.0
+# The line starts this far from the mark and the mark's own cell stays open: in Bogue
+# Sound the ICW's deep strip is one 20 m cell wide and buoys 10A and 11A sit in it
+GATE_SKIP_M = 20.0
 CHANNEL_M = 150.0
 PAIR_M = 400.0
 
 
-def channel_gates(marks, fairways, dredged):
+def channel_gates(marks, fairways, dredged, tracks=()):
     """Wrong-side lines of lateral marks. marks: [(lon, lat, catlam)], catlam 1 = port-hand
     (green in the US), 2 = starboard-hand (red), 3/4 = preferred channel (no line).
-    fairways, dredged: lists of exterior rings [(lon, lat), ...]. Returns
+    fairways, dredged: lists of exterior rings [(lon, lat), ...]; tracks: recommended
+    track lines [(lon, lat), ...] (a channel's middle). Returns
     [((lon, lat), (lon, lat))]: from each mark GATE_M away from its channel, kept out of
     fairways and dredged areas (a wrong guess can never block a charted channel)."""
     if not marks:
@@ -405,6 +415,8 @@ def channel_gates(marks, fairways, dredged):
     to = lambda lon, lat: (lon * kx, lat * ky)
     back = lambda x, y: (x / kx, y / ky)
     rings = [[[to(*p) for p in r] for r in group if len(r) >= 3] for group in (fairways, dredged)]
+    lines = [[to(*p) for p in t] for t in tracks if len(t) >= 2]
+    lboxes = [(min(p[0] for p in t), min(p[1] for p in t), max(p[0] for p in t), max(p[1] for p in t)) for t in lines]
     # Bounding boxes, so each mark only looks at channels near it (a region has thousands)
     boxes = [[(min(p[0] for p in r), min(p[1] for p in r), max(p[0] for p in r), max(p[1] for p in r)) for r in g] for g in rings]
 
@@ -457,6 +469,7 @@ def channel_gates(marks, fairways, dredged):
         if cat not in (1, 2):
             continue
         v = None
+        vd = CHANNEL_M
         for g in (0, 1):
             cand = [(nearest_side(x, y, r), r) for r in near(g, x, y, CHANNEL_M)]
             cand = [(n, r) for n, r in cand if n is not None and n[0] <= CHANNEL_M]
@@ -468,7 +481,41 @@ def channel_gates(marks, fairways, dredged):
             L = math.hypot(dx, dy) or 1.0
             n = (-dy / L, dx / L)
             v = n if inside(mx + 3 * n[0], my + 3 * n[1], ring) else (-n[0], -n[1])
+            vd = d
             break
+        # A recommended track nearer than that channel side: toward the track. A mark on
+        # the track itself: across the track, away from the nearest opposite-colour mark's
+        # side (none, or one in line with it along the track: no line)
+        tr = None
+        for t, b in zip(lines, lboxes):
+            if not (b[0] - vd <= x <= b[2] + vd and b[1] - vd <= y <= b[3] + vd):
+                continue
+            for i in range(1, len(t)):
+                (ax, ay), (bx, by) = t[i - 1], t[i]
+                dx, dy = bx - ax, by - ay
+                L2 = dx * dx + dy * dy or 1e-9
+                u = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / L2))
+                px, py = ax + u * dx, ay + u * dy
+                d = math.hypot(px - x, py - y)
+                if d < vd and (tr is None or d < tr[0]):
+                    tr = (d, px, py, dx, dy)
+        if tr is not None:
+            d, px, py, dx, dy = tr
+            if d >= 5.0:
+                v = (px - x, py - y)
+            else:
+                v = None
+                L = math.hypot(dx, dy) or 1.0
+                n = (-dy / L, dx / L)
+                opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
+                opp = [o for o in opp if o[0] <= PAIR_M]
+                if opp:
+                    _, ox, oy = min(opp)
+                    side = n[0] * (ox - x) + n[1] * (oy - y)
+                    if abs(side) >= 5.0:
+                        v = n if side > 0 else (-n[0], -n[1])
+                if v is None:
+                    continue
         if v is None:
             opp = [(math.hypot(ox - x, oy - y), ox, oy) for (ox, oy), oc in pts if oc in (1, 2) and oc != cat]
             opp = [o for o in opp if o[0] <= PAIR_M]
@@ -485,7 +532,7 @@ def channel_gates(marks, fairways, dredged):
         # one begins (a wrong guess can then never block a charted channel); a mark inside
         # its channel starts the line where it leaves the channel
         all_rings = near(0, x, y, GATE_M) + near(1, x, y, GATE_M)
-        start, end, t = None, None, 0.0
+        start, end, t = None, None, GATE_SKIP_M
         while t <= GATE_M:
             px, py = x + ux * t, y + uy * t
             inch = any(inside(px, py, r) for r in all_rings)
@@ -502,6 +549,78 @@ def channel_gates(marks, fairways, dredged):
             continue
         out.append((back(x + ux * start, y + uy * start), back(x + ux * end, y + uy * end)))
     return out
+
+
+GAP_CELLS = 2
+
+
+def fill_gaps(d, dt):
+    """Give cells of d the touching value dt where dt differs and dt's value lies on both
+    sides of the cell within GAP_CELLS (row, column or diagonal); in place, by row blocks.
+    Returns the number of cells changed."""
+    h, w = d.shape
+    k = GAP_CELLS
+    n = 0
+    for r0 in range(0, h, 1024):
+        a, b = max(0, r0 - k), min(h, r0 + 1024 + k)
+        blk = d[a:b]
+        tb = dt[a:b]
+        cand = (tb != blk) & (tb > 0) & (blk > 0)
+        if not cand.any():
+            continue
+        pad = np.pad(blk, k)
+        hh, ww = blk.shape
+        ok = np.zeros_like(cand)
+        for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            fwd = np.zeros_like(cand)
+            bwd = np.zeros_like(cand)
+            for step in range(1, k + 1):
+                fwd |= pad[k + dr * step:k + dr * step + hh, k + dc * step:k + dc * step + ww] == tb
+                bwd |= pad[k - dr * step:k - dr * step + hh, k - dc * step:k - dc * step + ww] == tb
+            ok |= fwd & bwd
+        fill = cand & ok
+        lo, hi = r0 - a, min(1024, h - r0) + (r0 - a)
+        fill[:lo] = False
+        fill[hi:] = False
+        n += int(fill.sum())
+        blk[fill] = tb[fill]
+    return n
+
+
+TRACK_CLEAR_CELLS = 10  # 200 m
+
+
+def lone_track(trk, fw, depth, kinds):
+    """Cells of trk with no fairway (fw) or dredged cell (kinds[depth] == 1) within
+    TRACK_CLEAR_CELLS, by row blocks."""
+    h, w = trk.shape
+    k = TRACK_CLEAR_CELLS
+    out = np.zeros_like(trk)
+    for r0 in range(0, h, 1024):
+        r1 = min(h, r0 + 1024)
+        if not trk[r0:r1].any():
+            continue
+        a, b = max(0, r0 - k), min(h, r1 + k)
+        ch = fw[a:b] | (kinds[depth[a:b]] == 1)
+        near = ch.copy()
+        for s in range(1, k + 1):  # square dilation: rows, then columns
+            near[s:] |= ch[:-s]
+            near[:-s] |= ch[s:]
+        ch = near.copy()
+        for s in range(1, k + 1):
+            near[:, s:] |= ch[:, :-s]
+            near[:, :-s] |= ch[:, s:]
+        out[r0:r1] = trk[r0:r1] & ~near[r0 - a:r0 - a + (r1 - r0)]
+    return out
+
+
+def line_parts(geom):
+    """Points [(lon, lat), ...] of each part of a line or multiline."""
+    g = geom.Clone()
+    g.FlattenTo2D()
+    t = g.GetGeometryType()
+    parts = [g] if t == ogr.wkbLineString else [g.GetGeometryRef(i) for i in range(g.GetGeometryCount())] if t == ogr.wkbMultiLineString else []
+    return [[(x, y) for x, y in p.GetPoints()] for p in parts if p.GetPointCount() >= 2]
 
 
 def exterior_rings(geom):
@@ -527,6 +646,7 @@ def build(cells, grid, work, depth=None, quiet=False):
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
     depth_table, depth_index = depth or ([None], {})  # index 0 = no water
     coarsened = 0
+    fairway_skipped = 0
     notes = []
     say = (lambda m: None) if quiet else log
 
@@ -584,11 +704,56 @@ def build(cells, grid, work, depth=None, quiet=False):
         # channel's cells, and at 5 ft that shut the 1-2 cell wide channel.
         depth_feats.sort(key=lambda t: t[0])
         d = burn(grid, [(g_, v) for _, g_, v in depth_feats])
+        # A thin deeper area sampled at cell centers falls apart into separate cells: the
+        # ICW's 6-12 ft strip in Bogue Sound (one polygon) squeezes between 1 and 3.3 ft
+        # soundings at buoy 11A, and the 0-6 ft gap cells inside their buffer shut it at 5
+        # ft. A cell the deeper area touches, with that area's cells on both sides within
+        # GAP_CELLS along a row, column or diagonal, gets its value.
+        dt = burn(grid, [(g_, v) for _, g_, v in depth_feats], all_touched=True)
+        gaps = fill_gaps(d, dt)
+        del dt
+        if gaps:
+            say(f"{gaps} cells joining thin depth areas")
         planes[DEPTH] = np.where(d > 0, d, planes[DEPTH])
         # Not all touched: that narrowed harbor entrances shut (Rock Hall); the
         # planner's shore proximity cost keeps routes off land instead
         land = burn(grid, [(geom, 1) for f, geom in features(gp, "LNDARE")]) > 0
         planes[DEPTH][land] = 0
+        # Charted fairways over depth areas (not dredged, not drying): the fairway variant
+        # of the cell's depth key. Where no dredged area is charted the fairway is all the
+        # app knows of the channel (a route drifted 74 m off the ICW along Oak Island
+        # to keep clear of a drying patch beside the fairway).
+        # Cells on a recommended track count the same: in Bogue Sound the ICW is charted
+        # only as a track along a 6-12 ft strip squeezed by 1-3 ft soundings, and without
+        # a channel's lower costs a 5 ft route went round through 0-6 ft water instead.
+        fw = [(geom, 1) for f, geom in features(gp, "FAIRWY")
+              if geom.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
+                                            ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)]
+        trk = [(geom, 1) for f, geom in features(gp, "RECTRC")
+               if geom.GetGeometryType() in (ogr.wkbLineString, ogr.wkbMultiLineString,
+                                             ogr.wkbLineString25D, ogr.wkbMultiLineString25D)]
+        if fw or trk:
+            inf = burn(grid, fw) > 0
+            if trk:
+                # Only away from charted channels: a track off a smaller-scale chart ran
+                # beside Oak Island's fairway, next to its drying patch
+                kinds = np.array([e[2] if e else 0 for e in depth_table] + [0] * (256 - len(depth_table)), np.uint8)
+                inf |= lone_track(burn(grid, trk, all_touched=True) > 0, inf, planes[DEPTH], kinds)
+            lut = np.arange(256, dtype=np.uint8)
+            for v in np.unique(planes[DEPTH][inf]):
+                e = depth_table[v] if v < len(depth_table) else None
+                if not e or e[2] != 0 or e[0] is None or e[0] < 0:
+                    continue
+                key = (e[0], e[1], 2)
+                if key not in depth_index:
+                    if len(depth_table) >= 256:
+                        fairway_skipped += 1
+                        continue
+                    depth_index[key] = len(depth_table)
+                    depth_table.append(list(key))
+                lut[v] = depth_index[key]
+            planes[DEPTH][inf] = lut[planes[DEPTH][inf]]
+            del inf
 
         # Hazards and soundings, shallowest wins
         area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
@@ -723,22 +888,21 @@ def build(cells, grid, work, depth=None, quiet=False):
         if marks:
             fair = [r for f, geom in features(gp, "FAIRWY") for r in exterior_rings(geom)]
             drg = [r for f, geom in features(gp, "DRGARE") for r in exterior_rings(geom)]
+            trk = [t for f, geom in features(gp, "RECTRC") for t in line_parts(geom)]
             gl = []
-            for a, b in channel_gates(marks, fair, drg):
+            for a, b in channel_gates(marks, fair, drg, trk):
                 ln = ogr.Geometry(ogr.wkbLineString)
                 ln.AddPoint_2D(*a)
                 ln.AddPoint_2D(*b)
                 gl.append((ln, 1))
-            for x, y, _ in marks:
-                pt = ogr.Geometry(ogr.wkbPoint)
-                pt.AddPoint_2D(x, y)
-                gl.append((pt, 1))
             gate = burn(grid, gl) > 0
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
-            say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
+            say(f"{len(marks)} lateral marks, {len(gl)} wrong-side lines")
 
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
+    if fairway_skipped:
+        log(f"Depth table full: {fairway_skipped} fairway depth ranges left unmarked (routed as plain depth areas)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
 
 

@@ -9,7 +9,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** One depth-area range from the pack's depth table (meters, null = not charted). */
-class DepthRange(val d1: Double?, val d2: Double?, val dredged: Boolean)
+/** [dredged]: a dredged area (kind 1). [fairway]: a depth area inside a charted fairway (kind 2). */
+class DepthRange(val d1: Double?, val d2: Double?, val dredged: Boolean, val fairway: Boolean = false)
 
 /** A named feature used only for the per-leg report (restricted area, bridge, cable). */
 class Note(
@@ -188,7 +189,7 @@ class Pack(file: File) : AutoCloseable {
         tile = (h["tile"] as Double).toInt()
         require((h["planes"] as Double).toInt() == NPLANES) { "Unsupported pack planes" }
         depthTable = (h["depth_table"] as List<*>).map { e ->
-            (e as? List<*>)?.let { DepthRange(it[0] as Double?, it[1] as Double?, (it[2] as Double).toInt() == 1) }
+            (e as? List<*>)?.let { val kind = (it[2] as Double).toInt(); DepthRange(it[0] as Double?, it[1] as Double?, kind == 1, kind == 2) }
         }
         notes = (h["notes"] as List<*>).map { e ->
             val m = e as Map<*, *>

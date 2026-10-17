@@ -41,8 +41,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
+        const val MAX_DROP_GUIDES = 2 // guide points one stretch may drop when cut off at full detail
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
         const val SKIP_GUIDES = 3 // a full-detail piece may reach this many guide points ahead, skipping those between
+        const val REJOIN_M = 2000.0 // route replanned this far either side of each guide point at the end
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
         const val BLOCKED = 0
         const val SAFE = 1
@@ -52,7 +54,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val SHALLOW = 5
         /** Open sea while "Stay inside" is on (seaward of the territorial sea baseline) */
         const val SEA = 6
-        /** Bit ChartSet.window adds to SAFE water inside a dredged area (a maintained channel). */
+        /** Bit ChartSet.window adds to SAFE or MARGINAL water inside a dredged area or fairway (a maintained channel). */
         const val DREDGED = 0x40
         // Inside a dredged channel deep enough for the boat, being near its edge is normal:
         // the proximity cost is cut to this share and the hazard buffer's cost (bank
@@ -169,7 +171,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray)
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray) {
+        /**
+         * A dredged channel cell deep enough. A step between two of them may cut a blocked
+         * corner: the ICW's Coinjock cut is charted as a 1-cell dredged staircase along the
+         * bank, and going round each land corner through the 0-6 ft cell beside it (10x near
+         * shore) made the cut cost more than 12 nm of open Currituck Sound.
+         */
+        fun channel(i: Int) = nav[i].toInt() == SAFE && planes[Pack.P_DEPTH][i].toInt() and DREDGED != 0
+    }
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
@@ -334,6 +344,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
+        // Overview only: marginal water next to a dredged channel block is that channel's
+        // edge. The ICW's 1-cell channel (Coinjock, south of Masonboro Inlet) breaks up on
+        // the overview, and at 10x the gap blocks guided Wrightsville to Southport out to sea.
+        // At full detail the 10x stays, or a route steps out of a 1-cell channel (Sneads Ferry).
+        val byChannel = BooleanArray(n)
+        if (a.f > 1) for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL) {
+            val r = i / w
+            val c = i % w
+            for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                val j = rr * w + cc
+                if (ok[j] && dredged[j] && nav[j].toInt() == SAFE) byChannel[i] = true
+            }
+        }
         for (i in 0 until n) if (ok[i]) {
             val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
@@ -348,7 +371,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing) c *= MARG_SHORE_COST
+                // (not in a charted dredged area or fairway: a shoaled stretch of the ICW south
+                // of Masonboro Inlet cost 141 a cell, and Wrightsville to Southport went to sea)
+                if (dist[i] <= margRing && !byChannel[i] && !dredged[i]) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
@@ -502,10 +527,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
-                    // slipping diagonally between pier cells crosses the pier
-                    if (pier[o1]) cs = max(cs, cost[o1])
-                    if (pier[o2]) cs = max(cs, cost[o2])
+                    if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
+                    // slipping diagonally between pier cells crosses the pier, except along a
+                    // dredged channel: a 1-cell ICW channel under the Coinjock bridge runs
+                    // diagonally between its fenders, and paid the pier price twice
+                    val along = g0.channel(i) && g0.channel(j)
+                    if (pier[o1] && !along) cs = max(cs, cost[o1])
+                    if (pier[o2] && !along) cs = max(cs, cost[o2])
                 }
                 val ng = gi + step[k] * res * (ci + cs) * 0.5f
                 if (ng < g[j]) {
@@ -631,9 +659,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * Cells along p-q. With [corners], each diagonal step also adds both corner
      * cells to it (A*'s no-corner-cutting rule): otherwise a leg slipped between
-     * the two cells of a thin diagonal wall (a pier burned one cell wide).
+     * the two cells of a thin diagonal wall (a pier burned one cell wide). A step
+     * between two [channel] cells adds no corners, as in A*.
      */
-    private fun lineCells(a: Area, p: Int, q: Int, corners: MutableList<Int>? = null): IntArray {
+    private fun lineCells(a: Area, p: Int, q: Int, corners: MutableList<Int>? = null, channel: ((Int) -> Boolean)? = null): IntArray {
         val w = a.w
         val r0 = p / w
         val c0 = p % w
@@ -648,7 +677,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val r = (r0 + (r1 - r0) * t).roundToInt()
             val c = (c0 + (c1 - c0) * t).roundToInt()
             out.add(r * w + c)
-            if (corners != null && r != pr && c != pc) { corners.add(pr * w + c); corners.add(r * w + pc) }
+            if (corners != null && r != pr && c != pc && !(channel != null && channel(pr * w + pc) && channel(r * w + c))) {
+                corners.add(pr * w + c); corners.add(r * w + pc)
+            }
             pr = r; pc = c
         }
         return out.toIntArray()
@@ -687,7 +718,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             var m = 0
             var sf = 0
             val corners = ArrayList<Int>()
-            val cells = lineCells(a, path[p], path[q], corners)
+            val cells = lineCells(a, path[p], path[q], corners, g::channel)
             if (corners.any { !g.ok[it] }) return false
             // 0-6 ft and buffer cells are compared as shares of the cells crossed, plus one:
             // a diagonal line samples more cells than the 8-direction path over the same
@@ -769,7 +800,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val i1 = keep[e]
                 if ((i0 + 1 until i1).any { off(it, i0, i1) > 1.0 }) break
                 val corners = ArrayList<Int>()
-                val cells = lineCells(a, path[i0], path[i1], corners)
+                val cells = lineCells(a, path[i0], path[i1], corners, g::channel)
                 if (!cells.all { graze(it) } || !corners.all { graze(it) }) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
@@ -1103,9 +1134,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
-                    if (pier[o1]) cs = max(cs, cost[o1])
-                    if (pier[o2]) cs = max(cs, cost[o2])
+                    if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
+                    val along = g0.channel(i) && g0.channel(j)
+                    if (pier[o1] && !along) cs = max(cs, cost[o1])
+                    if (pier[o2] && !along) cs = max(cs, cost[o2])
                 }
                 val ng = gi + step[k] * res * (ci + cs) * 0.5f
                 if (ng < g[j]) {
@@ -1274,6 +1306,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun astarEnds(a: Area, g0: Grid, box: BooleanArray, starts: Map<Int, Float>, goals: Map<Int, Float>,
                           target: Int): Pair<IntArray, Float>? {
         val cost = g0.cost.copyOf()
+        val depth = g0.planes[Pack.P_DEPTH]
         for (i in starts.keys + goals.keys) if (cost[i] == Float.POSITIVE_INFINITY) cost[i] = 2f
         val w = a.w
         val h = a.h
@@ -1315,7 +1348,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    // A channel only a cell wide at 20 m crosses an overview cell's corner when it
+                    // runs diagonally: between two channel cells the step is taken anyway
+                    val channel = depth[i].toInt() == SAFE or DREDGED && depth[j].toInt() == SAFE or DREDGED
+                    if (!channel && (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY)) continue
                 }
                 val ng = gi + step[k] * res * (ci + cj) * 0.5f
                 if (ng < g[j]) {
@@ -1355,12 +1391,14 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 guideRes = max(guideRes ?: 0.0, gr)
                 progress("Guide points (overview %.0f m): ".format(gr) + guide.joinToString("; ") { "%.5f,%.5f".format(it.lat, it.lon) })
                 listOf(p) + guide + listOf(q)
-            }
+            }.toMutableList()
             fun label(j: Int) = if (j == 0) k + 1 else if (j == chain.size - 1) k + 2 else null
             // atGuide: the piece starts at a guide point (never tidy away one of your points)
             val first = max(wps.size, 1) // wps from here on are this leg's; before it, your point stays
+            val joins = ArrayList<LatLon>() // guide points the route passes through, for rejoin
             fun add(piece: Piece, what: String, atGuide: Boolean) {
                 val join = wps.size - 1
+                if (atGuide && join > 0) joins.add(wps[join])
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 if (atGuide && join > 0) tidyJoin(wps, legs, join, max(res, piece.res), first)
@@ -1376,9 +1414,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val ahead = ArrayList<Pair<Piece, Snap>>() // stretches a -> a+1 -> ... with the state after each
             var a = 0
             var atA = c.snap()
+            // A guide point cut off at full detail (the 320 m overview joined a pocket inside
+            // the territorial sea baseline at Topsail to the sound, and a Stay inside trip was
+            // refused) is dropped: the stretch heads for the next one instead
             fun stretch(j: Int): Piece {
-                progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
-                return planPiece(chain[j], chain[j + 1], label(j), label(j + 1), c)
+                var dropped = 0
+                while (true) {
+                    progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
+                    val before = c.snap()
+                    try {
+                        return planPiece(chain[j], chain[j + 1], label(j), label(j + 1), c)
+                    } catch (e: PlanException) {
+                        if (j + 1 >= chain.size - 1 || dropped == MAX_DROP_GUIDES) throw e
+                        c.restore(before)
+                        chain.removeAt(j + 1)
+                        dropped++
+                    }
+                }
             }
             while (a < chain.size - 1) {
                 if (ahead.isEmpty()) ahead.add(stretch(a) to c.snap())
@@ -1386,6 +1438,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (b in min(a + SKIP_GUIDES, chain.size - 1) downTo a + 2) {
                     if (area(listOf(chain[a], chain[b]), 1.0).f != 1) continue
                     while (ahead.size < b - a) ahead.add(stretch(a + ahead.size) to c.snap())
+                    if (b > chain.size - 1) continue // a guide point was dropped on the way
                     val viaCost = ahead.take(b - a).sumOf { it.first.cost }
                     val viaRes = ahead.take(b - a).maxOf { it.first.res }
                     val after = c.snap()
@@ -1408,6 +1461,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     atA = state
                 }
             }
+            for (at in joins) rejoin(wps, legs, at, first, c)
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
     }
@@ -1456,6 +1510,48 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 break
             }
         }
+    }
+
+    /**
+     * A guide point is where the overview path crossed a 320 m cell, not always on the best
+     * 20 m line: leaving Snows Cut, a 5 ft trip ran 200 m up the Cape Fear River to one and
+     * back, too little of an 18 km stretch for a shortcut to skip it. Replan REJOIN_M either
+     * side of the guide point at full detail and keep it if cheaper (never past your points).
+     */
+    private fun rejoin(wps: MutableList<LatLon>, legs: MutableList<Leg>, at: LatLon, first: Int, c: Ctx) {
+        if (wps.size - 1 - first < 2) return
+        val j = (first until wps.size - 1).minBy { distanceM(wps[it], at) }
+        if (distanceM(wps[j], at) > 200.0) return
+        var i0 = j
+        var d = 0.0
+        while (i0 > first && d < REJOIN_M) { d += legs[i0 - 1].distM; i0-- }
+        var i1 = j
+        d = 0.0
+        while (i1 < wps.size - 2 && d < REJOIN_M) { d += legs[i1].distM; i1++ }
+        if (i1 - i0 < 2) return
+        val old = wps.subList(i0, i1 + 1).toList()
+        val a = area(old, 1.0)
+        if (a.f != 1) return
+        val g = buildGrid(a, c.depthM, c.airM, c.bufM)
+        val cells = ArrayList<Int>()
+        for (k in 1 until old.size) for (x in lineCells(a, a.cell(old[k - 1]), a.cell(old[k]))) if (cells.isEmpty() || cells.last() != x) cells.add(x)
+        val oldCost = pathCost(a, g, cells.toIntArray())
+        val path = astar(a, g, cells.first(), cells.last()) ?: return
+        if (pathCost(a, g, path) >= oldCost * 0.97) return
+        val before = c.snap()
+        // the replaced legs' notes are reported again on the new ones
+        for (k in i0 until i1) c.seen.removeAll(legs[k].notes.toSet())
+        val piece = try { planPiece(old.first(), old.last(), null, null, c) } catch (_: PlanException) { null }
+        if (piece == null || piece.res != a.res || piece.legs.sumOf { it.distM } >= old.zipWithNext { p, q -> distanceM(p, q) }.sum()) {
+            c.restore(before)
+            return
+        }
+        for (k in i0 until i1) legs.removeAt(i0)
+        legs.addAll(i0, piece.legs)
+        for (k in i0..i1) wps.removeAt(i0)
+        wps.addAll(i0, piece.wps)
+        c.progress("Rejoined at guide point %.5f,%.5f: %.2f nm shorter".format(at.lat, at.lon,
+            (old.zipWithNext { p, q -> distanceM(p, q) }.sum() - piece.legs.sumOf { it.distM }) / NM))
     }
 
     private fun fmt(v: Double) = if (v == floor(v)) v.toInt().toString() else v.toString()
