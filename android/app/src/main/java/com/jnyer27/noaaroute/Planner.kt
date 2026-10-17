@@ -1400,8 +1400,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * Stretches meet at a guide point, each at its own grid's water cell for it, so the
      * route could overshoot the join by a cell and come back (a 20-40 m out-and-back in
-     * Currituck Sound). Drop points within two cells of the join while removing one moves
-     * the line by at most a cell (the canal straightening's tolerance); its two legs merge.
+     * Currituck Sound). Drop points within two cells of the join while the line that
+     * replaces a point's two legs stays within a cell of them (the canal straightening's
+     * tolerance; an out-and-back's line lies on its legs); the two legs merge.
      */
     private fun tidyJoin(wps: MutableList<LatLon>, legs: MutableList<Leg>, join: Int, resM: Double, first: Int) {
         val at = wps[join]
@@ -1420,7 +1421,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         while (changed) {
             changed = false
             for (j in first until wps.size - 1) {
-                if (distanceM(wps[j], at) > 2 * resM + 1 || off(wps[j], wps[j - 1], wps[j + 1]) > resM * 1.01) continue
+                if (distanceM(wps[j], at) > 2 * resM + 1) continue
+                // farthest the replacing line strays from the two legs it replaces
+                val a = wps[j - 1]
+                val b = wps[j + 1]
+                val stray = (0..10).maxOf { t ->
+                    val p = LatLon(a.lat + (b.lat - a.lat) * t / 10, a.lon + (b.lon - a.lon) * t / 10)
+                    min(off(p, a, wps[j]), off(p, wps[j], b))
+                }
+                if (stray > resM * 1.01) continue
                 val l1 = legs[j - 1]
                 val l2 = legs[j]
                 val lows = listOfNotNull(l1.lowM, l2.lowM)
