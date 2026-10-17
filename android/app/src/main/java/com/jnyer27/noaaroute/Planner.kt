@@ -1171,6 +1171,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val ends = listOf(approach(p, label(np, p), c), approach(q, label(nq, q), c))
         // Both ends inside each other's windows: the cheapest meeting in 20 m water
         val (ap, aq) = ends
+        run { // DEBUG
+            for ((nm, ll) in listOf("canal36.31" to LatLon(36.31, -75.972), "northriver36.25" to LatLon(36.25, -75.95), "sound36.30" to LatLon(36.30, -75.86), "sound36.39" to LatLon(36.38924, -75.89023))) {
+                val i = ap.fa.cell(ll)
+                val g = buildGrid(ap.fa, c.depthM, c.airM, c.bufM)
+                c.progress("DEBUG $nm ap.cost=${if (i in 0 until ap.fa.n) ap.cost[i] / NM else -1.0} ok=${if (i in 0 until ap.fa.n) g.ok[i] else null} cost=${if (i in 0 until ap.fa.n) g.cost[i] else null} nav=${if (i in 0 until ap.fa.n) g.nav[i] else null}")
+            }
+            // costs along the trace back from the canal cell
+            val i0 = ap.fa.cell(LatLon(36.31, -75.972))
+            if (i0 in 0 until ap.fa.n && ap.cost[i0].isFinite()) {
+                val g = buildGrid(ap.fa, c.depthM, c.airM, c.bufM)
+                val tr = ap.trace(i0)
+                var prev = 0f
+                val sb = StringBuilder()
+                for (j in tr.asReversed()) { val d = ap.cost[j] - prev; if (d > 200f) sb.append("%.5f,%.5f d=%.0f c=%.1f nav=%d pier=%b; ".format(ap.fa.latlon(j).lat, ap.fa.latlon(j).lon, d, g.cost[j], g.nav[j].toInt(), g.pier[j])); prev = ap.cost[j] }
+                c.progress("DEBUG canal trace ${tr.size} cells jumps: $sb".take(3000))
+            }
+        }
         var meet = Float.POSITIVE_INFINITY
         var meetP = -1
         var meetQ = -1
