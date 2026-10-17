@@ -51,7 +51,7 @@ class ChartSet(val packs: List<Pack>) {
      *
      * Overview (f > 1): a block with a clear dredged or fairway cell (usable depth, no
      * hazard, structure or prohibition) is that channel's water, without hazards,
-     * structures or piers. Sampled at its center, a 1-2 cell ICW channel south of
+     * structures, piers, snags or channel markers. Sampled at its center, a 1-2 cell ICW channel south of
      * Currituck Sound Light 111 fell apart at 320 m and a 450 nm trip was guided down
      * the open sound instead.
      *
@@ -129,6 +129,9 @@ class ChartSet(val packs: List<Pack>) {
             out[Pack.P_HAZARD][i] = 0
             out[Pack.P_SOUND][i] = 0
             out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and (Pack.F_STRUCT or Pack.F_PROHIB).inv()).toByte()
+            // and without snags or channel markers (x50 like a pier: the Coinjock cut's blocks
+            // cost 94-141 at 320 m, open sound 4)
+            if (out[Pack.P_FLAGS][i].toInt() and Pack.F_CABLE == 0) out[Pack.P_CABLECLR][i] = 0
         }
         return out
     }
