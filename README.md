@@ -35,6 +35,12 @@ The project began as a set of Termux scripts, which are kept in this repository 
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
 5. Tap **Open in OsmAnd** to follow the route.
 
+<p>
+  <img src="docs/main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and Regions (13 updates), Start and Destination filled in, safe depth 2 ft, air draft 10 ft, Stay inside checked, Plan route, the status line Region 06 ready, and Manage places" width="300" align="top">
+</p>
+
+*The main screen before planning: installed regions and updates waiting, the trip, depth, air draft and Stay inside.*
+
 ## Features
 
 - **Depth-aware routing.** Routes stay on water charted at your safe operating depth wherever possible. Shallow stretches are flagged with their length and the shallowest nearby sounding. If no route exists, the app explains why: it names the limiting sounding or obstruction and its position, and gives the deepest depth setting that does work.
@@ -105,6 +111,13 @@ Route data comes in NOAA Chart Display Service regions. These are the same numbe
 Region 15 (Lake Erie) depths are charted to the Great Lakes Low Water Datum, not MLLW, and the route report and GPX say so. Lake levels are usually above that datum, but they change with the season and with wind.
 
 - **Regions screen:** tap **Regions** for a map of NOAA's regions on a built-in coastline that works offline. Green means downloaded and up to date, amber means an update is available, dashed blue means available, and faint gray means no route data yet. Red dots mark your trip's **Start** and **Destination** and your last known position (**You**), and "chart map" under a region's number means its chart map for OsmAnd is ready. The map opens zoomed to the trip, else to your regions. Tap a region (or its row in the list below) to open its card, with three parts: **Route planning data** (download, update or delete), **Chart map for OsmAnd** (sizes before download; download for OsmAnd or .mbtiles only; while downloading, **Cancel download**; when ready, **Open in OsmAnd**, **Show in Files**, **Add to combined map**, **Delete chart map**; if it failed, **Try again** or **Remove**) and **Vector charts for OsmAnd** (download, update, open the depth and seamarks maps in OsmAnd, **Show in Files**, delete). Pinch to zoom, drag to pan and double-tap to zoom in. The list shows each region's status (not downloaded with its size, UPDATE available, or up to date with the NOAA data date), then your chart maps and vector charts. The main screen shows how old your data is ("Charts: Region 04, Region 05 · NOAA data from ..."), how many updates are waiting (**Regions (13 updates)**), and download progress in the status line ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."). The [user guide](https://jnyer27.github.io/noaa-osmand-charts/regions.html) has screenshots of the Regions screen and a region card.
+<p>
+  <img src="docs/regions-screen.jpg" alt="Regions screen: regions 03 (amber, update available), 04 and 05 (green, up to date) with You, Start and Destination markers, the automatic Wi-Fi download checkbox and the region list with each region's status" width="300" align="top">
+  <img src="docs/region-card.jpg" alt="Region 05 card: route planning data up to date with Delete route data; chart map for OsmAnd with its download, OsmAnd and free-space sizes and the two download buttons; vector charts ready with an update available and buttons to update, open the depth and seamarks maps in OsmAnd, show in Files and delete" width="300" align="top">
+</p>
+
+*Left: the Regions screen with the trip's Start and Destination. Right: a region card with its route data, chart map and vector charts.*
+
 - **Trips that need another region:** once Start and Destination are filled in, a banner above **Plan route** names any region the trip runs into that is not downloaded, with its size and a **Download** button. The banner also says when part of the trip is outside every region.
 - **Automatic downloads:** the first time you download a region, the app asks once whether to download and update regions automatically on Wi-Fi. You can change this on the Regions screen. If you say yes, a daily background job fetches NOAA's weekly rebuild of your regions on Wi-Fi only, and a trip that needs another region gets it without asking. On mobile data the app still asks first.
 - **Moving from Chesapeake Bay:** regions 04 and 05 replace the older **Chesapeake Bay** area. The app offers the switch, or makes it on its own on Wi-Fi if automatic downloads are on, and removes the old area once both regions are in. The Chesapeake Bay area is no longer published. App versions from before regions existed can download regions 04 and 05 from their list.
@@ -187,6 +200,12 @@ NOAA Route does the work: it downloads NOAA's chart for your region, converts it
 1. **Get the chart.** In NOAA Route, tap **Regions**, tap your region, then **Download for OsmAnd**. The app downloads NOAA's chart, converts it and saves it as `Download/noaa-charts/ncds_XX.sqlitedb`. To show several regions at once, use **Combine chart maps for OsmAnd** to make one map from them.
 2. **Add it to OsmAnd.** Tap **Open in OsmAnd** on the region card. OsmAnd imports the chart as an offline map. Then select it as the overlay in OsmAnd's map settings (OsmAnd's Online maps plugin must be on to draw it). If you use OsmAnd's Boat profile, set the overlay while that profile is active, since each profile keeps its own map settings.
 3. **Send a route.** After planning, tap **Open in OsmAnd** to show and follow the route on the chart. If OsmAnd will not open it, tap **Show routes folder in Files** and tap the `.gpx` there.
+
+<p>
+  <img src="docs/share-dialog.jpg" alt="Dialog for a position shared from OsmAnd, titled No address determined 39.08780, -76.30120, with the choices Start, Destination, Via point, Save as place and Cancel" width="300">
+</p>
+
+*A spot shared from OsmAnd (tap the map, then Share > NOAA Route): use it as Start, Destination or a via point, or save it as a place.*
 
 When NOAA publishes an update, download it again from the region card. OsmAnd keeps its own copy of an imported chart, so delete the old one in OsmAnd and import the new file.
 
