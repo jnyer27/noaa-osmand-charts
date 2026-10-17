@@ -72,6 +72,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // is still reachable, never taken as a shortcut)
         private const val MARG_SHORE_M = 40.0
         private const val MARG_SHORE_COST = 10f
+        // A gap of a dredged channel reaches this many cells each side (Coinjock: 6 in a row)
+        private const val GAP_CELLS = 4
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
@@ -336,7 +338,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
         // Marginal water in a gap of a dredged channel (channel cells on both sides within
-        // two cells, along a row, column or diagonal) is the channel's charted edge, not a
+        // GAP_CELLS, along a row, column or diagonal) is the channel's charted edge, not a
         // gut: the ICW's Coinjock cut is charted as a 1-cell dredged line with 0-6 ft
         // slivers and a fender in it, and at 10x those cells outweighed 12 nm of open
         // Currituck Sound. Beside the line (Sneads Ferry) the 10x stays, or the route
@@ -348,7 +350,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val c = i % w
             fun ch(rr: Int, cc: Int) = rr in 0 until h && cc in 0 until w && channel[rr * w + cc]
             for ((dr, dc) in arrayOf(0 to 1, 1 to 0, 1 to 1, 1 to -1)) {
-                if ((ch(r + dr, c + dc) || ch(r + 2 * dr, c + 2 * dc)) && (ch(r - dr, c - dc) || ch(r - 2 * dr, c - 2 * dc))) { gapCell[i] = true; break }
+                if ((1..GAP_CELLS).any { ch(r + it * dr, c + it * dc) } && (1..GAP_CELLS).any { ch(r - it * dr, c - it * dc) }) { gapCell[i] = true; break }
             }
         }
         for (i in 0 until n) if (ok[i]) {
