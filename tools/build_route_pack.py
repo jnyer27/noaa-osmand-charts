@@ -32,7 +32,7 @@ chart wins (same rule as noaa-route.py).
 
 Planes (0 always means "nothing here"):
   0 DEPTH   index into header depth_table: [drval1_m|null, drval2_m|null, kind]
-            kind 0 = DEPARE, 1 = DRGARE, 2 = DEPARE inside a charted fairway (FAIRWY:
+            kind 0 = DEPARE, 1 = DRGARE, 2 = DEPARE inside a charted fairway or on a recommended track (FAIRWY, RECTRC:
             the ICW where no dredged area is charted, such as along Oak Island; the
             app follows it like a dredged channel, older apps read it as kind 0).
             0 = land, uncharted or no data.
@@ -696,11 +696,19 @@ def build(cells, grid, work, depth=None, quiet=False):
         # of the cell's depth key. Where no dredged area is charted the fairway is all the
         # app knows of the channel (a route drifted 74 m off the ICW along Oak Island
         # to keep clear of a drying patch beside the fairway).
+        # Cells on a recommended track count the same: in Bogue Sound the ICW is charted
+        # only as a track along a 6-12 ft strip squeezed by 1-3 ft soundings, and without
+        # a channel's lower costs a 5 ft route went round through 0-6 ft water instead.
         fw = [(geom, 1) for f, geom in features(gp, "FAIRWY")
               if geom.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
                                             ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)]
-        if fw:
+        trk = [(geom, 1) for f, geom in features(gp, "RECTRC")
+               if geom.GetGeometryType() in (ogr.wkbLineString, ogr.wkbMultiLineString,
+                                             ogr.wkbLineString25D, ogr.wkbMultiLineString25D)]
+        if fw or trk:
             inf = burn(grid, fw) > 0
+            if trk:
+                inf |= burn(grid, trk, all_touched=True) > 0
             lut = np.arange(256, dtype=np.uint8)
             for v in np.unique(planes[DEPTH][inf]):
                 e = depth_table[v] if v < len(depth_table) else None
