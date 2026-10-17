@@ -70,12 +70,13 @@ class ChartSet(val packs: List<Pack>) {
         val tx1 = min(width / t - 1, (c0 + w * f - 1) / t)
         for (ty in ty0..ty1) for (tx in tx0..tx1) {
             val (pack, d) = tileData(tx, ty) ?: continue
-            // Depth class per depth-table entry; a dredged area deep enough for depthM also
-            // gets Planner.DREDGED (0x40), so the planner can tell a maintained channel
+            // Depth class per depth-table entry; a dredged area or a charted fairway deep
+            // enough for depthM also gets Planner.DREDGED (0x40), so the planner can tell a
+            // maintained channel (the ICW is often charted only as a fairway)
             val lut = luts.getOrPut(pack) { ByteArray(256) { k ->
                 val r = pack.depthTable.getOrNull(k)
                 val cls = Planner.classify(r, depthM - Planner.ROUNDING_M)
-                (if (cls == Planner.SAFE && r?.dredged == true) cls or Planner.DREDGED else cls).toByte()
+                (if (cls == Planner.SAFE && (r?.dredged == true || r?.fairway == true)) cls or Planner.DREDGED else cls).toByte()
             } }
             val prA = max(ty * t, r0)
             val prB = min((ty + 1) * t, r0 + h * f)

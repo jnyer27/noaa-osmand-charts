@@ -32,7 +32,10 @@ chart wins (same rule as noaa-route.py).
 
 Planes (0 always means "nothing here"):
   0 DEPTH   index into header depth_table: [drval1_m|null, drval2_m|null, kind]
-            kind 0 = DEPARE, 1 = DRGARE. 0 = land, uncharted or no data.
+            kind 0 = DEPARE, 1 = DRGARE, 2 = DEPARE inside a charted fairway (FAIRWY:
+            the ICW where no dredged area is charted, such as along Oak Island; the
+            app follows it like a dredged channel, older apps read it as kind 0).
+            0 = land, uncharted or no data.
   1 HAZARD  shallowest OBSTRN/WRECKS/UWTROC: 1 + VALSOU in dm (0-253); unknown
             depth is stored as 1 (0.0 m) so it is a hazard for any boat.
             255 = shoreline construction (SLCONS: pier, seawall, jetty) and no
@@ -527,6 +530,7 @@ def build(cells, grid, work, depth=None, quiet=False):
     planes = np.zeros((NPLANES, grid.h, grid.w), np.uint8)
     depth_table, depth_index = depth or ([None], {})  # index 0 = no water
     coarsened = 0
+    fairway_skipped = 0
     notes = []
     say = (lambda m: None) if quiet else log
 
@@ -589,6 +593,30 @@ def build(cells, grid, work, depth=None, quiet=False):
         # planner's shore proximity cost keeps routes off land instead
         land = burn(grid, [(geom, 1) for f, geom in features(gp, "LNDARE")]) > 0
         planes[DEPTH][land] = 0
+        # Charted fairways over depth areas (not dredged, not drying): the fairway variant
+        # of the cell's depth key. Where no dredged area is charted the fairway is all the
+        # app knows of the channel (a route drifted 74 m off the ICW along Oak Island
+        # to keep clear of a drying patch beside the fairway).
+        fw = [(geom, 1) for f, geom in features(gp, "FAIRWY")
+              if geom.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
+                                            ogr.wkbPolygon25D, ogr.wkbMultiPolygon25D)]
+        if fw:
+            inf = burn(grid, fw) > 0
+            lut = np.arange(256, dtype=np.uint8)
+            for v in np.unique(planes[DEPTH][inf]):
+                e = depth_table[v] if v < len(depth_table) else None
+                if not e or e[2] != 0 or e[0] is None or e[0] < 0:
+                    continue
+                key = (e[0], e[1], 2)
+                if key not in depth_index:
+                    if len(depth_table) >= 256:
+                        fairway_skipped += 1
+                        continue
+                    depth_index[key] = len(depth_table)
+                    depth_table.append(list(key))
+                lut[v] = depth_index[key]
+            planes[DEPTH][inf] = lut[planes[DEPTH][inf]]
+            del inf
 
         # Hazards and soundings, shallowest wins
         area = lambda g_: g_.GetGeometryType() in (ogr.wkbPolygon, ogr.wkbMultiPolygon,
@@ -739,6 +767,8 @@ def build(cells, grid, work, depth=None, quiet=False):
 
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
+    if fairway_skipped:
+        log(f"Depth table full: {fairway_skipped} fairway depth ranges left unmarked (routed as plain depth areas)")
     return planes, depth_table, notes, sorted(d for d in datums if d is not None)
 
 
