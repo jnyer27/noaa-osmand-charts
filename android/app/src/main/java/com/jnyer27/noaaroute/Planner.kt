@@ -41,6 +41,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
+        const val MAX_DROP_GUIDES = 2 // guide points one stretch may drop when cut off at full detail
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
         const val SKIP_GUIDES = 3 // a full-detail piece may reach this many guide points ahead, skipping those between
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
@@ -1364,7 +1365,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 guideRes = max(guideRes ?: 0.0, gr)
                 progress("Guide points (overview %.0f m): ".format(gr) + guide.joinToString("; ") { "%.5f,%.5f".format(it.lat, it.lon) })
                 listOf(p) + guide + listOf(q)
-            }
+            }.toMutableList()
             fun label(j: Int) = if (j == 0) k + 1 else if (j == chain.size - 1) k + 2 else null
             // atGuide: the piece starts at a guide point (never tidy away one of your points)
             val first = max(wps.size, 1) // wps from here on are this leg's; before it, your point stays
@@ -1385,9 +1386,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val ahead = ArrayList<Pair<Piece, Snap>>() // stretches a -> a+1 -> ... with the state after each
             var a = 0
             var atA = c.snap()
+            // A guide point cut off at full detail (the 320 m overview joined a pocket inside
+            // the territorial sea baseline at Topsail to the sound, and a Stay inside trip was
+            // refused) is dropped: the stretch heads for the next one instead
             fun stretch(j: Int): Piece {
-                progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
-                return planPiece(chain[j], chain[j + 1], label(j), label(j + 1), c)
+                var dropped = 0
+                while (true) {
+                    progress("Routing leg ${k + 1} of ${pts.size - 1}" + if (chain.size > 2) ", stretch ${j + 1} of ${chain.size - 1}" else "")
+                    val before = c.snap()
+                    try {
+                        return planPiece(chain[j], chain[j + 1], label(j), label(j + 1), c)
+                    } catch (e: PlanException) {
+                        if (j + 1 >= chain.size - 1 || dropped == MAX_DROP_GUIDES) throw e
+                        c.restore(before)
+                        chain.removeAt(j + 1)
+                        dropped++
+                    }
+                }
             }
             while (a < chain.size - 1) {
                 if (ahead.isEmpty()) ahead.add(stretch(a) to c.snap())
@@ -1395,6 +1410,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (b in min(a + SKIP_GUIDES, chain.size - 1) downTo a + 2) {
                     if (area(listOf(chain[a], chain[b]), 1.0).f != 1) continue
                     while (ahead.size < b - a) ahead.add(stretch(a + ahead.size) to c.snap())
+                    if (b > chain.size - 1) continue // a guide point was dropped on the way
                     val viaCost = ahead.take(b - a).sumOf { it.first.cost }
                     val viaRes = ahead.take(b - a).maxOf { it.first.res }
                     val after = c.snap()
