@@ -587,6 +587,33 @@ def fill_gaps(d, dt):
     return n
 
 
+TRACK_CLEAR_CELLS = 10  # 200 m
+
+
+def lone_track(trk, fw, depth, kinds):
+    """Cells of trk with no fairway (fw) or dredged cell (kinds[depth] == 1) within
+    TRACK_CLEAR_CELLS, by row blocks."""
+    h, w = trk.shape
+    k = TRACK_CLEAR_CELLS
+    out = np.zeros_like(trk)
+    for r0 in range(0, h, 1024):
+        r1 = min(h, r0 + 1024)
+        if not trk[r0:r1].any():
+            continue
+        a, b = max(0, r0 - k), min(h, r1 + k)
+        ch = fw[a:b] | (kinds[depth[a:b]] == 1)
+        near = ch.copy()
+        for s in range(1, k + 1):  # square dilation: rows, then columns
+            near[s:] |= ch[:-s]
+            near[:-s] |= ch[s:]
+        ch = near.copy()
+        for s in range(1, k + 1):
+            near[:, s:] |= ch[:, :-s]
+            near[:, :-s] |= ch[:, s:]
+        out[r0:r1] = trk[r0:r1] & ~near[r0 - a:r0 - a + (r1 - r0)]
+    return out
+
+
 def line_parts(geom):
     """Points [(lon, lat), ...] of each part of a line or multiline."""
     g = geom.Clone()
@@ -708,7 +735,10 @@ def build(cells, grid, work, depth=None, quiet=False):
         if fw or trk:
             inf = burn(grid, fw) > 0
             if trk:
-                inf |= burn(grid, trk, all_touched=True) > 0
+                # Only away from charted channels: a track off a smaller-scale chart ran
+                # beside Oak Island's fairway, next to its drying patch
+                kinds = np.array([e[2] if e else 0 for e in depth_table] + [0] * (256 - len(depth_table)), np.uint8)
+                inf |= lone_track(burn(grid, trk, all_touched=True) > 0, inf, planes[DEPTH], kinds)
             lut = np.arange(256, dtype=np.uint8)
             for v in np.unique(planes[DEPTH][inf]):
                 e = depth_table[v] if v < len(depth_table) else None
