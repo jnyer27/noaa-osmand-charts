@@ -512,9 +512,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val o1 = r * w + cc
                     val o2 = rr * w + c
                     if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
-                    // slipping diagonally between pier cells crosses the pier
-                    if (pier[o1]) cs = max(cs, cost[o1])
-                    if (pier[o2]) cs = max(cs, cost[o2])
+                    // slipping diagonally between pier cells crosses the pier, except along a
+                    // dredged channel: a 1-cell ICW channel under the Coinjock bridge runs
+                    // diagonally between its fenders, and paid the pier price twice
+                    val along = g0.channel(i) && g0.channel(j)
+                    if (pier[o1] && !along) cs = max(cs, cost[o1])
+                    if (pier[o2] && !along) cs = max(cs, cost[o2])
                 }
                 val ng = gi + step[k] * res * (ci + cs) * 0.5f
                 if (ng < g[j]) {
@@ -1113,8 +1116,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val o1 = r * w + cc
                     val o2 = rr * w + c
                     if ((cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) && !(g0.channel(i) && g0.channel(j))) continue
-                    if (pier[o1]) cs = max(cs, cost[o1])
-                    if (pier[o2]) cs = max(cs, cost[o2])
+                    val along = g0.channel(i) && g0.channel(j)
+                    if (pier[o1] && !along) cs = max(cs, cost[o1])
+                    if (pier[o2] && !along) cs = max(cs, cost[o2])
                 }
                 val ng = gi + step[k] * res * (ci + cs) * 0.5f
                 if (ng < g[j]) {
