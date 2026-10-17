@@ -1,0 +1,56 @@
+name: Route problem
+description: A planned route takes a wrong or unsafe way, zig-zags, or is refused
+title: "Route: "
+labels: [route]
+body:
+  - type: markdown
+    attributes:
+      value: "Attach the route's GPX file (from Download/noaa-charts/routes) and a screenshot. Drag them into the boxes below; GitHub accepts .gpx only zipped or renamed to .txt."
+  - type: input
+    id: where
+    attributes:
+      label: Where (lat, lon)
+      description: The spot that looks wrong
+      placeholder: "34.03303, -77.93790"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong, and what you expected
+      placeholder: "Leaves the ICW for the open sound north of Piney Island; should stay in the ICW through Coinjock."
+    validations:
+      required: true
+  - type: input
+    id: trip
+    attributes:
+      label: Start and destination
+      placeholder: "39.32371,-76.39998 to 33.891933,-78.437618"
+    validations:
+      required: true
+  - type: input
+    id: settings
+    attributes:
+      label: Safe depth, air draft, Stay inside
+      placeholder: "5 ft, 10 ft, Stay inside on"
+    validations:
+      required: true
+  - type: input
+    id: regions
+    attributes:
+      label: Regions installed in the app
+      description: From the Regions screen. Long-trip routes depend on which regions are loaded.
+      placeholder: "04, 05, 06, 07"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Android Settings > Apps > NOAA Route shows it; say if it is a test APK
+      placeholder: "0.1.105"
+  - type: textarea
+    id: files
+    attributes:
+      label: Route GPX and screenshot
+      description: Drag the files here

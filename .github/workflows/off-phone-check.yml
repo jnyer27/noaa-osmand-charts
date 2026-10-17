@@ -1,0 +1,30 @@
+name: Off-phone tools check
+
+# Checks that tools/cloud-setup.sh and tools/run_refs.sh work on a clean Ubuntu machine,
+# as in a Claude Code cloud session: no Android SDK or Gradle preinstalled (the runner's
+# are hidden), packs downloaded from the release.
+on:
+  workflow_dispatch:
+    inputs:
+      routes:
+        description: "Reference routes to run (name regex)"
+        default: "Sneads Ferry|Snows Cut"
+  push:
+    paths:
+      - "tools/cloud-setup.sh"
+      - "tools/run_refs.sh"
+      - ".github/workflows/off-phone-check.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: tools/cloud-setup.sh
+      - name: Reference routes
+        run: |
+          unset ANDROID_HOME ANDROID_SDK_ROOT
+          export PATH="$(echo "$PATH" | tr ':' '\n' | grep -v -i -e android -e gradle | paste -sd:)"
+          tools/run_refs.sh "${{ inputs.routes || 'Sneads Ferry|Snows Cut' }}"
