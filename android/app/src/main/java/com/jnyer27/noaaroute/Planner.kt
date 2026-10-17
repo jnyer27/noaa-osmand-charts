@@ -343,6 +343,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
+        // Overview only: marginal water next to a dredged channel block is that channel's
+        // edge. The ICW's 1-cell channel (Coinjock, south of Masonboro Inlet) breaks up on
+        // the overview, and at 10x the gap blocks guided Wrightsville to Southport out to sea.
+        // At full detail the 10x stays, or a route steps out of a 1-cell channel (Sneads Ferry).
+        val byChannel = BooleanArray(n)
+        if (a.f > 1) for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL) {
+            val r = i / w
+            val c = i % w
+            for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                val j = rr * w + cc
+                if (ok[j] && dredged[j] && nav[j].toInt() == SAFE) byChannel[i] = true
+            }
+        }
         for (i in 0 until n) if (ok[i]) {
             val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
@@ -357,7 +370,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing) c *= MARG_SHORE_COST
+                if (dist[i] <= margRing && !byChannel[i]) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
