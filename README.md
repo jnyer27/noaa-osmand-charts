@@ -15,6 +15,8 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 > **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
 
+What changed in each release: [CHANGELOG.md](CHANGELOG.md).
+
 The project began as a set of Termux scripts, which are kept in this repository as the [proof of concept](#proof-of-concept-the-termux-scripts) that the app grew from.
 
 ---
@@ -36,7 +38,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 ## Features
 
 - **Depth-aware routing.** Routes stay on water charted at your safe operating depth wherever possible. Shallow stretches are flagged with their length and the shallowest nearby sounding. If no route exists, the app explains why: it names the limiting sounding or obstruction and its position, and gives the deepest depth setting that does work.
-- **Channel-aware routing.** Dredged channels are preferred. Lateral buoys and daybeacons are never passed on the wrong side, so "red right returning" holds in both directions.
+- **Channel-aware routing.** Dredged channels are preferred, and so are charted fairways and recommended tracks where the ICW is charted only that way. Lateral buoys and daybeacons are never passed on the wrong side, so "red right returning" holds in both directions.
 - **Stay inside.** An option keeps routes off the open ocean, for example down the Chesapeake and Pamlico Sound instead of outside the Outer Banks. Without it, the planner takes the shortest charted water, which can mean a long ocean run past capes like Hatteras.
 - **Bridges and cables.** Routes go only under navigation spans with a charted clearance, and only when that clearance covers your air draft. Opening bridges are reported with their closed clearance.
 - **Long trips.** Trips of 100+ nm (for example, the Chesapeake down the ICW to the Carolinas) are planned at 20 m detail end to end in seconds, and can cross between chart regions.
@@ -156,6 +158,27 @@ A point on land or a dock is moved to the nearest usable water, and the report s
 If a point is boxed in by shallow water, land, a hazard buffer, or a bridge or cable too low for your air draft, the planner stops and says which one. It names the shallowest sounding or obstruction responsible, with its position, and when depth is the limit, it gives the deepest setting that gets out. For example, Maryland Marina at 6 ft is blocked by soundings as shallow as 3.9 ft, and 5 ft works.
 
 Long trips are worked out at 20 m detail within 20 km of each end first, to settle which inlet and which creek. The ends are then joined across open water on a coarse overview, and the route is planned at full 20 m detail stretch by stretch between guide points, about every 18 km on open water and every 8 km near the ends. An overview cell that holds a dredged channel or fairway counts as that channel (without the channel markers along it), and the overview may step diagonally from one channel cell to the next, so a channel only one 20 m cell wide still shows on a 320 m overview. A guide point that turns out to be cut off at full detail (a pocket of water by an inlet, for example) is dropped, and the stretch heads for the next one.
+
+## Safety and testing process
+
+NOAA Route is a planning aid. These are the steps between NOAA's charts and a route on your phone, and what is left for you to check.
+
+**What the report asks you to check.** Every leg that needs a look says why: the length in 0-6 ft water and the shallowest sounding within 100 m; "passes near charted shoal soundings or obstructions"; "passes over or on the wrong side of a channel marker"; "runs along or across charted piers or seawalls"; "passes charted piles or snags"; opening bridges with their closed clearance; cables with their clearance; restricted areas with their CFR rule; and the short "connects your point to usable water: not checked" leg where a point was moved off land or a dock. None of these are errors, but each is a place to look at the chart and the water.
+
+**What the planner does not know.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Soundings are sparse, the bottom moves, and single piles are not avoided. The grid is 20 m, so a line through a narrow opening may run along one side of it. Charts lag behind the water, even with Notices to Mariners corrections.
+
+**How the route data is built.** Every week the route packs are rebuilt from NOAA's current ENC cells with all update files applied. The build checks each chart's depth units and records its sounding datum.
+
+**Reference routes.** `tools/areas.json` holds over 100 reference routes. Some must come out within a length range. Some must be refused (a destination boxed in by shallow water, for example). Some must keep away from a spot: an inlet that should not be used, a drying patch, the wrong side of a buoy. Some must not break into a staircase of tiny legs, and some must stay inside. Every pack build and every planner change runs all of them through the app's own planner code, and nothing is published if one fails.
+
+**Release steps.**
+1. Every change is made on a branch.
+2. Its packs go to the `route-pack-beta` pre-release, and the test APK built from the branch reads only those.
+3. The change is tried on a phone.
+4. After review it is merged into main, which builds the released app.
+5. The tested beta packs are promoted to the `route-pack` release. Promotion is refused unless the commit they were tested from is in main.
+
+**Problems you report.** A route that leaves the ICW, zig-zags or cuts a corner becomes a new reference route once fixed, so it cannot come back unnoticed. [CHANGELOG.md](CHANGELOG.md) lists the routing and safety changes in each release.
 
 ## Using routes and charts in OsmAnd+
 
