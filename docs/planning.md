@@ -9,7 +9,11 @@ The main screen, top to bottom.
 
 ## Charts
 
-Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from ..."). **Regions** opens the Regions screen, which also says when updates are available. See [Chart regions and updates](regions.html).
+<img src="main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions, Regions (13 updates), Start and Destination filled in, depth 2 ft, air draft 10 ft, Stay inside checked, Plan route, the status line Region 06 ready, and Manage places" width="300">
+
+Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
+
+The line under **Plan route** shows what the app is doing: download progress ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."), where a shared point went ("Start set: ..."), or the result of planning.
 
 ## Start, Destination and Via points
 
@@ -40,7 +44,7 @@ Your boat's height above the waterline. With it, the route goes only under bridg
 
 ## Stay inside (avoid open ocean)
 
-Keeps the route on bays, sounds, rivers and the ICW. For example, Maryland to the Neuse River goes down the Chesapeake, through the ICW's Virginia Cut and the North Carolina sounds instead of around Cape Hatteras. If a point you entered is itself out in the ocean, the planner says so.
+Keeps the route on bays, sounds, rivers and the ICW. The note under the checkbox puts it as no water seaward of the line across inlets and bay mouths: the planner treats as open ocean the water reached from 12 nm offshore without crossing land or one of those lines. For example, Maryland to the Neuse River goes down the Chesapeake, through the ICW's Virginia Cut and the North Carolina sounds instead of around Cape Hatteras. If a point you entered is itself out in the ocean, the planner says so.
 
 Without it, the planner takes the cheapest safe water, which can include the ocean along the beach or past a cape.
 
@@ -64,4 +68,10 @@ If a point is boxed in, the app stops and says why: shallow water, land, a hazar
 
 ## Places
 
-**Manage places** lists your saved spots (tap one to edit or delete it); **Add place** takes a name and `LAT, LON`. You can also save a position shared from OsmAnd as a place, or save all waypoints of a GPX file at once.
+**Manage places** opens **Places (tap to edit or delete)**:
+
+- **+ Add a place** opens **Add place**: a name and `LAT, LON` (filled in with Start), then **Save**.
+- Tap a place to **Edit place**: change the name or position and **Save**, or **Delete** it.
+- Saving under a name that already exists updates that place.
+
+The list starts with six sample Chesapeake places (Maryland Marina, Hart-Miller Island beach, Bear Creek, Rock Hall Harbor, Annapolis Ego Alley, Chesapeake City dock), which you can edit or delete. The **Places** buttons next to Start and Destination, and **Add** next to Via points, pick from this list. You can also save a position shared from OsmAnd as a place, or save all waypoints of a GPX file at once.

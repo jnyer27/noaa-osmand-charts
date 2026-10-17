@@ -17,9 +17,19 @@ The route line is a guide. On the 20 m grid, a line through a narrow bridge open
 
 ## Sharing points from OsmAnd
 
-In OsmAnd, tap a spot on the map, then **Share > NOAA Route**. The app asks **Which position?**: **Start**, **Destination**, **Via point**, or **Save as place**.
+In OsmAnd, tap a spot on the map, then **Share > NOAA Route**. NOAA Route opens a dialog titled with the shared spot's name and coordinates (OsmAnd sends "No address determined" for a spot without an address):
 
-Map links, `geo:` links and plain coordinates from other apps work the same way.
+<img src="share-dialog.jpg" alt="Dialog for a position shared from OsmAnd, titled No address determined 39.08780, -76.30120, with the choices Start, Destination, Via point, Save as place and Cancel" width="300">
+
+| Choice | What it does |
+|---|---|
+| **Start** | Puts the position in Start ("Start set: ...") |
+| **Destination** | Puts it in Destination |
+| **Via point** | Adds it to the end of Via points |
+| **Save as place...** | Opens **Add place** with the name and position filled in; edit the name and tap **Save** |
+| **Cancel** | Does nothing |
+
+When what was shared holds several positions, the app first asks **Which position?** and lists them. Map links, `geo:` links and plain coordinates from other apps work the same way.
 
 Sharing a **GPX file** offers:
 
