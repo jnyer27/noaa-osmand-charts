@@ -548,6 +548,42 @@ def channel_gates(marks, fairways, dredged, tracks=()):
     return out
 
 
+GAP_CELLS = 2
+
+
+def fill_gaps(d, dt):
+    """Give cells of d the touching value dt where dt differs and dt's value lies on both
+    sides of the cell within GAP_CELLS (row, column or diagonal); in place, by row blocks.
+    Returns the number of cells changed."""
+    h, w = d.shape
+    k = GAP_CELLS
+    n = 0
+    for r0 in range(0, h, 1024):
+        a, b = max(0, r0 - k), min(h, r0 + 1024 + k)
+        blk = d[a:b]
+        tb = dt[a:b]
+        cand = (tb != blk) & (tb > 0) & (blk > 0)
+        if not cand.any():
+            continue
+        pad = np.pad(blk, k)
+        hh, ww = blk.shape
+        ok = np.zeros_like(cand)
+        for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            fwd = np.zeros_like(cand)
+            bwd = np.zeros_like(cand)
+            for step in range(1, k + 1):
+                fwd |= pad[k + dr * step:k + dr * step + hh, k + dc * step:k + dc * step + ww] == tb
+                bwd |= pad[k - dr * step:k - dr * step + hh, k - dc * step:k - dc * step + ww] == tb
+            ok |= fwd & bwd
+        fill = cand & ok
+        lo, hi = r0 - a, min(1024, h - r0) + (r0 - a)
+        fill[:lo] = False
+        fill[hi:] = False
+        n += int(fill.sum())
+        blk[fill] = tb[fill]
+    return n
+
+
 def line_parts(geom):
     """Points [(lon, lat), ...] of each part of a line or multiline."""
     g = geom.Clone()
@@ -638,6 +674,16 @@ def build(cells, grid, work, depth=None, quiet=False):
         # channel's cells, and at 5 ft that shut the 1-2 cell wide channel.
         depth_feats.sort(key=lambda t: t[0])
         d = burn(grid, [(g_, v) for _, g_, v in depth_feats])
+        # A thin deeper area sampled at cell centers falls apart into separate cells: the
+        # ICW's 6-12 ft strip in Bogue Sound (one polygon) squeezes between 1 and 3.3 ft
+        # soundings at buoy 11A, and the 0-6 ft gap cells inside their buffer shut it at 5
+        # ft. A cell the deeper area touches, with that area's cells on both sides within
+        # GAP_CELLS along a row, column or diagonal, gets its value.
+        dt = burn(grid, [(g_, v) for _, g_, v in depth_feats], all_touched=True)
+        gaps = fill_gaps(d, dt)
+        del dt
+        if gaps:
+            say(f"{gaps} cells joining thin depth areas")
         planes[DEPTH] = np.where(d > 0, d, planes[DEPTH])
         # Not all touched: that narrowed harbor entrances shut (Rock Hall); the
         # planner's shore proximity cost keeps routes off land instead
