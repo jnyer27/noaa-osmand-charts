@@ -602,74 +602,10 @@
  ],
  "tests": [
   {
-   "name": "DEBUG variant 0",
-   "points": [
-    "39.32371,-76.39998",
-    "33.891830,-78.437810"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  },
-  {
    "name": "DEBUG variant 1",
    "points": [
     "39.32371,-76.39998",
     "33.89393,-78.43462"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  },
-  {
-   "name": "DEBUG variant 2",
-   "points": [
-    "39.32371,-76.39998",
-    "33.88993,-78.43462"
    ],
    "depth": 5,
    "air": 10,
@@ -727,95 +663,6 @@
     "ncds_05",
     "ncds_06",
     "ncds_07"
-   ]
-  },
-  {
-   "name": "DEBUG variant 4",
-   "points": [
-    "39.32371,-76.39998",
-    "33.88993,-78.44062"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  },
-  {
-   "name": "Maryland Marina to Little River SC at 5 ft, Stay inside: down the ICW from Currituck Sound Light 111 through Coinjock (the 320 m overview keeps the 1-cell channel), in the Oak Island fairway, no guide point left in a pocket off Topsail",
-   "points": [
-    "39.32371,-76.39998",
-    "33.891933,-78.437618"
-   ],
-   "depth": 5,
-   "air": 10,
-   "inside": true,
-   "nm": [
-    425,
-    455
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ],
-    [
-     33.9202,
-     -78.0665,
-     30
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06",
-    "ncds_07"
-   ]
-  },
-  {
-   "name": "Currituck Sound Light 111 to Albemarle Sound at 5 ft: down the ICW through the Coinjock cut (1-cell dredged line, fender at the bridge), not 12 nm more of open sound",
-   "points": [
-    "36.4600,-75.9750",
-    "36.0500,-75.9500"
-   ],
-   "depth": 5,
-   "air": 10,
-   "nm": [
-    26,
-    32
-   ],
-   "avoid": [
-    [
-     36.3892,
-     -75.8902,
-     2000
-    ]
-   ],
-   "areas": [
-    "ncds_04",
-    "ncds_05",
-    "ncds_06"
    ]
   }
  ]
