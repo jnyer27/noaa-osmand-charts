@@ -335,6 +335,22 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
+        // Marginal water in a gap of a dredged channel (channel cells on both sides within
+        // two cells, along a row, column or diagonal) is the channel's charted edge, not a
+        // gut: the ICW's Coinjock cut is charted as a 1-cell dredged line with 0-6 ft
+        // slivers and a fender in it, and at 10x those cells outweighed 12 nm of open
+        // Currituck Sound. Beside the line (Sneads Ferry) the 10x stays, or the route
+        // stepped out of the channel cell by cell.
+        val channel = BooleanArray(n) { dredged[it] && nav[it].toInt() == SAFE && ok[it] }
+        val gapCell = BooleanArray(n)
+        for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL) {
+            val r = i / w
+            val c = i % w
+            fun ch(rr: Int, cc: Int) = rr in 0 until h && cc in 0 until w && channel[rr * w + cc]
+            for ((dr, dc) in arrayOf(0 to 1, 1 to 0, 1 to 1, 1 to -1)) {
+                if ((ch(r + dr, c + dc) || ch(r + 2 * dr, c + 2 * dc)) && (ch(r - dr, c - dc) || ch(r - 2 * dr, c - 2 * dc))) { gapCell[i] = true; break }
+            }
+        }
         for (i in 0 until n) if (ok[i]) {
             val p = k - min(dist[i].toInt(), k)
             prox[i] = p.toByte()
@@ -349,7 +365,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing) c *= MARG_SHORE_COST
+                if (dist[i] <= margRing && !gapCell[i]) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
