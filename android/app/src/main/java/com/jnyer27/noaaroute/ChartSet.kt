@@ -65,11 +65,7 @@ class ChartSet(val packs: List<Pack>) {
     fun window(r0: Int, c0: Int, h: Int, w: Int, f: Int, depthM: Double, optimistic: Boolean = false): Array<ByteArray> {
         val out = Array(Pack.NPLANES) { ByteArray(h * w) }
         val best = if (f > 1) ByteArray(h * w) else null // best clear class per block (channel first), 0 = none
-        // that cell's bridge clearance and flags, and how clear it is (no bridge, then the highest span)
-        val bestSpan = if (f > 1) ByteArray(h * w) else null
-        val bestFl = if (f > 1) ByteArray(h * w) else null
-        val bestClr = if (f > 1) IntArray(h * w) else null
-        val spanBits = Pack.F_DECK or Pack.F_SPAN or Pack.F_OPENING
+        val topSpan = if (f > 1) ByteArray(h * w) else null // highest span clearance in the block, 0 = no span
         val hzLim = depthM + Pack.FT
         val sdLim = depthM - Planner.ROUNDING_M
         val minPlanes = intArrayOf(Pack.P_HAZARD, Pack.P_SOUND, Pack.P_SPANCLR, Pack.P_CABLECLR)
@@ -116,6 +112,10 @@ class ChartSet(val packs: List<Pack>) {
                     }
                     out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() or d[Pack.P_FLAGS * tt + ti].toInt()).toByte()
                     if (best != null) {
+                        if (d[Pack.P_FLAGS * tt + ti].toInt() and Pack.F_SPAN != 0) {
+                            val sp = d[Pack.P_SPANCLR * tt + ti].toInt() and 0xff
+                            if (sp > (topSpan!![i].toInt() and 0xff)) topSpan[i] = sp.toByte()
+                        }
                         val v = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff].toInt()
                         val cls = v and Planner.DREDGED.inv()
                         val hv = d[Pack.P_HAZARD * tt + ti].toInt() and 0xff
@@ -124,20 +124,7 @@ class ChartSet(val packs: List<Pack>) {
                         val clear = (cls == Planner.SAFE || cls == Planner.MARGINAL) &&
                             !(hv != 0 && hv != Pack.HZ_PIER && (hv - 1) / 10.0 < hzLim) && !(sv != 0 && (sv - 1) / 10.0 < sdLim) &&
                             fl and (Pack.F_STRUCT or Pack.F_PROHIB) == 0
-                        val spv = d[Pack.P_SPANCLR * tt + ti].toInt() and 0xff
-                        val clr = when {
-                            fl and Pack.F_DECK != 0 -> 0
-                            fl and Pack.F_SPAN != 0 -> 1 + spv
-                            else -> 1000
-                        }
-                        val rv = rank(v)
-                        val rb = rank(best[i].toInt())
-                        if (clear && (optimistic || channel(v)) && (rv > rb || rv == rb && clr > bestClr!![i])) {
-                            best[i] = v.toByte()
-                            bestSpan!![i] = spv.toByte()
-                            bestFl!![i] = (fl and spanBits).toByte()
-                            bestClr!![i] = clr
-                        }
+                        if (clear && (optimistic || channel(v)) && rank(v) > rank(best[i].toInt())) best[i] = v.toByte()
                     }
                 }
             }
@@ -152,13 +139,13 @@ class ChartSet(val packs: List<Pack>) {
             // and without snags or channel markers (x50 like a pier: the Coinjock cut's blocks
             // cost 94-141 at 320 m, open sound 4)
             if (out[Pack.P_FLAGS][i].toInt() and Pack.F_CABLE == 0) out[Pack.P_CABLECLR][i] = 0
-            // and that cell's bridge clearance: the block minimum took a fixed approach span or
-            // deck beside the channel span, and at one 320 m alignment the Coinjock bridge block
-            // closed for a 10 ft air draft and a trip went round Piney Island in Currituck Sound
-            val fl = (out[Pack.P_FLAGS][i].toInt() and spanBits.inv()) or bestFl!![i].toInt()
-            out[Pack.P_FLAGS][i] = fl.toByte()
-            if (fl and Pack.F_SPAN != 0) out[Pack.P_SPANCLR][i] = bestSpan!![i]
-            else if ((out[Pack.P_SPANCLR][i].toInt() and 0xff) != Pack.SEA_MARK) out[Pack.P_SPANCLR][i] = 0
+            // and a bridge's highest span in the block, without its deck: the block minimum took
+            // a fixed approach span beside the channel span, and at one 320 m alignment the
+            // Coinjock bridge block closed for a 10 ft air draft and a trip went round Piney Island
+            if (topSpan!![i].toInt() != 0) {
+                out[Pack.P_SPANCLR][i] = topSpan[i]
+                out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and Pack.F_DECK.inv()).toByte()
+            }
         }
         return out
     }
