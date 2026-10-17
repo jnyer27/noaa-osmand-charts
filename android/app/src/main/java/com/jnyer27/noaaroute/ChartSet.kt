@@ -56,8 +56,11 @@ class ChartSet(val packs: List<Pack>) {
      * the open sound instead.
      *
      * [optimistic] (overview retry, f > 1): the same for a block with any clear cell. A
-     * canal 2-3 blocks wide (C&D at 60 m) otherwise broke up on the overview. Each
-     * stretch is still planned at full detail.
+     * canal 2-3 blocks wide (C&D at 60 m) otherwise broke up on the overview. A block
+     * whose center is already usable water keeps its center's depth class: at 320 m one
+     * deep-enough cell made a block of 0-6 ft Currituck Sound safe water, and a 5 ft trip
+     * was guided down the sound instead of the ICW. Each stretch is still planned at full
+     * detail.
      */
     fun window(r0: Int, c0: Int, h: Int, w: Int, f: Int, depthM: Double, optimistic: Boolean = false): Array<ByteArray> {
         val out = Array(Pack.NPLANES) { ByteArray(h * w) }
@@ -120,7 +123,9 @@ class ChartSet(val packs: List<Pack>) {
             }
         }
         if (best != null) for (i in 0 until h * w) if (best[i].toInt() != 0) {
-            out[Pack.P_DEPTH][i] = best[i]
+            val center = out[Pack.P_DEPTH][i].toInt() and Planner.DREDGED.inv()
+            val water = center == Planner.SAFE || center == Planner.MARGINAL
+            out[Pack.P_DEPTH][i] = if (best[i].toInt() and Planner.DREDGED == 0 && water) center.toByte() else best[i]
             out[Pack.P_HAZARD][i] = 0
             out[Pack.P_SOUND][i] = 0
             out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and (Pack.F_STRUCT or Pack.F_PROHIB).inv()).toByte()
