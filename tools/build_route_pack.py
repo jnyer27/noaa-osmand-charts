@@ -394,6 +394,9 @@ def depth_key(d1, d2, kind, step=None):
 # other: in Bogue Sound (ICW charted only as a track) buoys 12, 11A and 10A drew their
 # lines along the 60 m channel and a 5 ft route left it through 3 ft water.
 GATE_M = 100.0
+# The line starts this far from the mark and the mark's own cell stays open: in Bogue
+# Sound the ICW's deep strip is one 20 m cell wide and buoys 10A and 11A sit in it
+GATE_SKIP_M = 20.0
 CHANNEL_M = 150.0
 PAIR_M = 400.0
 
@@ -529,7 +532,7 @@ def channel_gates(marks, fairways, dredged, tracks=()):
         # one begins (a wrong guess can then never block a charted channel); a mark inside
         # its channel starts the line where it leaves the channel
         all_rings = near(0, x, y, GATE_M) + near(1, x, y, GATE_M)
-        start, end, t = None, None, 0.0
+        start, end, t = None, None, GATE_SKIP_M
         while t <= GATE_M:
             px, py = x + ux * t, y + uy * t
             inch = any(inside(px, py, r) for r in all_rings)
@@ -854,13 +857,9 @@ def build(cells, grid, work, depth=None, quiet=False):
                 ln.AddPoint_2D(*a)
                 ln.AddPoint_2D(*b)
                 gl.append((ln, 1))
-            for x, y, _ in marks:
-                pt = ogr.Geometry(ogr.wkbPoint)
-                pt.AddPoint_2D(x, y)
-                gl.append((pt, 1))
             gate = burn(grid, gl) > 0
             planes[CABLECLR][gate & ((planes[FLAGS] & CABLE) == 0) & (planes[CABLECLR] == 0)] = GATE_MARK
-            say(f"{len(marks)} lateral marks, {len(gl) - len(marks)} wrong-side lines")
+            say(f"{len(marks)} lateral marks, {len(gl)} wrong-side lines")
 
     if coarsened:
         log(f"Depth table full: {coarsened} depth areas rounded down to {COARSE_M} m (shallower, so routes only get more cautious)")
