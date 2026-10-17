@@ -49,14 +49,19 @@ class ChartSet(val packs: List<Pack>) {
      * the block center; hazards, soundings and clearances keep the minimum;
      * flags are OR'ed.
      *
-     * [optimistic] (overview retry, f > 1): a block with any clear cell (usable depth,
-     * no hazard, structure or prohibition) is that cell's water, without hazards,
-     * structures or piers. A canal 2-3 blocks wide (C&D at 60 m) otherwise broke up
-     * on the overview; each stretch is still planned at full detail.
+     * Overview (f > 1): a block with a clear dredged or fairway cell (usable depth, no
+     * hazard, structure or prohibition) is that channel's water, without hazards,
+     * structures or piers. Sampled at its center, a 1-2 cell ICW channel south of
+     * Currituck Sound Light 111 fell apart at 320 m and a 450 nm trip was guided down
+     * the open sound instead.
+     *
+     * [optimistic] (overview retry, f > 1): the same for a block with any clear cell. A
+     * canal 2-3 blocks wide (C&D at 60 m) otherwise broke up on the overview. Each
+     * stretch is still planned at full detail.
      */
     fun window(r0: Int, c0: Int, h: Int, w: Int, f: Int, depthM: Double, optimistic: Boolean = false): Array<ByteArray> {
         val out = Array(Pack.NPLANES) { ByteArray(h * w) }
-        val best = if (optimistic && f > 1) ByteArray(h * w) else null // best clear class per block, 0 = none
+        val best = if (f > 1) ByteArray(h * w) else null // best clear class per block (channel first), 0 = none
         val hzLim = depthM + Pack.FT
         val sdLim = depthM - Planner.ROUNDING_M
         val minPlanes = intArrayOf(Pack.P_HAZARD, Pack.P_SOUND, Pack.P_SPANCLR, Pack.P_CABLECLR)
@@ -101,14 +106,15 @@ class ChartSet(val packs: List<Pack>) {
                     }
                     out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() or d[Pack.P_FLAGS * tt + ti].toInt()).toByte()
                     if (best != null) {
-                        val cls = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff].toInt() and Planner.DREDGED.inv()
+                        val v = lut[d[Pack.P_DEPTH * tt + ti].toInt() and 0xff].toInt()
+                        val cls = v and Planner.DREDGED.inv()
                         val hv = d[Pack.P_HAZARD * tt + ti].toInt() and 0xff
                         val sv = d[Pack.P_SOUND * tt + ti].toInt() and 0xff
                         val fl = d[Pack.P_FLAGS * tt + ti].toInt()
                         val clear = (cls == Planner.SAFE || cls == Planner.MARGINAL) &&
                             !(hv != 0 && hv != Pack.HZ_PIER && (hv - 1) / 10.0 < hzLim) && !(sv != 0 && (sv - 1) / 10.0 < sdLim) &&
                             fl and (Pack.F_STRUCT or Pack.F_PROHIB) == 0
-                        if (clear && (best[i].toInt() == 0 || cls == Planner.SAFE)) best[i] = cls.toByte()
+                        if (clear && (optimistic || v and Planner.DREDGED != 0) && rank(v) > rank(best[i].toInt())) best[i] = v.toByte()
                     }
                 }
             }
@@ -120,5 +126,12 @@ class ChartSet(val packs: List<Pack>) {
             out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and (Pack.F_STRUCT or Pack.F_PROHIB).inv()).toByte()
         }
         return out
+    }
+
+    private fun rank(v: Int) = when {
+        v and Planner.DREDGED != 0 -> 3
+        v == Planner.SAFE -> 2
+        v == Planner.MARGINAL -> 1
+        else -> 0
     }
 }
