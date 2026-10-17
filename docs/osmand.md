@@ -1,0 +1,62 @@
+---
+title: Using routes in OsmAnd
+nav_order: 6
+---
+
+# Using routes in OsmAnd
+
+NOAA Route plans; OsmAnd+ (or free OsmAnd) shows the route on a map and follows it with GPS. Both work offline once everything is downloaded, so do the downloads at home on Wi-Fi.
+
+## Following a route
+
+1. After planning, tap **Open in OsmAnd**. OsmAnd opens the GPX route.
+2. Follow the line, or use OsmAnd's navigation along the track. Tap a route point to see the next leg's course, distance and notes.
+3. If OsmAnd does not open it, tap **Show routes folder in Files** and tap the `.gpx` file there, then choose OsmAnd.
+
+The route line is a guide. On the 20 m grid, a line through a narrow bridge opening or a channel can run along one side instead of down the middle, so line up by eye.
+
+## Sharing points from OsmAnd
+
+In OsmAnd, tap a spot on the map, then **Share > NOAA Route**. The app asks **Which position?**: **Start**, **Destination**, **Via point**, or **Save as place**.
+
+Map links, `geo:` links and plain coordinates from other apps work the same way.
+
+Sharing a **GPX file** offers:
+
+- a waypoint from the file, as one point,
+- **Use as trip**: a route or track's first and last points as Start and Destination,
+- **Save all waypoints** as places.
+
+## Chart maps for OsmAnd (paper-chart style)
+
+The app can download NOAA's paper-chart style map of a region (NCDS) and convert it for OsmAnd:
+
+1. Tap **Regions**, then your region, then **Download for OsmAnd**. Choose Wi-Fi only or mobile data too. Android downloads it in the background (it resumes after interruptions and keeps going with the app closed), and the app converts it to `Download/noaa-charts/ncds_XX.sqlitedb`.
+2. Tap **Open in OsmAnd** on the region card. OsmAnd imports it as an offline map.
+3. In OsmAnd, select it as the **overlay** map (the Online maps plugin must be on). With OsmAnd's Boat profile, set it while that profile is active: each profile keeps its own map settings.
+
+A chart map is about 600 MB per region, and converting needs about 2.8 times that in free space; the app checks first.
+
+**Combine chart maps for OsmAnd** merges two or more regions into one map, because OsmAnd shows one overlay at a time. A combined map can **Add regions** later.
+
+**Download the .mbtiles only** keeps NOAA's file as it is, for OpenCPN and other apps.
+
+### Reading the paper-chart style
+
+- Depths are in feet.
+- A magenta teardrop is a light, whatever its color: read the color from the label (`Fl G 4s` is green, `Fl R 4s` is red).
+- A black dot with a height ("15ft") is a fixed beacon on a pile, not a buoy.
+- Even numbers are red, odd numbers green ("red right returning").
+
+## Vector charts for OsmAnd
+
+Also on the region card: NOAA's vector charts as two OsmAnd maps, drawn by OsmAnd itself, sharp at every zoom and only tens of MB:
+
+- **Depth map**: depth contours, depth areas and soundings. OsmAnd lists it under Nautical maps (the free Nautical plugin) and it follows the Nautical depth switch.
+- **Seamarks map**: buoys and beacons, lights, wrecks, rocks and obstructions, piers, bridges, cables, fairways and dredged channels, and restricted areas. OsmAnd lists it under Standard maps, so you can turn it off on its own.
+
+Tap **Download vector charts**, then **Open depth map in OsmAnd** and **Open seamarks map in OsmAnd**. Use OsmAnd's Nautical map style. Some buoys show twice, because OpenStreetMap's seamarks also come with OsmAnd's own maps. Daymarks and light sectors are not drawn yet.
+
+## Updating maps in OsmAnd
+
+OsmAnd keeps its own copy of every imported map. After an update (an **Update** button appears on the region card when NOAA publishes a newer build), delete the old map in OsmAnd (**Maps & Resources > Local**) and open the new one from the app.

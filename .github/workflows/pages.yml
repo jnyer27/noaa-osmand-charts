@@ -1,0 +1,53 @@
+name: User guide
+
+# Builds the user guide in docs/ (Jekyll, Just the Docs theme) on every change; publishes it
+# to GitHub Pages (https://jnyer27.github.io/noaa-osmand-charts/) from main only.
+on:
+  push:
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+      - name: Check links between pages
+        run: |
+          missing=0
+          for f in _site/*.html; do
+            for l in $(grep -o 'href="[a-z-]*\.html' "$f" | cut -d'"' -f2 | sort -u); do
+              [ -f "_site/$l" ] || { echo "$f links to missing $l"; missing=1; }
+            done
+          done
+          ls _site
+          exit $missing
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
