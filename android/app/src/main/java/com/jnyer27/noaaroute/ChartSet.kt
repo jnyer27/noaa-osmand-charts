@@ -66,7 +66,7 @@ class ChartSet(val packs: List<Pack>) {
         val out = Array(Pack.NPLANES) { ByteArray(h * w) }
         val best = if (f > 1) ByteArray(h * w) else null // best clear class per block (channel first), 0 = none
         val topSpan = if (f > 1) ByteArray(h * w) else null // highest span clearance in the block, 0 = no span
-        val open = if (f > 1) BooleanArray(h * w) else null // a clear cell of the best class has no bridge deck over it
+        val open = if (f > 1) BooleanArray(h * w) else null // a clear cell of the best class has no bridge over it
         val hzLim = depthM + Pack.FT
         val sdLim = depthM - Planner.ROUNDING_M
         val minPlanes = intArrayOf(Pack.P_HAZARD, Pack.P_SOUND, Pack.P_SPANCLR, Pack.P_CABLECLR)
@@ -128,7 +128,7 @@ class ChartSet(val packs: List<Pack>) {
                         if (clear && (optimistic || channel(v))) {
                             val rv = rank(v)
                             val rb = rank(best[i].toInt())
-                            val noDeck = fl and Pack.F_DECK == 0
+                            val noDeck = fl and (Pack.F_DECK or Pack.F_SPAN) == 0
                             if (rv > rb) { best[i] = v.toByte(); open!![i] = noDeck }
                             else if (rv == rb && noDeck) open!![i] = true
                         }
@@ -146,11 +146,17 @@ class ChartSet(val packs: List<Pack>) {
             // and without snags or channel markers (x50 like a pier: the Coinjock cut's blocks
             // cost 94-141 at 320 m, open sound 4)
             if (out[Pack.P_FLAGS][i].toInt() and Pack.F_CABLE == 0) out[Pack.P_CABLECLR][i] = 0
-            // and with a bridge's highest span in the block; without the deck if it has a span or
-            // its water is clear of the deck. At one 320 m alignment the Coinjock bridge block took
-            // the deck beside the channel, closed, and a trip went round Piney Island
-            if (topSpan!![i].toInt() != 0) out[Pack.P_SPANCLR][i] = topSpan[i]
-            if (topSpan[i].toInt() != 0 || open!![i]) out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and Pack.F_DECK.inv()).toByte()
+            // and without a bridge if its water has none over it, else with the bridge's highest span
+            // and no deck. The block took the lowest span and any deck in it: at one 320 m alignment
+            // the Coinjock bridge's low approach closed the ICW and a trip went round Piney Island
+            val fl = out[Pack.P_FLAGS][i].toInt()
+            if (open!![i]) {
+                out[Pack.P_FLAGS][i] = (fl and (Pack.F_DECK or Pack.F_SPAN).inv()).toByte()
+                if ((out[Pack.P_SPANCLR][i].toInt() and 0xff) != Pack.SEA_MARK) out[Pack.P_SPANCLR][i] = 0
+            } else if (topSpan!![i].toInt() != 0) {
+                out[Pack.P_SPANCLR][i] = topSpan[i]
+                out[Pack.P_FLAGS][i] = (fl and Pack.F_DECK.inv()).toByte()
+            }
         }
         return out
     }
