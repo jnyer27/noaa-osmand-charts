@@ -53,7 +53,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val SHALLOW = 5
         /** Open sea while "Stay inside" is on (seaward of the territorial sea baseline) */
         const val SEA = 6
-        /** Bit ChartSet.window adds to SAFE water inside a dredged area (a maintained channel). */
+        /** Bit ChartSet.window adds to SAFE or MARGINAL water inside a dredged area or fairway (a maintained channel). */
         const val DREDGED = 0x40
         // Inside a dredged channel deep enough for the boat, being near its edge is normal:
         // the proximity cost is cut to this share and the hazard buffer's cost (bank
@@ -370,7 +370,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
                 // water shoals toward the shore, and a 5 ft route took a 200 m marsh gut beside
                 // Goosecastle Point (Currituck Sound) 16 m off the bank to stay in the ICW longer
-                if (dist[i] <= margRing && !byChannel[i]) c *= MARG_SHORE_COST
+                // (not in a charted dredged area or fairway: a shoaled stretch of the ICW south
+                // of Masonboro Inlet cost 141 a cell, and Wrightsville to Southport went to sea)
+                if (dist[i] <= margRing && !byChannel[i] && !dredged[i]) c *= MARG_SHORE_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
@@ -656,9 +658,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * Cells along p-q. With [corners], each diagonal step also adds both corner
      * cells to it (A*'s no-corner-cutting rule): otherwise a leg slipped between
-     * the two cells of a thin diagonal wall (a pier burned one cell wide).
+     * the two cells of a thin diagonal wall (a pier burned one cell wide). A step
+     * between two [channel] cells adds no corners, as in A*.
      */
-    private fun lineCells(a: Area, p: Int, q: Int, corners: MutableList<Int>? = null): IntArray {
+    private fun lineCells(a: Area, p: Int, q: Int, corners: MutableList<Int>? = null, channel: ((Int) -> Boolean)? = null): IntArray {
         val w = a.w
         val r0 = p / w
         val c0 = p % w
@@ -673,7 +676,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val r = (r0 + (r1 - r0) * t).roundToInt()
             val c = (c0 + (c1 - c0) * t).roundToInt()
             out.add(r * w + c)
-            if (corners != null && r != pr && c != pc) { corners.add(pr * w + c); corners.add(r * w + pc) }
+            if (corners != null && r != pr && c != pc && !(channel != null && channel(pr * w + pc) && channel(r * w + c))) {
+                corners.add(pr * w + c); corners.add(r * w + pc)
+            }
             pr = r; pc = c
         }
         return out.toIntArray()
@@ -712,7 +717,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             var m = 0
             var sf = 0
             val corners = ArrayList<Int>()
-            val cells = lineCells(a, path[p], path[q], corners)
+            val cells = lineCells(a, path[p], path[q], corners, g::channel)
             if (corners.any { !g.ok[it] }) return false
             // 0-6 ft and buffer cells are compared as shares of the cells crossed, plus one:
             // a diagonal line samples more cells than the 8-direction path over the same
@@ -794,7 +799,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val i1 = keep[e]
                 if ((i0 + 1 until i1).any { off(it, i0, i1) > 1.0 }) break
                 val corners = ArrayList<Int>()
-                val cells = lineCells(a, path[i0], path[i1], corners)
+                val cells = lineCells(a, path[i0], path[i1], corners, g::channel)
                 if (!cells.all { graze(it) } || !corners.all { graze(it) }) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
@@ -1344,7 +1349,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val o2 = rr * w + c
                     // A channel only a cell wide at 20 m crosses an overview cell's corner when it
                     // runs diagonally: between two channel cells the step is taken anyway
-                    val channel = depth[i].toInt() and DREDGED != 0 && depth[j].toInt() and DREDGED != 0
+                    val channel = depth[i].toInt() == SAFE or DREDGED && depth[j].toInt() == SAFE or DREDGED
                     if (!channel && (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY)) continue
                 }
                 val ng = gi + step[k] * res * (ci + cj) * 0.5f

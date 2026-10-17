@@ -80,11 +80,13 @@ class ChartSet(val packs: List<Pack>) {
             val (pack, d) = tileData(tx, ty) ?: continue
             // Depth class per depth-table entry; a dredged area or a charted fairway deep
             // enough for depthM also gets Planner.DREDGED (0x40), so the planner can tell a
-            // maintained channel (the ICW is often charted only as a fairway)
+            // maintained channel (the ICW is often charted only as a fairway). So does 0-6 ft
+            // water in one: a shoaled stretch of the channel, not a marsh gut
             val lut = luts.getOrPut(pack) { ByteArray(256) { k ->
                 val r = pack.depthTable.getOrNull(k)
                 val cls = Planner.classify(r, depthM - Planner.ROUNDING_M)
-                (if (cls == Planner.SAFE && (r?.dredged == true || r?.fairway == true)) cls or Planner.DREDGED else cls).toByte()
+                val chan = r?.dredged == true || r?.fairway == true
+                (if (chan && (cls == Planner.SAFE || cls == Planner.MARGINAL)) cls or Planner.DREDGED else cls).toByte()
             } }
             val prA = max(ty * t, r0)
             val prB = min((ty + 1) * t, r0 + h * f)
@@ -117,7 +119,7 @@ class ChartSet(val packs: List<Pack>) {
                         val clear = (cls == Planner.SAFE || cls == Planner.MARGINAL) &&
                             !(hv != 0 && hv != Pack.HZ_PIER && (hv - 1) / 10.0 < hzLim) && !(sv != 0 && (sv - 1) / 10.0 < sdLim) &&
                             fl and (Pack.F_STRUCT or Pack.F_PROHIB) == 0
-                        if (clear && (optimistic || v and Planner.DREDGED != 0) && rank(v) > rank(best[i].toInt())) best[i] = v.toByte()
+                        if (clear && (optimistic || channel(v)) && rank(v) > rank(best[i].toInt())) best[i] = v.toByte()
                     }
                 }
             }
@@ -125,7 +127,7 @@ class ChartSet(val packs: List<Pack>) {
         if (best != null) for (i in 0 until h * w) if (best[i].toInt() != 0) {
             val center = out[Pack.P_DEPTH][i].toInt() and Planner.DREDGED.inv()
             val water = center == Planner.SAFE || center == Planner.MARGINAL
-            out[Pack.P_DEPTH][i] = if (best[i].toInt() and Planner.DREDGED == 0 && water) center.toByte() else best[i]
+            out[Pack.P_DEPTH][i] = if (!channel(best[i].toInt()) && water) center.toByte() else best[i]
             out[Pack.P_HAZARD][i] = 0
             out[Pack.P_SOUND][i] = 0
             out[Pack.P_FLAGS][i] = (out[Pack.P_FLAGS][i].toInt() and (Pack.F_STRUCT or Pack.F_PROHIB).inv()).toByte()
@@ -136,10 +138,11 @@ class ChartSet(val packs: List<Pack>) {
         return out
     }
 
-    private fun rank(v: Int) = when {
-        v and Planner.DREDGED != 0 -> 3
-        v == Planner.SAFE -> 2
-        v == Planner.MARGINAL -> 1
+    private fun channel(v: Int) = v == Planner.SAFE or Planner.DREDGED
+
+    private fun rank(v: Int) = when (v and Planner.DREDGED.inv()) {
+        Planner.SAFE -> if (channel(v)) 3 else 2
+        Planner.MARGINAL -> 1
         else -> 0
     }
 }
