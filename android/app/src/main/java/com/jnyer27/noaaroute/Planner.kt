@@ -66,7 +66,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val K_MIN = 5
         // Centering: cost rises gently (up to x(1 + FAR_COST)) within FAR_M of danger
         private const val FAR_M = 300.0
-        private const val FAR_COST = 0.3f
+        private const val FAR_COST = 0.6f
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
