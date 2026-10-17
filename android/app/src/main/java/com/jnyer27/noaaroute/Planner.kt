@@ -668,12 +668,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val corners = ArrayList<Int>()
             val cells = lineCells(a, path[p], path[q], corners)
             if (corners.any { !g.ok[it] }) return false
+            // 0-6 ft and buffer cells are compared as shares of the cells crossed, plus one:
+            // a diagonal line samples more cells than the 8-direction path over the same
+            // water, so counts refused every line across open 0-6 ft water (Currituck Sound)
+            val pn = q - p + 1
+            val n = cells.size
             for (i in cells) {
                 if (!g.ok[i]) return false
                 if (g.pier[i]) continue // counted below
                 if (g.prox[i] > lim) return false
-                if (marg(i)) { m++; if (m > nmarg + 1) return false }
-                if (g.soft[i]) { sf++; if (sf > nsoft + 1) return false }
+                if (marg(i)) { m++; if (m * pn > (nmarg + 1) * n) return false }
+                if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
             return pierSteps(a, cells) { g.pier[it] } <= npier
         }
@@ -1331,9 +1336,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 listOf(p) + guide + listOf(q)
             }
             fun label(j: Int) = if (j == 0) k + 1 else if (j == chain.size - 1) k + 2 else null
-            fun add(piece: Piece, what: String) {
+            // atGuide: the piece starts at a guide point (never tidy away one of your points)
+            val first = max(wps.size, 1) // wps from here on are this leg's; before it, your point stays
+            fun add(piece: Piece, what: String, atGuide: Boolean) {
+                val join = wps.size - 1
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
+                if (atGuide && join > 0) tidyJoin(wps, legs, join, max(res, piece.res), first)
                 res = max(res, piece.res)
                 progress("$what: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
             }
@@ -1362,7 +1371,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     c.restore(atA)
                     val direct = try { planPiece(chain[a], chain[b], label(a), label(b), c) } catch (_: PlanException) { null }
                     if (direct != null && direct.res <= viaRes && direct.cost < viaCost * 0.97) {
-                        add(direct, "Stretches ${a + 1}-$b in one")
+                        add(direct, "Stretches ${a + 1}-$b in one", a > 0)
                         a = b
                         atA = c.snap()
                         ahead.clear()
@@ -1373,13 +1382,59 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
                 if (!took) {
                     val (piece, state) = ahead.removeAt(0)
-                    add(piece, "Stretch ${a + 1}")
+                    add(piece, "Stretch ${a + 1}", a > 0)
                     a += 1
                     atA = state
                 }
             }
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
+    }
+
+    /**
+     * Stretches meet at a guide point, each at its own grid's water cell for it, so the
+     * route could overshoot the join by a cell and come back (a 20-40 m out-and-back in
+     * Currituck Sound). Drop points within two cells of the join while the line that
+     * replaces a point's two legs stays within a cell of them (the canal straightening's
+     * tolerance; an out-and-back's line lies on its legs); the two legs merge.
+     */
+    private fun tidyJoin(wps: MutableList<LatLon>, legs: MutableList<Leg>, join: Int, resM: Double, first: Int) {
+        val at = wps[join]
+        fun off(p: LatLon, a: LatLon, b: LatLon): Double {
+            val kx = Pack.M_PER_DEG * cos(Math.toRadians(p.lat))
+            val ky = Pack.M_PER_DEG
+            val dx = (b.lon - a.lon) * kx
+            val dy = (b.lat - a.lat) * ky
+            val px = (p.lon - a.lon) * kx
+            val py = (p.lat - a.lat) * ky
+            val l2 = (dx * dx + dy * dy).takeIf { it > 0 } ?: 1.0
+            val t = ((px * dx + py * dy) / l2).coerceIn(0.0, 1.0)
+            return hypot(px - t * dx, py - t * dy)
+        }
+        var changed = true
+        while (changed) {
+            changed = false
+            for (j in first until wps.size - 1) {
+                if (distanceM(wps[j], at) > 2 * resM + 1) continue
+                // farthest the replacing line strays from the two legs it replaces
+                val a = wps[j - 1]
+                val b = wps[j + 1]
+                val stray = (0..10).maxOf { t ->
+                    val p = LatLon(a.lat + (b.lat - a.lat) * t / 10, a.lon + (b.lon - a.lon) * t / 10)
+                    min(off(p, a, wps[j]), off(p, wps[j], b))
+                }
+                if (stray > resM * 1.01) continue
+                val l1 = legs[j - 1]
+                val l2 = legs[j]
+                val lows = listOfNotNull(l1.lowM, l2.lowM)
+                legs[j - 1] = Leg(distanceM(wps[j - 1], wps[j + 1]), bearing(wps[j - 1], wps[j + 1]), l1.shoalM + l2.shoalM,
+                    lows.minOrNull(), (l1.notes + l2.notes).distinct())
+                legs.removeAt(j)
+                wps.removeAt(j)
+                changed = true
+                break
+            }
+        }
     }
 
     private fun fmt(v: Double) = if (v == floor(v)) v.toInt().toString() else v.toString()
