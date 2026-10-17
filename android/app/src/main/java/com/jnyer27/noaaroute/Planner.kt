@@ -44,6 +44,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val MAX_DROP_GUIDES = 2 // guide points one stretch may drop when cut off at full detail
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
         const val SKIP_GUIDES = 3 // a full-detail piece may reach this many guide points ahead, skipping those between
+        const val REJOIN_M = 2000.0 // route replanned this far either side of each guide point at the end
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
         const val BLOCKED = 0
         const val SAFE = 1
@@ -1394,8 +1395,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             fun label(j: Int) = if (j == 0) k + 1 else if (j == chain.size - 1) k + 2 else null
             // atGuide: the piece starts at a guide point (never tidy away one of your points)
             val first = max(wps.size, 1) // wps from here on are this leg's; before it, your point stays
+            val joins = ArrayList<LatLon>() // guide points the route passes through, for rejoin
             fun add(piece: Piece, what: String, atGuide: Boolean) {
                 val join = wps.size - 1
+                if (atGuide && join > 0) joins.add(wps[join])
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 if (atGuide && join > 0) tidyJoin(wps, legs, join, max(res, piece.res), first)
@@ -1458,6 +1461,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     atA = state
                 }
             }
+            for (at in joins) rejoin(wps, legs, at, first, c)
         }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
     }
@@ -1506,6 +1510,48 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 break
             }
         }
+    }
+
+    /**
+     * A guide point is where the overview path crossed a 320 m cell, not always on the best
+     * 20 m line: leaving Snows Cut, a 5 ft trip ran 200 m up the Cape Fear River to one and
+     * back, too little of an 18 km stretch for a shortcut to skip it. Replan REJOIN_M either
+     * side of the guide point at full detail and keep it if cheaper (never past your points).
+     */
+    private fun rejoin(wps: MutableList<LatLon>, legs: MutableList<Leg>, at: LatLon, first: Int, c: Ctx) {
+        if (wps.size - 1 - first < 2) return
+        val j = (first until wps.size - 1).minBy { distanceM(wps[it], at) }
+        if (distanceM(wps[j], at) > 200.0) return
+        var i0 = j
+        var d = 0.0
+        while (i0 > first && d < REJOIN_M) { d += legs[i0 - 1].distM; i0-- }
+        var i1 = j
+        d = 0.0
+        while (i1 < wps.size - 2 && d < REJOIN_M) { d += legs[i1].distM; i1++ }
+        if (i1 - i0 < 2) return
+        val old = wps.subList(i0, i1 + 1).toList()
+        val a = area(old, 1.0)
+        if (a.f != 1) return
+        val g = buildGrid(a, c.depthM, c.airM, c.bufM)
+        val cells = ArrayList<Int>()
+        for (k in 1 until old.size) for (x in lineCells(a, a.cell(old[k - 1]), a.cell(old[k]))) if (cells.isEmpty() || cells.last() != x) cells.add(x)
+        val oldCost = pathCost(a, g, cells.toIntArray())
+        val path = astar(a, g, cells.first(), cells.last()) ?: return
+        if (pathCost(a, g, path) >= oldCost * 0.97) return
+        val before = c.snap()
+        // the replaced legs' notes are reported again on the new ones
+        for (k in i0 until i1) c.seen.removeAll(legs[k].notes.toSet())
+        val piece = try { planPiece(old.first(), old.last(), null, null, c) } catch (_: PlanException) { null }
+        if (piece == null || piece.res != a.res || piece.legs.sumOf { it.distM } >= old.zipWithNext { p, q -> distanceM(p, q) }.sum()) {
+            c.restore(before)
+            return
+        }
+        for (k in i0 until i1) legs.removeAt(i0)
+        legs.addAll(i0, piece.legs)
+        for (k in i0..i1) wps.removeAt(i0)
+        wps.addAll(i0, piece.wps)
+        c.progress("Rejoined at guide point %.5f,%.5f: %.2f nm shorter".format(at.lat, at.lon,
+            (old.zipWithNext { p, q -> distanceM(p, q) }.sum() - piece.legs.sumOf { it.distM }) / NM))
     }
 
     private fun fmt(v: Double) = if (v == floor(v)) v.toInt().toString() else v.toString()
