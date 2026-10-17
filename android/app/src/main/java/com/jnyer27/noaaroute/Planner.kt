@@ -1284,6 +1284,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun astarEnds(a: Area, g0: Grid, box: BooleanArray, starts: Map<Int, Float>, goals: Map<Int, Float>,
                           target: Int): Pair<IntArray, Float>? {
         val cost = g0.cost.copyOf()
+        val depth = g0.planes[Pack.P_DEPTH]
         for (i in starts.keys + goals.keys) if (cost[i] == Float.POSITIVE_INFINITY) cost[i] = 2f
         val w = a.w
         val h = a.h
@@ -1325,7 +1326,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (k >= 4) {
                     val o1 = r * w + cc
                     val o2 = rr * w + c
-                    if (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY) continue
+                    // A channel only a cell wide at 20 m crosses an overview cell's corner when it
+                    // runs diagonally: between two channel cells the step is taken anyway
+                    val channel = depth[i].toInt() and DREDGED != 0 && depth[j].toInt() and DREDGED != 0
+                    if (!channel && (cost[o1] == Float.POSITIVE_INFINITY || cost[o2] == Float.POSITIVE_INFINITY)) continue
                 }
                 val ng = gi + step[k] * res * (ci + cj) * 0.5f
                 if (ng < g[j]) {
