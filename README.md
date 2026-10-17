@@ -276,6 +276,10 @@ Before publishing, the workflow runs every reference route through the app's pla
 
 The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`) and published as the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app). The phone needs no Android tools. The Kotlin planner core (`MiniJson`, `Pack`, `ChartSet`, `Planner`, `Gpx`, `Coords`, `Shared`, `Regions`) has no Android dependencies, so it can also be tested on the phone with `pkg install openjdk-17 kotlin` plus the junit 4.13.2 and hamcrest-core 1.3 jars (see CLAUDE.md). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
 
+On a Linux computer (or a Claude Code cloud session), `tools/cloud-setup.sh` installs GDAL, numpy and a JDK, and `tools/run_refs.sh 'name regex'` runs matching reference routes from `tools/areas.json` through the app's planner on the published route packs, in a few minutes instead of a CI run. It installs the Android SDK and Gradle under `~/.cache/noaa-route` on first use.
+
+To report a route that goes the wrong way, use the [Route problem](https://github.com/jnyer27/noaa-osmand-charts/issues/new?template=route-problem.yml) issue form and attach the route's GPX file and a screenshot.
+
 ---
 
 ## Proof of concept: the Termux scripts
