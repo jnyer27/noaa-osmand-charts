@@ -71,6 +71,8 @@ Also on the region card: NOAA's vector charts as two OsmAnd maps, drawn by OsmAn
 
 Tap **Download vector charts**, then **Open depth map in OsmAnd** and **Open seamarks map in OsmAnd**. Use OsmAnd's Nautical map style. Some buoys show twice, because OpenStreetMap's seamarks also come with OsmAnd's own maps. Daymarks and light sectors are not drawn yet.
 
+OsmAnd's current release (5.4) draws only its standard contour classes, so NOAA's shallow contours (3, 6, 12 and 18 ft) all draw alike (each labeled with its depth) and depth areas are not shaded. OsmAnd's development version adds new depth rules: shallow (2 m) contours drawn dashed, darker contour lines and depth area shading ([OsmAnd-resources #1478](https://github.com/osmandapp/OsmAnd-resources/pull/1478), [depth areas](https://github.com/osmandapp/OsmAnd-resources/commit/09f91397c78435e67f66676351ebef9b699f1340)). The depth maps already carry the depth area tags, so shading and the darker lines will appear once an OsmAnd release includes the new rules. The shallow contours are written in the 5 m class for now so that today's OsmAnd draws them; after that release, the weekly build will write them in the new 2 m class.
+
 <img src="osmand-vector-charts.jpg" alt="The same spot in OsmAnd with the depth and seamarks maps and the Nautical map style instead of the chart overlay: OsmAnd's own land and roads, blue water with depth contours and soundings, buoys in their real colors and shapes, a green fairway line and hatched restricted areas" width="360">
 
 *The same spot with the vector charts: OsmAnd draws the depth and seamarks maps itself, over its own land and roads.*
