@@ -4,6 +4,13 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-18: documentation (app and route packs unchanged)
+
+- **OsmAnd screenshots** in the user guide and README: the same spot off Middle River and Hart-Miller Island with the chart map (NOAA's paper chart as an overlay) and with the vector charts (depth and seamarks maps drawn by OsmAnd).
+- **OsmAnd's depth rules:** the README and user guide explain that OsmAnd's current release (5.4) draws all shallow contours alike and does not shade depth areas, and link to OsmAnd's new depth rules (dashed shallow contours, darker lines, depth area shading). Shading and the darker lines will appear once an OsmAnd release includes them; the shallow contours will then be written in the new 2 m class.
+- **README FAQ:** the comparison of chart sources now covers the vector charts beside NCDS and ECDIS (regions 04 and 05 were still last published in May 2024). The vector chart FAQ records what was settled on the phone, and Troubleshooting suggests the vector charts for real buoy colors.
+- **[ECDIS feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/1)** refocused on the full S-52 look (daymarks, light sectors), since the vector charts now give weekly corrected charts.
+
 ## 2026-10-17: user guide and documentation (app and route packs unchanged)
 
 - **[User guide](https://jnyer27.github.io/noaa-osmand-charts/)** on GitHub Pages: installing, getting started, every field on the main screen, reading the route report (what each "check" note means and what to do), following routes and sharing points in OsmAnd, chart maps and vector charts, the Regions screen and region card in every state, how the planner chooses a route, safety and limits, and troubleshooting. Written from the app's own buttons and messages, with screenshots of the main screen, the Regions screen, a region card and the share dialog.
