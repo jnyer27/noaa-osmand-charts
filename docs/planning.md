@@ -9,7 +9,7 @@ The main screen, top to bottom.
 
 ## Charts
 
-<img src="main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions, Regions (13 updates), Start and Destination filled in, depth 2 ft, air draft 10 ft, Stay inside checked, Plan route, the status line Region 06 ready, and Manage places" width="300">
+<img src="main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and NOAA data date, Regions, Start at Maryland Marina and a destination in North Carolina, Safe operating depth 5 ft, air draft 10 ft, Stay inside and Check markers in the GPX checked with their hints, Name, Plan route and Manage places" width="300">
 
 Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
 

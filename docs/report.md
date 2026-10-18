@@ -25,6 +25,10 @@ depth 5 ft (MLLW), air draft 10 ft, hazard buffer 60 m, grid 20 m
 
 The examples on this page come from a route planned with a **Safe operating depth** of 5 ft. Wherever a note says "5 ft" ("under 5 ft", "under your 5 ft"), your report shows your own safe operating depth instead.
 
+<img src="app-route.jpg" alt="NOAA Route report for a 417.6 nm trip from Maryland Marina to North Carolina with Stay inside on, planned in 54 s at a 5 ft safe operating depth and 10 ft air draft: legs out of the marina with water where charted depth may be under 5 ft and the shallowest nearby soundings, a pier note, restricted areas and the Eastern Channel span clearance" width="300">
+
+*The report in the app: Maryland Marina to North Carolina with Stay inside on, 417.6 nm at a 5 ft safe operating depth. Legs 1-3 leave the marina through water where the charted depth may be under 5 ft; leg 16 crosses restricted areas and leg 17 passes under the Eastern Channel span (58 ft clearance).*
+
 ```
 Leg Course  Dist nm  Notes
   1   357T    0.05  95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft

@@ -7,7 +7,7 @@ nav_order: 3
 
 Everything happens on one main screen: your chart regions at the top, then the trip (Start, Destination, Via points), your boat's settings (safe depth, air draft, Stay inside), and **Plan route**. Each part is explained in [Planning a route](planning.html).
 
-<img src="main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and Regions (13 updates), Start and Destination filled in, safe depth 2 ft, air draft 10 ft, Stay inside checked, Plan route, the status line Region 06 ready, and Manage places" width="300">
+<img src="main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and NOAA data date, Regions, Start at Maryland Marina and a destination in North Carolina, Safe operating depth 5 ft, air draft 10 ft, Stay inside and Check markers in the GPX checked with their hints, Name, Plan route and Manage places" width="300">
 
 ## 1. Download your chart region
 
