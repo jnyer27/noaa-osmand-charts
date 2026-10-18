@@ -25,7 +25,7 @@ depth 5 ft (MLLW), air draft 10 ft, hazard buffer 60 m, grid 20 m
 
 ```
 Leg Course  Dist nm  Notes
-  1   357T    0.05  95 m in 0-6 ft, shallowest sounding within 100 m 3.9 ft
+  1   357T    0.05  95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft
   2   136T    1.00
   3    84T    1.06  passes near charted shoal soundings or obstructions: check
 ```
@@ -36,7 +36,7 @@ Leg Course  Dist nm  Notes
 
 | Note | Meaning | What to do |
 |---|---|---|
-| **N m in 0-6 ft, shallowest sounding within 100 m X ft** | That much of the leg is in a charted depth band that spans your safe depth (usually NOAA's 0-6 ft band). The shallowest charted sounding near it is X ft; "no soundings within 100 m" means there are none charted. | Check the chart and the tide. Go slowly and watch the depth sounder. |
+| **N m where charted depth may be under D ft, shallowest sounding within 100 m X ft** | That much of the leg is in a charted depth band that spans your safe depth D (NOAA's 0-6 ft band for a 3 or 5 ft safe depth, the 6-12 ft band for 8 ft). The shallowest charted sounding near it is X ft, and "under your D ft" follows it when it is shallower than your safe depth; "no soundings within 100 m" means there are none charted. | Check the chart and the tide. Go slowly and watch the depth sounder. |
 | **passes near charted shoal soundings or obstructions: check** | The leg uses the safety buffer (60 m) around a shallow sounding, rock, wreck or obstruction, because there was no other way. Over water charted deep enough, the hazard itself is always avoided. | Find the hazard on the chart and give it room. |
 | **passes over or on the wrong side of a channel marker: check** | The leg crosses the wrong side of a lateral buoy or daybeacon. The planner does this only when there is no other way. | Check the marks on the chart; keep red right returning. |
 | **runs along or across charted piers or seawalls: check** | The leg runs along or crosses a charted pier, seawall, jetty or breakwater line, for example into a slip. | Steer by eye; the chart line may not match the dock. |
@@ -49,10 +49,17 @@ Leg Course  Dist nm  Notes
 
 ## In the GPX file
 
-Each route point in the GPX file carries a short description of the next leg, which OsmAnd shows when you tap the point:
+Each route point in the GPX file carries a short description of the next leg, with all its notes, which OsmAnd shows when you tap the point:
 
 ```
-Next: 357 T, 0.05 nm, 95 m in 0-6 ft charted water (shallowest sounding nearby 3.9 ft)
+Next: 357 T, 0.05 nm, 95 m where charted depth may be under 5 ft (shallowest sounding nearby 3.9 ft, under your 5 ft)
 ```
 
 Points are named **Start**, **WP01**, **WP02** ... **End**. The file description says the total distance, the depth it was planned for, and "Not for navigation".
+
+With **Check markers in the GPX** on (the default; see [Planning a route](planning.html#check-markers-in-the-gpx)), every stretch of legs to check also gets two waypoints:
+
+- **Check: legs 16-18 (0.21 nm)** where the stretch starts: an orange warning triangle in OsmAnd, with the notes of each leg in it.
+- **Check ends: legs 16-18** where it ends: a green check mark.
+
+A leg is checked when it has water that may be under your safe depth or a note ending in "check" (or "not checked"); bridge, cable and restricted area notes are information only. The route points of checked legs are named with "check" (**WP09 check**). Both markers are in OsmAnd's **Check** group, which you can hide, and OsmAnd announces them during navigation when **GPX waypoints** is on in its voice prompts. Other chart apps show them as ordinary waypoints (symbol `Danger Area` and `Flag, Green`).

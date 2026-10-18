@@ -33,10 +33,10 @@ class GpxTest {
         assertTrue(gpx.contains("<desc>End of the stretch to check (legs 1-2).</desc><sym>Flag, Green</sym><type>Check</type>" +
             "<extensions><osmand:icon>special_symbol_check_mark</osmand:icon><osmand:background>circle</osmand:background>"))
         assertTrue(gpx.indexOf("<wpt") < gpx.indexOf("<rte>"))
-        assertTrue(gpx, gpx.contains("leg 1: 95 m in 0-6 ft charted water (shallowest sounding nearby 3.9 ft); leg 2: 20 m in 0-6 ft charted water. Check the chart and the water."))
+        assertTrue(gpx, gpx.contains("leg 1: 95 m where charted depth may be under 5 ft (shallowest sounding nearby 3.9 ft, under your 5 ft); leg 2: 20 m where charted depth may be under 5 ft. Check the chart and the water."))
         assertTrue(gpx.contains("<sym>Danger Area</sym><type>Check</type><extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>"))
         // Flagged route points are named, symbol and type after desc (schema order); others unchanged
-        assertTrue(gpx, gpx.contains("<name>Start check</name><cmt>Next: 090 T, 0.50 nm, 95 m in 0-6 ft"))
+        assertTrue(gpx, gpx.contains("<name>Start check</name><cmt>Next: 090 T, 0.50 nm, 95 m where charted depth may be under 5 ft"))
         assertTrue(gpx, gpx.contains("<name>WP04 check</name><cmt>Next: 090 T, 0.50 nm; passes charted piles or snags: check</cmt>"))
         assertTrue(gpx, gpx.contains("<name>WP02</name><desc>Next: 090 T, 0.50 nm; Bay Bridge span (clearance 186 ft)</desc></rtept>"))
         assertTrue(gpx.contains("<name>End</name></rtept>"))
@@ -44,6 +44,14 @@ class GpxTest {
         val plain = Gpx.write(route, checks = false)
         assertFalse(plain.contains("<wpt") || plain.contains(" check</name>") || plain.contains("<sym>"))
         assertTrue(plain, plain.contains("<name>WP04</name><desc>Next: 090 T, 0.50 nm; passes charted piles or snags: check</desc></rtept>"))
+        // The report names the safe depth; a sounding at or above it is not called out
+        val text = Gpx.report(route)
+        assertTrue(text, text.contains("95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft"))
+        assertTrue(text, text.contains("20 m where charted depth may be under 5 ft, no soundings within 100 m"))
+        val eight = Route("t", route.points.take(2), listOf(leg(0.5, 40.0, 2.0)), 8.0, null, 20.0, emptyList())
+        assertTrue(Gpx.report(eight).contains("40 m where charted depth may be under 8 ft, shallowest sounding within 100 m 6.6 ft, under your 8 ft"))
+        val deep = Route("t", route.points.take(2), listOf(leg(0.5, 40.0, 2.0)), 6.0, null, 20.0, emptyList())
+        assertTrue(Gpx.report(deep).contains("40 m where charted depth may be under 6 ft, shallowest sounding within 100 m 6.6 ft\n"))
         // Written out for CI to validate against the GPX 1.1 schema
         File("build").mkdirs()
         File("build/gpx-sample.gpx").writeText(gpx)

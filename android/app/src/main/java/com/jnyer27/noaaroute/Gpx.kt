@@ -6,21 +6,35 @@ import java.util.Locale
 object Gpx {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun legDesc(l: Leg): String {
+    private fun legDesc(l: Leg, depthFt: Double): String {
         var d = String.format(Locale.US, "Next: %03.0f T, %.2f nm", l.bearing, l.distM / Planner.NM)
-        shoalNote(l)?.let { d += ", $it" }
+        shoalNote(l, depthFt)?.let { d += ", $it" }
         for (n in l.notes) d += "; $n"
         return d
     }
 
-    private fun shoalNote(l: Leg): String? {
+    /**
+     * Length in water whose charted depth range reaches below the safe depth (NOAA's 0-6 ft
+     * band for a 3 or 5 ft boat, the 6-12 ft band for an 8 ft one), so the label names the
+     * safe depth rather than a fixed band.
+     */
+    private fun shallowLen(l: Leg, depthFt: Double) =
+        String.format(Locale.US, "%.0f m where charted depth may be under %s ft", l.shoalM, num(depthFt))
+
+    /** The shallowest nearby sounding, and whether it is under the safe depth. */
+    private fun sounding(lowM: Double, depthFt: Double): String {
+        val ft = lowM / Pack.FT
+        return String.format(Locale.US, "%.1f ft", ft) + if (ft < depthFt) ", under your ${num(depthFt)} ft" else ""
+    }
+
+    private fun shoalNote(l: Leg, depthFt: Double): String? {
         if (l.shoalM <= 0) return null
-        var d = String.format(Locale.US, "%.0f m in 0-6 ft charted water", l.shoalM)
-        l.lowM?.let { d += String.format(Locale.US, " (shallowest sounding nearby %.1f ft)", it / Pack.FT) }
+        var d = shallowLen(l, depthFt)
+        l.lowM?.let { d += " (shallowest sounding nearby ${sounding(it, depthFt)})" }
         return d
     }
 
-    /** A leg to look at: 0-6 ft water, or a planner note asking for a check. */
+    /** A leg to look at: water that may be under the safe depth, or a planner note asking for a check. */
     fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") }
 
     // Check markers: a standard symbol and type for any app, OsmAnd's icon in its own extension.
@@ -49,7 +63,7 @@ object Gpx {
     private fun checkText(r: Route, run: IntRange): String {
         val notes = run.map { k ->
             val l = r.legs[k]
-            "leg ${k + 1}: " + (listOfNotNull(shoalNote(l)) + l.notes).joinToString("; ")
+            "leg ${k + 1}: " + (listOfNotNull(shoalNote(l, r.depthFt)) + l.notes).joinToString("; ")
         }
         return notes.joinToString("; ") + ". Check the chart and the water."
     }
@@ -87,7 +101,7 @@ object Gpx {
             if (check) label += " check"
             sb.append(String.format(Locale.US, "<rtept lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, label))
             if (leg != null) {
-                val d = esc(legDesc(leg))
+                val d = esc(legDesc(leg, r.depthFt))
                 if (check) sb.append("<cmt>$d</cmt>")
                 sb.append("<desc>$d</desc>")
                 if (check) sb.append(CHECK_SYM)
@@ -117,9 +131,8 @@ object Gpx {
         for ((k, l) in r.legs.withIndex()) {
             val notes = ArrayList<String>()
             if (l.shoalM > 0) {
-                var s = String.format(Locale.US, "%.0f m in 0-6 ft", l.shoalM)
-                s += l.lowM?.let { String.format(Locale.US, ", shallowest sounding within 100 m %.1f ft", it / Pack.FT) }
-                    ?: ", no soundings within 100 m"
+                var s = shallowLen(l, r.depthFt)
+                s += l.lowM?.let { ", shallowest sounding within 100 m ${sounding(it, r.depthFt)}" } ?: ", no soundings within 100 m"
                 notes.add(s)
             }
             notes.addAll(l.notes)

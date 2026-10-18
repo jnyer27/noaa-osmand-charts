@@ -21,7 +21,7 @@ nav_order: 9
 
 Before you go, read the [route report](report.html) and look at each flagged leg on a current chart:
 
-- legs with time in **0-6 ft** water: check the tide and the shallowest sounding,
+- legs where the charted depth may be under your safe depth: check the tide and the shallowest sounding,
 - **"check"** notes: hazards, channel markers, piers, piles,
 - the **"connects your point to usable water"** leg at either end,
 - **bridges and cables**: clearances and opening schedules,
