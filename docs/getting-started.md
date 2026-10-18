@@ -37,5 +37,13 @@ The app shows "Planned in 0.8 s. Saved to Download/noaa-charts/routes/..." and t
 
 Tap **Open in OsmAnd**. OsmAnd shows the route; start navigation or just follow the line. If OsmAnd does not open it, tap **Show routes folder in Files** and tap the `.gpx` file there. See [Using routes in OsmAnd](osmand.html).
 
+## 4. Share places from other map apps
+
+Instead of typing coordinates, share a spot from another app to NOAA Route; it asks whether to use it as **Start**, **Destination** or a **Via point**, or to save it as a place.
+
+- **OsmAnd**: tap a spot on the map, then **Share > NOAA Route** (see [Sharing points from OsmAnd](osmand.html#sharing-points-from-osmand)).
+- **Other apps**: NOAA Route reads `geo:` links, map links that contain coordinates (OpenStreetMap, OsmAnd, and long Google Maps links with `@lat,lon` or `q=lat,lon`) and plain coordinates, shared as text. It also takes GPX files.
+- **Google Maps**: its **Share** button sends a short link (`maps.app.goo.gl/...`) with no coordinates in it, so NOAA Route says "No coordinates found in what was shared." Convert it first with [osm2gmaps](https://f-droid.org/packages/net.retiolus.osm2gmaps) (free, from F-Droid): share the place from Google Maps to osm2gmaps, then share or copy its coordinates to NOAA Route. osm2gmaps reads links from most map apps (Apple Maps, Organic Maps, Waze, HERE WeGo and others) and many coordinate formats, offline. Only short links need the internet, through a resolver that is off until you turn it on in osm2gmaps.
+
 {: .note }
 > Before you leave, read the report. Every note that ends in "check" is a place to look at the chart, and at the water, yourself.
