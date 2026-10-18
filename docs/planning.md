@@ -58,13 +58,28 @@ Optional. Routes are saved as `Download/noaa-charts/routes/<name>.gpx`, or `rout
 
 ## Plan route
 
-Plans the route, shows the report and saves the GPX. Then:
+Plans the route, shows the report and saves the GPX. Read the report's notes before you go: see [Check the route before you go](#check-the-route-before-you-go). Then:
 
 - **Open in OsmAnd** sends the route to OsmAnd,
 - **Show routes folder in Files** opens `Download/noaa-charts/routes` in Android's Files app,
 - **Share GPX** sends the file to any app (email, messages, another navigation app).
 
 Long trips (100+ nm, for example the Chesapeake down the ICW to the Carolinas) take longer: up to a minute on a phone for 400+ nm. Very long trips can cross several chart regions; download all of them first.
+
+## Check the route before you go
+
+{: .warning }
+Every route needs checking. The planner keeps to water charted at least your safe operating depth wherever it can, but where it cannot (a creek, a marina entrance, a narrow channel) it goes on and flags the leg instead of stopping. A flagged leg is the planner telling you it could not prove that stretch safe.
+
+After planning, read the [route report](report.html) leg by leg. Each leg with a note needs a look on a current chart before you leave:
+
+- **shallow water**: "N m where charted depth may be under 5 ft" (your own safe depth in place of 5 ft): check the tide and the shallowest sounding named with it,
+- **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
+- **"connects your point to usable water"**: the legs at either end, which are not checked at all,
+- **bridges and cables**: clearances and opening schedules,
+- **restricted areas**: their rules.
+
+[What each note means](report.html#what-each-note-means) explains every note and what to do about it. With **Check markers in the GPX** on, each stretch of flagged legs also has an orange start and a green end marker in OsmAnd, which announces them as you approach (see [In the GPX file](report.html#in-the-gpx-file)). Underway, follow the buoys rather than the line and watch the depth sounder where the report flags shallow water. See also [What to check yourself](safety.html#what-to-check-yourself).
 
 ## When there is no route
 
