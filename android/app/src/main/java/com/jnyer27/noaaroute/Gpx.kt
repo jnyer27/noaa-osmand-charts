@@ -24,13 +24,11 @@ object Gpx {
     fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") }
 
     // Check markers: a standard symbol and type for any app, OsmAnd's icon in its own extension.
-    // The end of a long stretch gets a green check mark instead of the orange warning.
+    // The end of a stretch gets a green check mark instead of the orange warning.
     private const val CHECK_SYM = "<sym>Danger Area</sym><type>Check</type>"
     private const val CHECK_END_SYM = "<sym>Flag, Green</sym><type>Check</type>"
     private const val CHECK_END_OSMAND = "<extensions><osmand:icon>special_symbol_check_mark</osmand:icon>" +
         "<osmand:background>circle</osmand:background><osmand:color>#FF2E7D32</osmand:color></extensions>"
-    /** A run longer than this also gets a marker where it ends. */
-    const val CHECK_END_NM = 0.5
     private const val CHECK_OSMAND = "<extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>" +
         "<osmand:background>triangle</osmand:background><osmand:color>#FFE65100</osmand:color></extensions>"
 
@@ -62,7 +60,7 @@ object Gpx {
         sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
             "xmlns:osmand=\"https://osmand.net\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" " +
             "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
-        // A check marker where each run of flagged legs starts, and where a long one ends (waypoints come before the route)
+        // Check markers where each run of flagged legs starts and ends (waypoints come before the route)
         fun marker(p: LatLon, name: String, text: String, end: Boolean = false) {
             val t = esc(text)
             sb.append(String.format(Locale.US, "<wpt lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, esc(name)))
@@ -73,7 +71,7 @@ object Gpx {
             val legs = if (run.first == run.last) "leg ${run.first + 1}" else "legs ${run.first + 1}-${run.last + 1}"
             val nm = run.sumOf { r.legs[it].distM } / Planner.NM
             marker(r.points[run.first], String.format(Locale.US, "Check: %s (%.2f nm)", legs, nm), checkText(r, run))
-            if (nm > CHECK_END_NM) marker(r.points[run.last + 1], "Check ends: $legs", "End of the stretch to check ($legs).", end = true)
+            marker(r.points[run.last + 1], "Check ends: $legs", "End of the stretch to check ($legs).", end = true)
         }
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
         sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt), datum))}</desc>\n")

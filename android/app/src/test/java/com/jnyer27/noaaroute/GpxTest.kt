@@ -26,10 +26,10 @@ class GpxTest {
     @Test
     fun checkMarkersAndNotes() {
         val gpx = Gpx.write(route)
-        // A marker where each run starts, and where it ends if over 0.5 nm (legs 1-2: 1.0 nm; leg 5: 0.5 nm), before the route
+        // Markers where each run starts and ends, before the route
         val wpts = Regex("""<wpt lat="([-\d.]+)" lon="([-\d.]+)"><name>([^<]*)</name>""").findAll(gpx).toList()
-        assertEquals(listOf("Check: legs 1-2 (1.00 nm)", "Check ends: legs 1-2", "Check: leg 5 (0.50 nm)"), wpts.map { it.groupValues[3] })
-        assertEquals(listOf(-76.5, -76.48, -76.46), wpts.map { it.groupValues[2].toDouble() })
+        assertEquals(listOf("Check: legs 1-2 (1.00 nm)", "Check ends: legs 1-2", "Check: leg 5 (0.50 nm)", "Check ends: leg 5"), wpts.map { it.groupValues[3] })
+        assertEquals(listOf(-76.5, -76.48, -76.46, -76.45), wpts.map { it.groupValues[2].toDouble() })
         assertTrue(gpx.contains("<desc>End of the stretch to check (legs 1-2).</desc><sym>Flag, Green</sym><type>Check</type>" +
             "<extensions><osmand:icon>special_symbol_check_mark</osmand:icon><osmand:background>circle</osmand:background>"))
         assertTrue(gpx.indexOf("<wpt") < gpx.indexOf("<rte>"))
