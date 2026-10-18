@@ -141,6 +141,13 @@ The region card also offers NOAA's vector charts (ENC) as two OsmAnd maps per re
 - **Download vector charts** fetches both with Android's download manager (Wi-Fi only or mobile data too), checks them and saves them to `Download/noaa-charts`. Tap the "ready" notice or open the region card, then **Open depth map in OsmAnd** and **Open seamarks map in OsmAnd** to import them. An **Update** button appears when a newer weekly build is out: delete the old maps in OsmAnd (Maps & Resources > Local) and open the new ones.
 - Use the Nautical map style. Depth labels are in whole feet. Seamarks that OpenStreetMap volunteers mapped also come with OsmAnd's own maps, so some buoys show twice. Daymarks and light sectors are not drawn yet.
 
+<p>
+  <img src="docs/osmand-chart-map.jpg" alt="OsmAnd showing the region 05 chart map as the overlay off Middle River and Back River, Chesapeake Bay: NOAA's paper chart with dense soundings in feet, magenta light teardrops and light labels, and two routes past Hart-Miller Island" width="300" align="top">
+  <img src="docs/osmand-vector-charts.jpg" alt="The same spot with the depth and seamarks maps and the Nautical map style: OsmAnd's own land and roads, blue water with depth contours and soundings, buoys in their real colors and shapes, a green fairway line and hatched restricted areas" width="300" align="top">
+</p>
+
+*The same spot in OsmAnd, both made by the app. Left: the chart map (NOAA's paper chart as an overlay). Right: the vector charts (depth and seamarks maps drawn by OsmAnd).*
+
 ## How the planner decides where you can go
 
 | Charted | Treatment |

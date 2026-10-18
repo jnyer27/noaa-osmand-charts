@@ -47,6 +47,10 @@ The app can download NOAA's paper-chart style map of a region (NCDS) and convert
 
 A chart map is about 600 MB per region, and converting needs about 2.8 times that in free space; the app checks first.
 
+<img src="osmand-chart-map.jpg" alt="OsmAnd showing the region 05 chart map as the overlay off Middle River and Back River, Chesapeake Bay: NOAA's paper chart with tan land, blue shallow water, dense soundings in feet, magenta light teardrops with labels such as Fl G 2.5s 15ft 4M, and two routes past Hart-Miller Island" width="360">
+
+*The chart map in OsmAnd: NOAA's paper chart as an overlay, off Middle River and Hart-Miller Island.*
+
 **Combine chart maps for OsmAnd** merges two or more regions into one map, because OsmAnd shows one overlay at a time. A combined map can **Add regions** later.
 
 **Download the .mbtiles only** keeps NOAA's file as it is, for OpenCPN and other apps.
@@ -66,6 +70,10 @@ Also on the region card: NOAA's vector charts as two OsmAnd maps, drawn by OsmAn
 - **Seamarks map**: buoys and beacons, lights, wrecks, rocks and obstructions, piers, bridges, cables, fairways and dredged channels, and restricted areas. OsmAnd lists it under Standard maps, so you can turn it off on its own.
 
 Tap **Download vector charts**, then **Open depth map in OsmAnd** and **Open seamarks map in OsmAnd**. Use OsmAnd's Nautical map style. Some buoys show twice, because OpenStreetMap's seamarks also come with OsmAnd's own maps. Daymarks and light sectors are not drawn yet.
+
+<img src="osmand-vector-charts.jpg" alt="The same spot in OsmAnd with the depth and seamarks maps and the Nautical map style instead of the chart overlay: OsmAnd's own land and roads, blue water with depth contours and soundings, buoys in their real colors and shapes, a green fairway line and hatched restricted areas" width="360">
+
+*The same spot with the vector charts: OsmAnd draws the depth and seamarks maps itself, over its own land and roads.*
 
 ## Updating maps in OsmAnd
 
