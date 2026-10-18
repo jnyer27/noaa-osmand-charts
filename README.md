@@ -186,6 +186,16 @@ NOAA Route is a planning aid. These are the steps between NOAA's charts and a ro
 
 **What the report asks you to check.** Every leg that needs a look says why: the length where the charted depth may be under your safe depth and the shallowest sounding within 100 m (with "under your 5 ft" when it is shallower); "passes near charted shoal soundings or obstructions"; "passes over or on the wrong side of a channel marker"; "runs along or across charted piers or seawalls"; "passes charted piles or snags"; opening bridges with their closed clearance; cables with their clearance; restricted areas with their CFR rule; and the short "connects your point to usable water: not checked" leg where a point was moved off land or a dock. None of these are errors, but each is a place to look at the chart and the water.
 
+**How the shallow-water note is measured.** In "95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft", the length is an estimate: the leg's line is sampled about every 10 m on the 20 m grid, and the share of samples in a depth area whose range reaches below your safe depth is applied to the leg's length (a single sample is ignored). The sounding is the shallowest one charted within 100 m of any part of the leg, a strip along the leg rather than a circle around its route point, so on a long leg it can be anywhere along it:
+
+```
+        ╭───────────────────────────────╮   ↑
+       (  WP09 ●━━━━━━━━━━━━━━━━━● WP10  )  100 m each side
+        ╰───────────────────────────────╯   ↓
+```
+
+With **Check markers in the GPX** on (the default), the GPX also gets an orange waypoint where each stretch of legs to check starts and a green one where it ends, with the notes, for OsmAnd (which announces them during navigation when GPX waypoints are on in its voice prompts) and other chart apps; see the [user guide](https://jnyer27.github.io/noaa-osmand-charts/report.html#in-the-gpx-file).
+
 **What the planner does not know.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Soundings are sparse, the bottom moves, and single piles are not avoided. The grid is 20 m, so a line through a narrow opening may run along one side of it. Charts lag behind the water, even with Notices to Mariners corrections.
 
 **How the route data is built.** Every week the route packs are rebuilt from NOAA's current ENC cells with all update files applied. The build checks each chart's depth units and records its sounding datum.

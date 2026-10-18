@@ -47,6 +47,21 @@ Leg Course  Dist nm  Notes
 | **Cable name (clearance N ft)** or **(clearance not charted)** | An overhead cable. | Make sure your air draft clears it with margin. |
 | **Area name: rules (CFR)** | A restricted area: no wake, anchoring rules, entry restricted, or an area to be avoided by large ships. | Read the rule; the route is not blocked by it. |
 
+## How the shallow-water note is measured
+
+Take "95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft":
+
+- **95 m** is an estimate of how much of the leg runs through a charted depth area whose range reaches below your safe depth. The planner samples the leg's straight line about every 10 m on its 20 m grid, counts the samples in such water, and takes that share of the leg's length (a single sample is ignored as grid noise). Read it as roughly that length, give or take a cell or two. It means the chart does not promise your safe depth there, not that it is that shallow throughout. When it equals the leg's length, as on a first leg out of a slip, the whole leg is in that water.
+- **3.9 ft** is the shallowest charted sounding within 100 m of any part of the leg: a strip about 200 m wide along the leg's line, with rounded ends. It is not a circle around the route point that carries the note, so on a long leg the sounding can be anywhere along it, up to 100 m to the side. The route keeps a buffer around soundings shallower than your safe depth, so it does not pass over that spot, but it is close.
+
+```
+        ╭───────────────────────────────╮   ↑
+       (  WP09 ●━━━━━━━━━━━━━━━━━● WP10  )  100 m each side
+        ╰───────────────────────────────╯   ↓
+```
+
+Only legs with a shallow length get a sounding. A leg entirely in water charted at least your safe depth has no note, even with a shallow sounding charted nearby.
+
 ## In the GPX file
 
 Each route point in the GPX file carries a short description of the next leg, with all its notes, which OsmAnd shows when you tap the point:
