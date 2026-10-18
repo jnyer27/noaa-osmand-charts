@@ -324,4 +324,17 @@ class PlannerTest {
         assertEquals("Low Water Datum", Pack.datumName(listOf(25)))
         assertEquals("Low Water Datum", Pack.datumName(listOf(12, 24, 25)))
     }
+
+    @Test
+    fun hazardNotes() {
+        // The range is the 20 m cell around the distance, rounded out to 5 m
+        assertEquals("passes 25-45 m from a charted 3.2 ft sounding: check",
+            Planner.NearHazard(0, 35.0, Planner.HZ_SOUNDING, 0.98).note(20.0))
+        assertEquals("passes 0-15 m from a charted obstruction (depth unknown or 0 ft): check",
+            Planner.NearHazard(0, 3.0, Planner.HZ_OBSTRUCTION, 0.0).note(20.0))
+        assertEquals("passes 40-60 m from a charted obstruction (2.1 ft): check",
+            Planner.NearHazard(0, 50.0, Planner.HZ_OBSTRUCTION, 0.64).note(20.0))
+        assertEquals("passes 10-30 m from charted piles or snags: check",
+            Planner.NearHazard(0, 20.0, Planner.HZ_SNAG, 0.0).note(20.0))
+    }
 }

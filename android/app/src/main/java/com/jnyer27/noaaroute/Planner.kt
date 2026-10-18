@@ -1,5 +1,6 @@
 package com.jnyer27.noaaroute
 
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -88,6 +89,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // Canal share its single 20 m cell. Wrecks, rocks and other obstructions stay walls.
         private const val SOFT_COST = 5f
         private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
+        // Rounding of the distance range in a hazard note (meters)
+        private const val NOTE_STEP_M = 5.0
+        internal const val HZ_SOUNDING = 0
+        internal const val HZ_OBSTRUCTION = 1
+        internal const val HZ_SNAG = 2
         private const val SNAG_COST = 50f
         private const val SNAG_NOTE = "passes charted piles or snags: check"
         // Lateral marks (buoys, daybeacons) and their wrong-side lines (the pack's GATE_MARK):
@@ -849,6 +855,69 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return near.filter { it.band == top }.mapNotNull { it.describe() }.distinct()
     }
 
+    /** A charted hazard near a leg: its cell, closest distance to the leg (m), what it is and its depth. */
+    internal class NearHazard(val cell: Int, val distM: Double, val kind: Int, val depthM: Double) {
+        /** "passes 25-45 m from a charted 3.2 ft sounding: check" (the range is the cell's size around the distance) */
+        fun note(res: Double): String {
+            val lo = max(0.0, floor((distM - res / 2) / NOTE_STEP_M) * NOTE_STEP_M)
+            val hi = ceil((distM + res / 2) / NOTE_STEP_M) * NOTE_STEP_M
+            val what = when (kind) {
+                HZ_SOUNDING -> String.format(Locale.US, "a charted %.1f ft sounding", depthM / Pack.FT)
+                HZ_OBSTRUCTION -> if (depthM <= 0.0) "a charted obstruction (depth unknown or 0 ft)"
+                    else String.format(Locale.US, "a charted obstruction (%.1f ft)", depthM / Pack.FT)
+                else -> "charted piles or snags"
+            }
+            return String.format(Locale.US, "passes %.0f-%.0f m from %s: check", lo, hi, what)
+        }
+    }
+
+    /**
+     * The charted hazard (sounding or obstruction under the safe depth, or a snag) closest to
+     * the leg p-q within [withinM] plus a cell, or null. Ties go to the shallower one.
+     */
+    private fun nearestHazard(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double): NearHazard? {
+        val kx = Pack.M_PER_DEG * cos(Math.toRadians((p.lat + q.lat) / 2))
+        val ky = Pack.M_PER_DEG
+        val ax = p.lon * kx
+        val ay = p.lat * ky
+        val dx = q.lon * kx - ax
+        val dy = q.lat * ky - ay
+        val l2 = (dx * dx + dy * dy).takeIf { it > 0 } ?: 1.0
+        val pi = a.cell(p)
+        val qi = a.cell(q)
+        val m = ceil(withinM / a.res).toInt() + 1
+        val rA = max(0, min(pi / a.w, qi / a.w) - m)
+        val rB = min(a.h - 1, max(pi / a.w, qi / a.w) + m)
+        val cA = max(0, min(pi % a.w, qi % a.w) - m)
+        val cB = min(a.w - 1, max(pi % a.w, qi % a.w) + m)
+        var best: NearHazard? = null
+        for (r in rA..rB) for (c in cA..cB) {
+            val i = r * a.w + c
+            val hv = g.planes[Pack.P_HAZARD][i].toInt() and 0xff
+            val snagged = hv == 1 && (g.planes[Pack.P_FLAGS][i].toInt() and Pack.F_CABLE) == 0 &&
+                (g.planes[Pack.P_CABLECLR][i].toInt() and 0xff) == Pack.SNAG_MARK
+            if (g.nav[i].toInt() != HAZARD && !snagged) continue
+            val sv = g.planes[Pack.P_SOUND][i].toInt() and 0xff
+            val obs = if (hv != 0 && hv != Pack.HZ_PIER && !snagged) (hv - 1) / 10.0 else null
+            val snd = if (sv != 0) (sv - 1) / 10.0 else null
+            val (kind, depth) = when {
+                snagged -> HZ_SNAG to 0.0
+                obs != null && (snd == null || obs <= snd) -> HZ_OBSTRUCTION to obs
+                snd != null -> HZ_SOUNDING to snd
+                else -> continue
+            }
+            val ll = a.latlon(i)
+            val px = ll.lon * kx
+            val py = ll.lat * ky
+            val t = (((px - ax) * dx + (py - ay) * dy) / l2).coerceIn(0.0, 1.0)
+            val d = hypot(px - ax - t * dx, py - ay - t * dy)
+            if (d > withinM + a.res) continue
+            val b = best
+            if (b == null || d < b.distM - 1e-6 || abs(d - b.distM) <= 1e-6 && depth < b.depthM) best = NearHazard(i, d, kind, depth)
+        }
+        return best
+    }
+
     private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>): List<Leg> {
         val out = ArrayList<Leg>()
         val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
@@ -857,6 +926,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         var prevSnag = false
         var prevGate = false
         var prevSoft = false
+        var prevHazard = -1
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
             var marg = lc.count { g.nav[it].toInt() == MARGINAL }
@@ -888,8 +958,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (onGate && !prevGate) notes.add(0, GATE_NOTE)
             prevGate = onGate
             val near = lc.count { g.soft[it] } >= 2 // one edge cell is grid noise
-            if (near && !prevSoft) notes.add(0, SOFT_NOTE)
+            // Name the closest hazard whose buffer the leg uses; once per hazard along a stretch
+            val hz = if (near) nearestHazard(a, g, wps[k], wps[k + 1], g.rad * a.res) else null
+            if (near && (hz == null && !prevSoft || hz != null && hz.cell != prevHazard)) notes.add(0, hz?.note(a.res) ?: SOFT_NOTE)
             prevSoft = near
+            prevHazard = if (near) hz?.cell ?: prevHazard else -1
             val d = distanceM(wps[k], wps[k + 1])
             val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))

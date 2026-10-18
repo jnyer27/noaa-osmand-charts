@@ -27,7 +27,7 @@ depth 5 ft (MLLW), air draft 10 ft, hazard buffer 60 m, grid 20 m
 Leg Course  Dist nm  Notes
   1   357T    0.05  95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft
   2   136T    1.00
-  3    84T    1.06  passes near charted shoal soundings or obstructions: check
+  3    84T    1.06  passes 25-45 m from a charted 3.2 ft sounding: check
 ```
 
 **Course** is true (T), not magnetic. **Dist** is nautical miles. A leg with no notes stays in water charted at least your safe depth, clear of everything below.
@@ -37,7 +37,7 @@ Leg Course  Dist nm  Notes
 | Note | Meaning | What to do |
 |---|---|---|
 | **N m where charted depth may be under D ft, shallowest sounding within 100 m X ft** | That much of the leg is in a charted depth band that spans your safe depth D (NOAA's 0-6 ft band for a 3 or 5 ft safe depth, the 6-12 ft band for 8 ft). The shallowest charted sounding near it is X ft, and "under your D ft" follows it when it is shallower than your safe depth; "no soundings within 100 m" means there are none charted. | Check the chart and the tide. Go slowly and watch the depth sounder. |
-| **passes near charted shoal soundings or obstructions: check** | The leg uses the safety buffer (60 m) around a shallow sounding, rock, wreck or obstruction, because there was no other way. Over water charted deep enough, the hazard itself is always avoided. | Find the hazard on the chart and give it room. |
+| **passes 25-45 m from a charted 3.2 ft sounding: check** (or *a charted obstruction (2.1 ft)*, *(depth unknown or 0 ft)*, *charted piles or snags*) | The leg uses the safety buffer (60 m) around a shallow sounding, rock, wreck or obstruction, because there was no other way; over water charted deep enough, the hazard itself is always avoided. The note names the closest one and its charted depth. The distance is how close the leg's line comes to it, as a range the size of a 20 m grid cell, since positions are known to that cell. Rocks, wrecks and other obstructions are all called obstructions. A stretch of legs past the same hazard names it once. | Find the hazard on the chart and give it room. |
 | **passes over or on the wrong side of a channel marker: check** | The leg crosses the wrong side of a lateral buoy or daybeacon. The planner does this only when there is no other way. | Check the marks on the chart; keep red right returning. |
 | **runs along or across charted piers or seawalls: check** | The leg runs along or crosses a charted pier, seawall, jetty or breakwater line, for example into a slip. | Steer by eye; the chart line may not match the dock. |
 | **passes charted piles or snags: check** | The leg passes old pilings or snags of unknown depth. | Look for them and stay clear. |
