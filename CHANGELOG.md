@@ -4,6 +4,13 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-18: app 0.1.107 (route packs build 120, the weekly rebuild of 2026-10-17, unchanged)
+
+App:
+- **Share from Google Maps.** Google's Share button sends a short link with no coordinates; the app now follows it to the full Google Maps link and reads the position there. This one step needs the internet (planning stays offline). If Google gives only a place's name, the app says so and suggests sharing a dropped pin.
+- **Google place links give the place itself**: its pin, not the center of the map view, which could be hundreds of meters away. Dropped-pin links (`/maps/search/lat,lon`) are read too.
+- [Getting started](https://jnyer27.github.io/noaa-osmand-charts/getting-started.html#4-share-places-from-other-map-apps) has a new step on sharing places from other map apps, with [osm2gmaps](https://f-droid.org/packages/net.retiolus.osm2gmaps) for apps whose links NOAA Route cannot read.
+
 ## 2026-10-18: documentation (app and route packs unchanged)
 
 - **OsmAnd screenshots** in the user guide and README: the same spot off Middle River and Hart-Miller Island with the chart map (NOAA's paper chart as an overlay) and with the vector charts (depth and seamarks maps drawn by OsmAnd).
