@@ -40,6 +40,10 @@ class GpxTest {
         assertTrue(gpx, gpx.contains("<name>WP04 check</name><cmt>Next: 090 T, 0.50 nm; passes charted piles or snags: check</cmt>"))
         assertTrue(gpx, gpx.contains("<name>WP02</name><desc>Next: 090 T, 0.50 nm; Bay Bridge span (clearance 186 ft)</desc></rtept>"))
         assertTrue(gpx.contains("<name>End</name></rtept>"))
+        // Markers off: no waypoints or check names, the notes stay in the descriptions
+        val plain = Gpx.write(route, checks = false)
+        assertFalse(plain.contains("<wpt") || plain.contains(" check</name>") || plain.contains("<sym>"))
+        assertTrue(plain, plain.contains("<name>WP04</name><desc>Next: 090 T, 0.50 nm; passes charted piles or snags: check</desc></rtept>"))
         // Written out for CI to validate against the GPX 1.1 schema
         File("build").mkdirs()
         File("build/gpx-sample.gpx").writeText(gpx)

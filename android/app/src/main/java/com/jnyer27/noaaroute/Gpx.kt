@@ -54,7 +54,8 @@ object Gpx {
         return notes.joinToString("; ") + ". Check the chart and the water."
     }
 
-    fun write(r: Route, datum: String = "MLLW"): String {
+    /** The route as GPX; [checks] adds the check markers and marks flagged route points. */
+    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
@@ -67,7 +68,7 @@ object Gpx {
             sb.append("<cmt>$t</cmt><desc>$t</desc>")
             sb.append(if (end) CHECK_END_SYM + CHECK_END_OSMAND else CHECK_SYM + CHECK_OSMAND).append("</wpt>\n")
         }
-        for (run in checkRuns(r)) {
+        if (checks) for (run in checkRuns(r)) {
             val legs = if (run.first == run.last) "leg ${run.first + 1}" else "legs ${run.first + 1}-${run.last + 1}"
             val nm = run.sumOf { r.legs[it].distM } / Planner.NM
             marker(r.points[run.first], String.format(Locale.US, "Check: %s (%.2f nm)", legs, nm), checkText(r, run))
@@ -82,7 +83,7 @@ object Gpx {
                 else -> String.format(Locale.US, "WP%02d", k)
             }
             val leg = r.legs.getOrNull(k)
-            val check = leg != null && flagged(leg)
+            val check = checks && leg != null && flagged(leg)
             if (check) label += " check"
             sb.append(String.format(Locale.US, "<rtept lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, label))
             if (leg != null) {
