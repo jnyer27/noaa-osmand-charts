@@ -284,7 +284,7 @@ So the path would be: NOAA ENC, read with GDAL so that NOAA's update files are a
 | Completeness | Everything NOAA draws | What OsmAnd's Marine style knows: common objects look good, rarer ones (some restricted areas, cables, light sectors) may be missing or simplified. Not full S-52 |
 | Overlap | Separate overlay | Shares the map with OsmAnd's own data: seamarks that OpenStreetMap volunteers mapped may show twice, and ENC land sits over OsmAnd's coastline |
 
-This was tried once and dropped: the converter used then (JOSM's `js57toosm`) ignored NOAA's update files, so the maps missed Notice to Mariners corrections. Reading the charts with GDAL, as the route pack builder does, solves that. Still open: whether OsmAnd renders depth contours and soundings from your own `.obf` with only the free plugin (OsmAnd sells its own nautical depth data), and how much of a chart its Marine style draws. The first step would be a small proof of concept (Middle River, with marks, lights, and depth areas and contours) compared on the phone against the NCDS and ECDIS maps.
+This was tried once and dropped: the converter used then (JOSM's `js57toosm`) ignored NOAA's update files, so the maps missed Notice to Mariners corrections. The vector charts now read the charts with GDAL, as the route pack builder does, so they include those corrections. The open questions were settled on the phone: OsmAnd draws depth contours, depth areas and soundings from the app's own depth map with only the free Nautical plugin (as a `.depth.obf`, listed under Nautical maps and following the Nautical depth switch). Its Nautical style draws buoys and beacons, lights, wrecks, rocks and obstructions, piers, bridges, cables, fairways and dredged channels, and restricted areas. Daymarks and light sectors are not drawn yet. See the [screenshots](#vector-charts-for-osmand) comparing the vector charts with the NCDS chart map.
 
 ## How it works
 
@@ -504,7 +504,7 @@ The script searches a box around your points. If the only way runs outside it (a
 | Chart imported but nothing shows | Check that the Online maps plugin is on, the chart is selected, and transparency is not at the far left. |
 | Still blank after that | The area may not be covered. Check the region on the app's Regions map, or for a Termux-made NCDS map run `./noaa-charts.sh -i <file>` to check bounds. |
 | Changes not appearing after an update | Delete the old copy in OsmAnd's Local list and re-import. |
-| All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use an ECDIS map. |
+| All lights look red/magenta (NCDS) | Normal paper-chart symbology. Read the label, or use the vector charts (buoys and beacons in their real colors) or an ECDIS map. |
 | OsmAnd will not open a route | Open it from the Files app instead (**Show routes folder in Files** in the app, `noaa-route.py -O` in Termux). |
 | Termux: download finishes, then "file missing" or "not a valid MBTiles" | Storage permission was granted mid-run. Run the command again. |
 | Termux: ECDIS run reports many failed tiles, or "No tiles downloaded" | NOAA's service may be updating (Friday afternoons) or down, or there is no network. Re-run later; it resumes. |
