@@ -248,26 +248,27 @@ So a version built on public data could, at most, route from a US harbor to a US
 
 ### Could the chart maps come from NOAA's ECDIS service instead of NCDS, for more current charts?
 
-Yes, for small areas. `noaa-ecdis-tiles.sh` already builds OsmAnd maps from NOAA's ECDIS Display Service, and adding small-area ECDIS maps to the app is a [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/1). The app offers NCDS maps today. The two sources trade off like this:
+For current charts, the app's [vector charts](#vector-charts-for-osmand) now do most of what ECDIS was wanted for: they are rebuilt every week from NOAA's ENCs with Notices to Mariners corrections, draw buoys and beacons in their real colors and shapes, and cover a whole region in tens of MB. ECDIS still adds the S-52 look (the SiiTech look), with daymarks and light sectors, which the vector charts do not draw yet. `noaa-ecdis-tiles.sh` builds OsmAnd maps from NOAA's ECDIS Display Service, and small-area ECDIS maps in the app are an open [feature request](https://github.com/jnyer27/noaa-osmand-charts/issues/1). The three sources trade off like this:
 
-| | NCDS (pre-built regional MBTiles) | ECDIS (live display service, tile by tile) |
-|---|---|---|
-| How current | Whatever NOAA last packaged; can be stale (region 04 was last published in May 2024) | NOAA's weekly Friday update, including Notice to Mariners corrections |
-| Look | Paper chart; every light is a magenta teardrop, so read the label | S-52 (the SiiTech look): true buoy and light colors and daymark shapes |
-| Depths | Feet | Meters (a feet option exists but is unverified) |
-| Area and zoom | Whole region, NOAA's fixed zoom levels | Any area, any zoom you choose |
-| Size | About 600 MB per region (about 1.7 times that converted) | About 3-8 KB per tile: a zoom-16 map of Middle River was 12 MB |
-| Download | One file: resumable, background, light on NOAA | Thousands of live requests: about 31,000 tiles and several hours for the northern Chesapeake at zoom 16 |
-| Reliability | A normal file download | Long runs are fragile: connections hung after about 32,000 tiles, and Friday updates cause failed tiles (the script resumes and retries) |
-| Refresh | Download the new file when NOAA publishes one | Every tile again; there is no "only what changed" |
-| In the app | Yes, including combining regions | Not yet (Termux script only) |
+| | NCDS (pre-built regional MBTiles) | ECDIS (live display service, tile by tile) | Vector charts (`.obf` built from ENC) |
+|---|---|---|---|
+| How current | Whatever NOAA last packaged; can be stale (regions 04 and 05 were last published in May 2024) | NOAA's weekly Friday update, including Notice to Mariners corrections | Rebuilt weekly from NOAA's current ENCs, including Notice to Mariners corrections |
+| Look | Paper chart; every light is a magenta teardrop, so read the label | S-52: true buoy and light colors, daymark shapes and light sectors | OsmAnd's Nautical style over OsmAnd's own land: buoys and beacons in their real colors and shapes; no daymarks or light sectors yet; some buoys show twice |
+| Depths | Feet | Meters (a feet option exists but is unverified) | Feet (whole feet) |
+| Area and zoom | Whole region, NOAA's fixed zoom levels | Any area, any zoom you choose | Whole region, sharp at every zoom |
+| Size | About 600 MB per region (about 1.7 times that converted) | About 3-8 KB per tile: a zoom-16 map of Middle River was 12 MB | A depth map and a seamarks map: 22 MB for region 04, 25 MB for region 05 |
+| Download | One file: resumable, background, light on NOAA | Thousands of live requests: about 31,000 tiles and several hours for the northern Chesapeake at zoom 16 | Two files from GitHub: resumable, background, no load on NOAA |
+| Reliability | A normal file download | Long runs are fragile: connections hung after about 32,000 tiles, and Friday updates cause failed tiles (the script resumes and retries) | A normal file download |
+| Refresh | Download the new file when NOAA publishes one | Every tile again; there is no "only what changed" | **Update** on the region card when a newer weekly build is out |
+| In the app | Yes, including combining regions | Not yet (Termux script only) | Yes |
 
-ECDIS is not practical for whole regions at high zoom: each zoom level is about four times as many tiles, and every user pulling millions of tiles would put real load on NOAA's server. Pre-rendering whole regions centrally each week would mean the same scraping plus multi-gigabyte files. Small areas are cheap, though, so the plan is:
+ECDIS is not practical for whole regions at high zoom: each zoom level is about four times as many tiles, and every user pulling millions of tiles would put real load on NOAA's server. Pre-rendering whole regions centrally each week would mean the same scraping plus multi-gigabyte files. So in the app:
 
-- **NCDS for whole regions**, as the underlay.
-- **ECDIS for small areas**, as the overlay: the water within about a mile of a planned route, or a box around your home waters, at zoom 15-16. That is a few hundred to a few thousand tiles, minutes rather than hours, and the most current chart exactly where you will be.
+- **Vector charts** for current charts over whole regions.
+- **NCDS** for the paper-chart look, as an overlay.
+- **ECDIS for small areas** (the water within about a mile of a planned route, or a box around your home waters, at zoom 15-16) remains a possible addition for the full S-52 look: a few hundred to a few thousand tiles, minutes rather than hours.
 
-This is the same pattern recommended for the Termux scripts: a wide NCDS underlay and a sharp, current ECDIS overlay for home waters.
+With the Termux scripts, the same pattern still applies: a wide NCDS underlay and a sharp, current ECDIS overlay for home waters.
 
 ### Could OsmAnd show vector ENC charts, like OpenCPN, instead of chart tiles?
 
