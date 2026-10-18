@@ -1,0 +1,46 @@
+package com.jnyer27.noaaroute
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class GpxTest {
+    private fun leg(nm: Double, shoalM: Double = 0.0, lowM: Double? = null, notes: List<String> = emptyList()) =
+        Leg(nm * Planner.NM, 90.0, shoalM, lowM, notes)
+
+    // Six legs: 0-6 ft on legs 1-2, a bridge (no check) on leg 3, a planner check on leg 5
+    private val route = Route("t",
+        List(7) { LatLon(39.0, -76.5 + it * 0.01) },
+        listOf(leg(0.5, 95.0, 1.2), leg(0.5, 20.0), leg(0.5, notes = listOf("Bay Bridge span (clearance 186 ft)")),
+            leg(0.5), leg(0.5, notes = listOf("passes charted piles or snags: check")), leg(0.5)),
+        5.0, 10.0, 20.0, emptyList())
+
+    @Test
+    fun checkRuns() {
+        assertEquals(listOf(0..1, 4..4), Gpx.checkRuns(route))
+        assertFalse(Gpx.flagged(route.legs[2]))
+    }
+
+    @Test
+    fun checkMarkersAndNotes() {
+        val gpx = Gpx.write(route)
+        // One marker per run, halfway along it, before the route
+        val wpts = Regex("""<wpt lat="([-\d.]+)" lon="([-\d.]+)"><name>([^<]*)</name>""").findAll(gpx).toList()
+        assertEquals(listOf("Check: legs 1-2", "Check: leg 5"), wpts.map { it.groupValues[3] })
+        assertEquals(-76.49, wpts[0].groupValues[2].toDouble(), 1e-6)
+        assertEquals(-76.455, wpts[1].groupValues[2].toDouble(), 1e-6)
+        assertTrue(gpx.indexOf("<wpt") < gpx.indexOf("<rte>"))
+        assertTrue(gpx, gpx.contains("leg 1: 95 m in 0-6 ft charted water (shallowest sounding nearby 3.9 ft); leg 2: 20 m in 0-6 ft charted water. Check the chart and the water."))
+        assertTrue(gpx.contains("<sym>Danger Area</sym><type>Check</type><extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>"))
+        // Flagged route points are named, symbol and type after desc (schema order); others unchanged
+        assertTrue(gpx, gpx.contains("<name>Start check</name><cmt>Next: 090 T, 0.50 nm, 95 m in 0-6 ft"))
+        assertTrue(gpx, gpx.contains("<name>WP04 check</name><cmt>Next: 090 T, 0.50 nm; passes charted piles or snags: check</cmt>"))
+        assertTrue(gpx, gpx.contains("<name>WP02</name><desc>Next: 090 T, 0.50 nm; Bay Bridge span (clearance 186 ft)</desc></rtept>"))
+        assertTrue(gpx.contains("<name>End</name></rtept>"))
+        // Written out for CI to validate against the GPX 1.1 schema
+        File("build").mkdirs()
+        File("build/gpx-sample.gpx").writeText(gpx)
+    }
+}
