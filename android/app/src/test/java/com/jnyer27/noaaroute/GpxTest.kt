@@ -30,7 +30,8 @@ class GpxTest {
         val wpts = Regex("""<wpt lat="([-\d.]+)" lon="([-\d.]+)"><name>([^<]*)</name>""").findAll(gpx).toList()
         assertEquals(listOf("Check: legs 1-2 (1.00 nm)", "Check ends: legs 1-2", "Check: leg 5 (0.50 nm)"), wpts.map { it.groupValues[3] })
         assertEquals(listOf(-76.5, -76.48, -76.46), wpts.map { it.groupValues[2].toDouble() })
-        assertTrue(gpx.contains("<desc>End of the stretch to check (legs 1-2).</desc>"))
+        assertTrue(gpx.contains("<desc>End of the stretch to check (legs 1-2).</desc><sym>Flag, Green</sym><type>Check</type>" +
+            "<extensions><osmand:icon>special_symbol_check_mark</osmand:icon><osmand:background>circle</osmand:background>"))
         assertTrue(gpx.indexOf("<wpt") < gpx.indexOf("<rte>"))
         assertTrue(gpx, gpx.contains("leg 1: 95 m in 0-6 ft charted water (shallowest sounding nearby 3.9 ft); leg 2: 20 m in 0-6 ft charted water. Check the chart and the water."))
         assertTrue(gpx.contains("<sym>Danger Area</sym><type>Check</type><extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>"))
