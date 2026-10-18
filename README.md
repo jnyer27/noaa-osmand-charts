@@ -8,7 +8,7 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 <p>
   <img src="docs/app-route.jpg" alt="NOAA Route report for a 417.6 nm trip from Maryland Marina to North Carolina with Stay inside on, planned in 54 s at a 5 ft safe operating depth and 10 ft air draft: legs out of the marina with water where charted depth may be under 5 ft and the shallowest nearby soundings, a pier note, restricted areas and the Eastern Channel span clearance" width="360" align="top">
-  <img src="docs/app-regions.jpg" alt="NOAA Route Regions screen: NOAA chart regions 02a to 05 on the built-in map with the trip's start and destination in the Chesapeake, and the region list showing each region up to date" width="360" align="top">
+  <img src="docs/regions-screen.jpg" alt="NOAA Route The Regions screen: regions 03, 04 and 05 on the map with You, Start and Destination markers, the automatic Wi-Fi download checkbox, and the region list with update status" width="360" align="top">
 </p>
 
 *Left: Maryland Marina to North Carolina inside (Stay inside on), 417.6 nm, planned offline in 54 s at a 5 ft safe operating depth. Right: the Regions screen.*
