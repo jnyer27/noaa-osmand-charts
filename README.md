@@ -30,7 +30,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 ## Quick start
 
 1. **First launch:** the app asks **Where do you boat?**. It finds your chart region from your location, or you can pick the region on the map. It then downloads that region (usually 2-7 MB; the largest, Arctic Alaska, is 14 MB).
-2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd.
+2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd or Google Maps (**Share > NOAA Route**; a Google Maps link needs the internet to read).
 3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables. Check **Stay inside (avoid open ocean)** to keep the route on bays, sounds, rivers and the ICW.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
 5. Tap **Open in OsmAnd** to follow the route.
