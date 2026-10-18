@@ -7,11 +7,11 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 **[Download the app (noaa-route.apk)](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)**
 
 <p>
-  <img src="docs/app-route.jpg" alt="NOAA Route main screen: a 26.5 nm route from Maryland Marina to Ego Alley, Annapolis, at 5 ft safe operating depth and 10 ft air draft, planned in 0.8 s, with the leg-by-leg report of courses, distances and notes on shallow stretches, shoal soundings and the Bay Bridge span clearance" width="360" align="top">
+  <img src="docs/app-route.jpg" alt="NOAA Route report for a 417.6 nm trip from Maryland Marina to North Carolina with Stay inside on, planned in 54 s at a 5 ft safe operating depth and 10 ft air draft: legs out of the marina with water where charted depth may be under 5 ft and the shallowest nearby soundings, a pier note, restricted areas and the Eastern Channel span clearance" width="360" align="top">
   <img src="docs/app-regions.jpg" alt="NOAA Route Regions screen: NOAA chart regions 02a to 05 on the built-in map with the trip's start and destination in the Chesapeake, and the region list showing each region up to date" width="360" align="top">
 </p>
 
-*Left: Maryland Marina to Annapolis at 5 ft, 26.5 nm, planned offline in 0.8 s. Right: the Regions screen.*
+*Left: Maryland Marina to North Carolina inside (Stay inside on), 417.6 nm, planned offline in 54 s at a 5 ft safe operating depth. Right: the Regions screen.*
 
 > **Not a certified navigation system.** NOAA Route is a planning aid. Charted depths are at MLLW with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water.
 
@@ -36,10 +36,10 @@ The project began as a set of Termux scripts, which are kept in this repository 
 5. Tap **Open in OsmAnd** to follow the route.
 
 <p>
-  <img src="docs/main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and Regions (13 updates), Start and Destination filled in, safe depth 2 ft, air draft 10 ft, Stay inside checked, Plan route, the status line Region 06 ready, and Manage places" width="300" align="top">
+  <img src="docs/main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and NOAA data date, Regions, Start at Maryland Marina and a destination in North Carolina, Safe operating depth 5 ft, air draft 10 ft, Stay inside and Check markers in the GPX checked with their hints, Name, Plan route and Manage places" width="300" align="top">
 </p>
 
-*The main screen before planning: installed regions and updates waiting, the trip, depth, air draft and Stay inside.*
+*The main screen before planning: installed regions, the trip, Safe operating depth (5 ft here), air draft, Stay inside and Check markers in the GPX.*
 
 ## Features
 

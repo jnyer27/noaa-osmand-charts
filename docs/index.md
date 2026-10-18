@@ -13,7 +13,7 @@ Once your chart region is downloaded, planning works fully offline, usually in a
 [Download the app](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app){: .btn .btn-primary }
 [Get started](getting-started.html){: .btn }
 
-<img src="app-route.jpg" alt="NOAA Route main screen with a planned route from Maryland Marina to Annapolis and its leg-by-leg report" width="300">
+<img src="app-route.jpg" alt="NOAA Route report for a 417.6 nm trip from Maryland Marina to North Carolina with Stay inside on, planned in 54 s at a 5 ft safe operating depth and 10 ft air draft: legs out of the marina with water where charted depth may be under 5 ft and the shallowest nearby soundings, a pier note, restricted areas and the Eastern Channel span clearance" width="300">
 
 {: .warning }
 > **Not a certified navigation system.** NOAA Route is a planning aid. Depths are charted at low water (MLLW) with no tide added, soundings are sparse, and the bottom changes. Check every leg against a current chart before you run it, and keep your eyes on the water. See [Safety and limits](safety.html).
