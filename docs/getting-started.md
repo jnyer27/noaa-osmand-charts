@@ -20,7 +20,7 @@ Most regions are 2-7 MB; the largest (Arctic Alaska) is 14 MB. Download at home 
 
 The first time you download a region, the app asks once about **Automatic chart downloads**: yes means it keeps your regions up to date on Wi-Fi, and fetches a region a trip needs without asking. You can change this later on the Regions screen.
 
-<img src="app-regions.jpg" alt="The Regions screen: NOAA chart regions on a map, with the regions list below" width="300">
+<img src="regions-screen.jpg" alt="The Regions screen: regions 03, 04 and 05 on the map with You, Start and Destination markers, the automatic Wi-Fi download checkbox, and the region list with update status" width="300">
 
 ## 2. Plan your first route
 
