@@ -4,6 +4,13 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-17: user guide and documentation (app and route packs unchanged)
+
+- **[User guide](https://jnyer27.github.io/noaa-osmand-charts/)** on GitHub Pages: installing, getting started, every field on the main screen, reading the route report (what each "check" note means and what to do), following routes and sharing points in OsmAnd, chart maps and vector charts, the Regions screen and region card in every state, how the planner chooses a route, safety and limits, and troubleshooting. Written from the app's own buttons and messages, with screenshots of the main screen, the Regions screen, a region card and the share dialog.
+- **Report a route problem:** a [GitHub issue form](https://github.com/jnyer27/noaa-osmand-charts/issues/new?template=route-problem.yml) asks for the spot, the trip, depth, air draft, Stay inside, installed regions, app version, and the route's GPX file and a screenshot.
+- **README:** a Safety and testing process section, this changelog, the same screenshots, and the Regions screen, region card, share dialog and places described in full.
+- For developers: `tools/cloud-setup.sh` and `tools/run_refs.sh` run the reference routes on any Linux machine or in a Claude Code cloud session.
+
 ## 2026-10-17: app 0.1.105 (route packs build 111 unchanged)
 
 Routing and safety:
