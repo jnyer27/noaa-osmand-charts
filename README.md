@@ -196,6 +196,13 @@ NOAA Route is a planning aid. These are the steps between NOAA's charts and a ro
 
 With **Check markers in the GPX** on (the default), the GPX also gets an orange waypoint where each stretch of legs to check starts and a green one where it ends, with the notes, for OsmAnd (which announces them during navigation when GPX waypoints are on in its voice prompts) and other chart apps; see the [user guide](https://jnyer27.github.io/noaa-osmand-charts/report.html#in-the-gpx-file).
 
+<p>
+  <img src="docs/osmand-check-markers.jpg" alt="OsmAnd chart of Middle River with a planned route as a dashed line: an orange Check marker labeled Check: leg 10 (1.00 nm) where the stretch starts near Galloway Point, and a green check mark labeled Check ends: leg 10 where it ends, past the Eastern Yacht Club, with the marker details panel below" width="300" align="top">
+  <img src="docs/osmand-check-details.jpg" alt="OsmAnd details of the Check: leg 10 (1.00 nm) waypoint in the Check group of route 20261018 1703: description and comment leg 10: 39 m where charted depth may be under 5 ft (shallowest sounding nearby 1.0 ft, under your 5 ft). Check the chart and the water." width="300" align="top">
+</p>
+
+*Check markers in OsmAnd. Left: the orange start and green end of a stretch to check (leg 10, 1.00 nm, in Middle River). Right: the start marker's notes, in the Check group.*
+
 **What the planner does not know.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Soundings are sparse, the bottom moves, and single piles are not avoided. The grid is 20 m, so a line through a narrow opening may run along one side of it. Charts lag behind the water, even with Notices to Mariners corrections.
 
 **How the route data is built.** Every week the route packs are rebuilt from NOAA's current ENC cells with all update files applied. The build checks each chart's depth units and records its sounding datum.

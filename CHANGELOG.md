@@ -8,6 +8,7 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 
 Report and GPX:
 - **Hazard notes name the hazard.** "passes near charted shoal soundings or obstructions" now names the closest one whose buffer the leg uses, with its charted depth and how close the leg comes, as a range the size of a 20 m grid cell: "passes 25-45 m from a charted 3.2 ft sounding: check", "a charted obstruction (2.1 ft)", "(depth unknown or 0 ft)", or "charted piles or snags". Rocks, wrecks and other obstructions are all called obstructions. Each hazard along a stretch of legs is named once. All reference routes are unchanged.
+- **Screenshots of the check markers in OsmAnd** in the [user guide](https://jnyer27.github.io/noaa-osmand-charts/report.html#in-the-gpx-file) and README: the orange start and green end of a stretch on the map, and a marker's notes in the Check group.
 
 ## 2026-10-18: app 0.1.114 (route packs build 120 unchanged)
 
