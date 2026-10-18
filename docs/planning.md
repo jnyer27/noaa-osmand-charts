@@ -48,6 +48,10 @@ Keeps the route on bays, sounds, rivers and the ICW. The note under the checkbox
 
 Without it, the planner takes the cheapest safe water, which can include the ocean along the beach or past a cape.
 
+## Check markers in the GPX
+
+On by default. The route's GPX file gets a waypoint where each stretch to check starts (orange, "Check: legs 16-18 (0.21 nm)") and where it ends (green, "Check ends: legs 16-18"), so OsmAnd and other chart apps show and, in OsmAnd, announce them. Off, the GPX has only the route, with each leg's notes in its points. The route and the report are the same either way. See [In the GPX file](report.html#in-the-gpx-file).
+
 ## Name
 
 Optional. Routes are saved as `Download/noaa-charts/routes/<name>.gpx`, or `route_YYYYMMDD_HHMM.gpx` without a name. Planning again with the same name replaces that file.

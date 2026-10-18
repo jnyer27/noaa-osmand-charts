@@ -10,7 +10,7 @@ NOAA Route plans; OsmAnd+ (or free OsmAnd) shows the route on a map and follows 
 ## Following a route
 
 1. After planning, tap **Open in OsmAnd**. OsmAnd opens the GPX route.
-2. Follow the line, or use OsmAnd's navigation along the track. Tap a route point to see the next leg's course, distance and notes.
+2. Follow the line, or use OsmAnd's navigation along the track. Tap a route point to see the next leg's course, distance and notes. Orange **Check** markers show where a stretch to check starts and green ones where it ends; OsmAnd announces them during navigation when **GPX waypoints** is on in its voice prompts (see [In the GPX file](report.html#in-the-gpx-file)).
 3. If OsmAnd does not open it, tap **Show routes folder in Files** and tap the `.gpx` file there, then choose OsmAnd.
 
 The route line is a guide. On the 20 m grid, a line through a narrow bridge opening or a channel can run along one side instead of down the middle, so line up by eye.

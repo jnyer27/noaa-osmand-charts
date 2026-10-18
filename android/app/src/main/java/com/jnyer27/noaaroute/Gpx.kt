@@ -6,29 +6,106 @@ import java.util.Locale
 object Gpx {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun legDesc(l: Leg): String {
+    private fun legDesc(l: Leg, depthFt: Double): String {
         var d = String.format(Locale.US, "Next: %03.0f T, %.2f nm", l.bearing, l.distM / Planner.NM)
-        if (l.shoalM > 0) {
-            d += String.format(Locale.US, ", %.0f m in 0-6 ft charted water", l.shoalM)
-            l.lowM?.let { d += String.format(Locale.US, " (shallowest sounding nearby %.1f ft)", it / Pack.FT) }
-        }
+        shoalNote(l, depthFt)?.let { d += ", $it" }
+        for (n in l.notes) d += "; $n"
         return d
     }
 
-    fun write(r: Route, datum: String = "MLLW"): String {
+    /**
+     * Length in water whose charted depth range reaches below the safe depth (NOAA's 0-6 ft
+     * band for a 3 or 5 ft boat, the 6-12 ft band for an 8 ft one), so the label names the
+     * safe depth rather than a fixed band.
+     */
+    private fun shallowLen(l: Leg, depthFt: Double) =
+        String.format(Locale.US, "%.0f m where charted depth may be under %s ft", l.shoalM, num(depthFt))
+
+    /** The shallowest nearby sounding, and whether it is under the safe depth. */
+    private fun sounding(lowM: Double, depthFt: Double): String {
+        val ft = lowM / Pack.FT
+        return String.format(Locale.US, "%.1f ft", ft) + if (ft < depthFt) ", under your ${num(depthFt)} ft" else ""
+    }
+
+    private fun shoalNote(l: Leg, depthFt: Double): String? {
+        if (l.shoalM <= 0) return null
+        var d = shallowLen(l, depthFt)
+        l.lowM?.let { d += " (shallowest sounding nearby ${sounding(it, depthFt)})" }
+        return d
+    }
+
+    /** A leg to look at: water that may be under the safe depth, or a planner note asking for a check. */
+    fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") }
+
+    // Check markers: a standard symbol and type for any app, OsmAnd's icon in its own extension.
+    // The end of a stretch gets a green check mark instead of the orange warning.
+    private const val CHECK_SYM = "<sym>Danger Area</sym><type>Check</type>"
+    private const val CHECK_END_SYM = "<sym>Flag, Green</sym><type>Check</type>"
+    private const val CHECK_END_OSMAND = "<extensions><osmand:icon>special_symbol_check_mark</osmand:icon>" +
+        "<osmand:background>circle</osmand:background><osmand:color>#FF2E7D32</osmand:color></extensions>"
+    private const val CHECK_OSMAND = "<extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>" +
+        "<osmand:background>triangle</osmand:background><osmand:color>#FFE65100</osmand:color></extensions>"
+
+    /** Runs of consecutive flagged legs, as first and last leg index. */
+    fun checkRuns(r: Route): List<IntRange> {
+        val runs = ArrayList<IntRange>()
+        var k = 0
+        while (k < r.legs.size) {
+            if (!flagged(r.legs[k])) { k++; continue }
+            var j = k
+            while (j + 1 < r.legs.size && flagged(r.legs[j + 1])) j++
+            runs.add(k..j)
+            k = j + 1
+        }
+        return runs
+    }
+
+    private fun checkText(r: Route, run: IntRange): String {
+        val notes = run.map { k ->
+            val l = r.legs[k]
+            "leg ${k + 1}: " + (listOfNotNull(shoalNote(l, r.depthFt)) + l.notes).joinToString("; ")
+        }
+        return notes.joinToString("; ") + ". Check the chart and the water."
+    }
+
+    /** The route as GPX; [checks] adds the check markers and marks flagged route points. */
+    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
+            "xmlns:osmand=\"https://osmand.net\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" " +
+            "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
+        // Check markers where each run of flagged legs starts and ends (waypoints come before the route)
+        fun marker(p: LatLon, name: String, text: String, end: Boolean = false) {
+            val t = esc(text)
+            sb.append(String.format(Locale.US, "<wpt lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, esc(name)))
+            sb.append("<cmt>$t</cmt><desc>$t</desc>")
+            sb.append(if (end) CHECK_END_SYM + CHECK_END_OSMAND else CHECK_SYM + CHECK_OSMAND).append("</wpt>\n")
+        }
+        if (checks) for (run in checkRuns(r)) {
+            val legs = if (run.first == run.last) "leg ${run.first + 1}" else "legs ${run.first + 1}-${run.last + 1}"
+            val nm = run.sumOf { r.legs[it].distM } / Planner.NM
+            marker(r.points[run.first], String.format(Locale.US, "Check: %s (%.2f nm)", legs, nm), checkText(r, run))
+            marker(r.points[run.last + 1], "Check ends: $legs", "End of the stretch to check ($legs).", end = true)
+        }
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
         sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt), datum))}</desc>\n")
         for ((k, p) in r.points.withIndex()) {
-            val label = when (k) {
+            var label = when (k) {
                 0 -> "Start"
                 r.points.size - 1 -> "End"
                 else -> String.format(Locale.US, "WP%02d", k)
             }
+            val leg = r.legs.getOrNull(k)
+            val check = checks && leg != null && flagged(leg)
+            if (check) label += " check"
             sb.append(String.format(Locale.US, "<rtept lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, label))
-            if (k < r.legs.size) sb.append("<desc>${esc(legDesc(r.legs[k]))}</desc>")
+            if (leg != null) {
+                val d = esc(legDesc(leg, r.depthFt))
+                if (check) sb.append("<cmt>$d</cmt>")
+                sb.append("<desc>$d</desc>")
+                if (check) sb.append(CHECK_SYM)
+            }
             sb.append("</rtept>\n")
         }
         sb.append("</rte>\n</gpx>\n")
@@ -54,9 +131,8 @@ object Gpx {
         for ((k, l) in r.legs.withIndex()) {
             val notes = ArrayList<String>()
             if (l.shoalM > 0) {
-                var s = String.format(Locale.US, "%.0f m in 0-6 ft", l.shoalM)
-                s += l.lowM?.let { String.format(Locale.US, ", shallowest sounding within 100 m %.1f ft", it / Pack.FT) }
-                    ?: ", no soundings within 100 m"
+                var s = shallowLen(l, r.depthFt)
+                s += l.lowM?.let { ", shallowest sounding within 100 m ${sounding(it, r.depthFt)}" } ?: ", no soundings within 100 m"
                 notes.add(s)
             }
             notes.addAll(l.notes)

@@ -89,6 +89,7 @@ class MainActivity : Activity() {
     private lateinit var depth: EditText
     private lateinit var air: EditText
     private lateinit var inside: CheckBox
+    private lateinit var checks: CheckBox
     private lateinit var name: EditText
     private lateinit var planButton: Button
     private lateinit var status: TextView
@@ -166,6 +167,12 @@ class MainActivity : Activity() {
             text = "Keeps the route on bays, sounds, rivers and the ICW: no water seaward of the territorial sea baseline (the line across inlets and bay mouths)."
             textSize = 12f
         })
+        checks = CheckBox(this).apply { text = "Check markers in the GPX" }
+        col.addView(checks)
+        col.addView(TextView(this).apply {
+            text = "Marks where each stretch to check starts (orange) and ends (green), with its notes, for OsmAnd and other chart apps."
+            textSize = 12f
+        })
         name = field("route name")
         col.addView(label("Name"))
         col.addView(name)
@@ -199,6 +206,7 @@ class MainActivity : Activity() {
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
         inside.isChecked = prefs.getBoolean("inside", false)
+        checks.isChecked = prefs.getBoolean("checks", true)
         start.setText(prefs.getString("start", ""))
         dest.setText(prefs.getString("dest", ""))
         File(filesDir, "md-route-pack.bin").delete() // single-pack format from the first build
@@ -1152,7 +1160,9 @@ class MainActivity : Activity() {
             "route_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
         }.replace(Regex("[^\\w.-]+"), "_")
         val stayInside = inside.isChecked
+        val markChecks = checks.isChecked
         prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString()).putBoolean("inside", stayInside)
+            .putBoolean("checks", markChecks)
             .putString("start", start.text.toString()).putString("dest", dest.text.toString()).apply()
         planButton.isEnabled = false
         packButton.isEnabled = false // no area changes while planning
@@ -1166,7 +1176,7 @@ class MainActivity : Activity() {
                 val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside) { msg -> ui.post { status.text = msg } }
                 val used = usedPacks(p, r)
                 val datum = Pack.datumName(used.flatMap { it.datums })
-                val (uri, savedAs) = saveGpx(r, datum)
+                val (uri, savedAs) = saveGpx(r, datum, markChecks)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 ui.post {
                     route = r
@@ -1215,9 +1225,9 @@ class MainActivity : Activity() {
             "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(sec))
 
     /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). */
-    private fun saveGpx(r: Route, datum: String): Pair<Uri, String> {
+    private fun saveGpx(r: Route, datum: String, checks: Boolean): Pair<Uri, String> {
         val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
-        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum).toByteArray()) }
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks).toByteArray()) }
         return uri to name
     }
 

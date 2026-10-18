@@ -32,6 +32,11 @@ jobs:
       - name: Unit tests
         run: gradle --no-daemon testReleaseUnitTest
 
+      - name: GPX output is valid GPX 1.1
+        run: |
+          command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
+          xmllint --noout --schema app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
+
       - name: Signing key
         env:
           KEYSTORE_B64: ${{ secrets.NOAAROUTE_KEYSTORE_B64 }}
