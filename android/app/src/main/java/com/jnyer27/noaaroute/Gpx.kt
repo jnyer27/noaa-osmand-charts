@@ -25,6 +25,8 @@ object Gpx {
 
     // Check markers: a standard symbol and type for any app, OsmAnd's icon in its own extension
     private const val CHECK_SYM = "<sym>Danger Area</sym><type>Check</type>"
+    /** A run longer than this also gets a marker where it ends. */
+    const val CHECK_END_NM = 0.5
     private const val CHECK_OSMAND = "<extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>" +
         "<osmand:background>triangle</osmand:background><osmand:color>#FFE65100</osmand:color></extensions>"
 
@@ -42,20 +44,6 @@ object Gpx {
         return runs
     }
 
-    /** Halfway along legs [run] of the route. */
-    private fun midpoint(r: Route, run: IntRange): LatLon {
-        var left = run.sumOf { r.legs[it].distM } / 2
-        for (k in run) {
-            val d = r.legs[k].distM
-            if (left <= d && d > 0) {
-                val a = r.points[k]; val b = r.points[k + 1]; val f = left / d
-                return LatLon(a.lat + (b.lat - a.lat) * f, a.lon + (b.lon - a.lon) * f)
-            }
-            left -= d
-        }
-        return r.points[run.first]
-    }
-
     private fun checkText(r: Route, run: IntRange): String {
         val notes = run.map { k ->
             val l = r.legs[k]
@@ -70,13 +58,17 @@ object Gpx {
         sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
             "xmlns:osmand=\"https://osmand.net\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" " +
             "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
-        // A check marker halfway along each run of flagged legs (waypoints come before the route)
-        for (run in checkRuns(r)) {
-            val m = midpoint(r, run)
-            val name = if (run.first == run.last) "Check: leg ${run.first + 1}" else "Check: legs ${run.first + 1}-${run.last + 1}"
-            val t = esc(checkText(r, run))
-            sb.append(String.format(Locale.US, "<wpt lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", m.lat, m.lon, name))
+        // A check marker where each run of flagged legs starts, and where a long one ends (waypoints come before the route)
+        fun marker(p: LatLon, name: String, text: String) {
+            val t = esc(text)
+            sb.append(String.format(Locale.US, "<wpt lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, esc(name)))
             sb.append("<cmt>$t</cmt><desc>$t</desc>$CHECK_SYM$CHECK_OSMAND</wpt>\n")
+        }
+        for (run in checkRuns(r)) {
+            val legs = if (run.first == run.last) "leg ${run.first + 1}" else "legs ${run.first + 1}-${run.last + 1}"
+            val nm = run.sumOf { r.legs[it].distM } / Planner.NM
+            marker(r.points[run.first], String.format(Locale.US, "Check: %s (%.2f nm)", legs, nm), checkText(r, run))
+            if (nm > CHECK_END_NM) marker(r.points[run.last + 1], "Check ends: $legs", "End of the stretch to check ($legs).")
         }
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
         sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt), datum))}</desc>\n")

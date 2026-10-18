@@ -26,11 +26,11 @@ class GpxTest {
     @Test
     fun checkMarkersAndNotes() {
         val gpx = Gpx.write(route)
-        // One marker per run, halfway along it, before the route
+        // A marker where each run starts, and where it ends if over 0.5 nm (legs 1-2: 1.0 nm; leg 5: 0.5 nm), before the route
         val wpts = Regex("""<wpt lat="([-\d.]+)" lon="([-\d.]+)"><name>([^<]*)</name>""").findAll(gpx).toList()
-        assertEquals(listOf("Check: legs 1-2", "Check: leg 5"), wpts.map { it.groupValues[3] })
-        assertEquals(-76.49, wpts[0].groupValues[2].toDouble(), 1e-6)
-        assertEquals(-76.455, wpts[1].groupValues[2].toDouble(), 1e-6)
+        assertEquals(listOf("Check: legs 1-2 (1.00 nm)", "Check ends: legs 1-2", "Check: leg 5 (0.50 nm)"), wpts.map { it.groupValues[3] })
+        assertEquals(listOf(-76.5, -76.48, -76.46), wpts.map { it.groupValues[2].toDouble() })
+        assertTrue(gpx.contains("<desc>End of the stretch to check (legs 1-2).</desc>"))
         assertTrue(gpx.indexOf("<wpt") < gpx.indexOf("<rte>"))
         assertTrue(gpx, gpx.contains("leg 1: 95 m in 0-6 ft charted water (shallowest sounding nearby 3.9 ft); leg 2: 20 m in 0-6 ft charted water. Check the chart and the water."))
         assertTrue(gpx.contains("<sym>Danger Area</sym><type>Check</type><extensions><osmand:icon>special_symbol_exclamation_mark</osmand:icon>"))
