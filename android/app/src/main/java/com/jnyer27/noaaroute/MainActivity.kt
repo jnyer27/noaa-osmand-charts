@@ -285,13 +285,60 @@ class MainActivity : Activity() {
                         val gpx = Shared.parseGpx(body)
                         if (gpx != null) emptyList<SharedPoint>() to gpx else Shared.parseText(body) to null
                     }
-                    else -> Shared.parseText(text) to null
+                    else -> sharedText(text) to null
                 }
+            } catch (e: SharedHandled) {
+                return@execute
             } catch (e: Exception) {
                 ui.post { toast("Could not read what was shared: ${e.message}") }
                 return@execute
             }
             ui.post { offerShared(found.first, found.second) }
+        }
+    }
+
+    /**
+     * Positions in shared text. A Google Maps short link holds none: follow it
+     * (on the worker thread, needs the internet) and read the long link instead.
+     */
+    private fun sharedText(text: String): List<SharedPoint> {
+        val direct = Shared.parseText(text)
+        val links = Shared.shortLinks(text)
+        if (direct.isNotEmpty() || links.isEmpty()) return direct
+        ui.post { Toast.makeText(this, "Reading Google Maps link\u2026", Toast.LENGTH_SHORT).show() }
+        val resolved = try {
+            links.mapNotNull { Shared.resolveShort(it, ::redirectOf) }
+        } catch (e: java.io.IOException) {
+            ui.post { toast("Reading a Google Maps link needs the internet. Connect and share it again, or share the spot from OsmAnd.") }
+            throw SharedHandled()
+        }
+        val points = Shared.parseText(text + "\n" + resolved.joinToString("\n"))
+        if (points.isEmpty()) {
+            val name = resolved.firstNotNullOfOrNull { Shared.placeName(it) }
+            ui.post {
+                AlertDialog.Builder(this).setTitle(name ?: "Google Maps link")
+                    .setMessage("Google did not include coordinates for this place. In Google Maps, press and hold the spot to drop a pin, then share the pin.")
+                    .setPositiveButton("OK", null).show()
+            }
+            throw SharedHandled()
+        }
+        return points
+    }
+
+    /** Thrown once the user has already been told why nothing was found. */
+    private class SharedHandled : Exception()
+
+    /** One request: where a link redirects to, or null if it does not. */
+    private fun redirectOf(url: String): String? {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        try {
+            c.instanceFollowRedirects = false
+            c.connectTimeout = 8000
+            c.readTimeout = 8000
+            c.setRequestProperty("User-Agent", "NOAA-Route/${BuildConfig.VERSION_NAME} (Android)")
+            return if (c.responseCode in 300..399) c.getHeaderField("Location") else null
+        } finally {
+            c.disconnect()
         }
     }
 
