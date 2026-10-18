@@ -19,7 +19,7 @@ The main product is the NOAA Route Android app (`android/`): depth-aware route p
 - [x] noaa-route.py: long trips, cut-off basins, named limiting soundings, deepest -d suggestion, interview mode, -l current location, -O opens routes folder in Files; results match the app exactly
 - [x] NOAA Route app installed and used on device (2026-10-12): chart areas (Chesapeake Bay), planning, GPX save/open, share a position from OsmAnd into the app (confirmed); sharing GPX files and 'Save as place' are built and unit-tested but not yet confirmed on device; single instance (singleTask) fix delivered
 - [x] GitHub repo https://github.com/jnyer27/noaa-osmand-charts, **public since 2026-10-11** (history rewritten to noreply email 22139984+jnyer27@users.noreply.github.com; repo-local git user.email set to it)
-- [x] Current release (2026-10-18): app 0.1.107 (main c6799a8; Google Maps short links in shares), route packs build 120 (weekly scheduled run 39043812795, 2026-10-17). Branches fairways, docs-changelog and piney are merged. CHANGELOG.md is up to date.
+- [x] Current release (2026-10-18): app 0.1.114 (main 7870c45; GPX check markers, safe-depth shallow notes), route packs build 120 (weekly scheduled run 39043812795, 2026-10-17). Branches fairways, docs-changelog and piney are merged. CHANGELOG.md is up to date.
 - [x] Region merge (`-M`) confirmed on device: `ncds_03_04_05.sqlitedb` (1.7 GB, 1,185,109 tiles) imports and renders in OsmAnd (2026-10-11)
 
 ## GitHub and the phone

@@ -4,6 +4,14 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-18: app 0.1.114 (route packs build 120 unchanged)
+
+Report and GPX:
+- **Shallow-water notes name your safe depth.** "95 m where charted depth may be under 5 ft" replaces "95 m in 0-6 ft", which was wrong for a safe depth over 6 ft (the band that spans 8 ft is 6-12 ft). The shallowest nearby sounding adds "under your 5 ft" when it is shallower. The guide explains how the length is estimated and that the sounding is searched within 100 m of the whole leg.
+- **Check markers in the GPX** (new checkbox, on by default): an orange waypoint where each stretch of legs to check starts ("Check: legs 16-18 (0.21 nm)", with the notes) and a green one where it ends. OsmAnd shows them with its own icons in a Check group and announces them during navigation; other chart apps show them as waypoints (Danger Area, Flag, Green). Route points of checked legs are named "WP09 check".
+- **Every report note is in the GPX** route points' descriptions, not only the shallow-water one.
+- The app's GPX output is validated against the GPX 1.1 schema on every build.
+
 ## 2026-10-18: app 0.1.107 (route packs build 120, the weekly rebuild of 2026-10-17, unchanged)
 
 App:
