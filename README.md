@@ -33,7 +33,15 @@ The project began as a set of Termux scripts, which are kept in this repository 
 2. **Start and Destination:** type or paste `LAT, LON` (or `39.25 N, 76.48 W`), pick from **Places**, tap **Here** for your GPS position, or share a spot from OsmAnd or Google Maps (**Share > NOAA Route**; a Google Maps link needs the internet to read).
 3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Add your **Air draft (ft)** to avoid low bridges and cables. Check **Stay inside (avoid open ocean)** to keep the route on bays, sounds, rivers and the ICW.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
-5. Tap **Open in OsmAnd** to follow the route.
+5. **Check the route before you go.** Every route needs checking. Where the planner cannot keep to water charted at least your safe operating depth (a creek, a marina entrance, a narrow channel), it goes on and flags the leg instead of stopping: a flagged leg is one it could not prove safe. Look at each leg with a note on a current chart:
+   - **shallow water**: "N m where charted depth may be under 5 ft" (your own safe depth in place of 5 ft): check the tide and the shallowest sounding named with it,
+   - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
+   - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
+   - **bridges and cables**: clearances and opening schedules,
+   - **restricted areas**: their rules.
+
+   [What each note means](https://jnyer27.github.io/noaa-osmand-charts/report.html#what-each-note-means) explains every note and what to do. With **Check markers in the GPX** on, each stretch of flagged legs has an orange start and a green end marker in OsmAnd, which announces them as you approach.
+6. Tap **Open in OsmAnd** to follow the route. Underway, follow the buoys rather than the line and watch the depth sounder where the report flags shallow water.
 
 <p>
   <img src="docs/main-screen.jpg" alt="NOAA Route main screen: Charts with the installed regions and NOAA data date, Regions, Start at Maryland Marina and a destination in North Carolina, Safe operating depth 5 ft, air draft 10 ft, Stay inside and Check markers in the GPX checked with their hints, Name, Plan route and Manage places" width="300" align="top">
