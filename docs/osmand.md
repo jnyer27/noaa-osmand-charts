@@ -29,7 +29,7 @@ In OsmAnd, tap a spot on the map, then **Share > NOAA Route**. NOAA Route opens 
 | **Save as place...** | Opens **Add place** with the name and position filled in; edit the name and tap **Save** |
 | **Cancel** | Does nothing |
 
-When what was shared holds several positions, the app first asks **Which position?** and lists them. Map links, `geo:` links and plain coordinates from other apps work the same way.
+When what was shared holds several positions, the app first asks **Which position?** and lists them. Map links, `geo:` links and plain coordinates from other apps work the same way, and so do Google Maps short links when there is an internet connection (see [Share places from other map apps](getting-started.html#4-share-places-from-other-map-apps)).
 
 Sharing a **GPX file** offers:
 
