@@ -10,15 +10,20 @@ class SharedGpx(val waypoints: List<SharedPoint>, val route: List<SharedPoint>, 
 
 /**
  * Finds positions in what other apps share: OsmAnd "Share location" text,
- * geo: URIs, map links (lat=..&lon=.., q=lat,lon, @lat,lon) and plain
- * coordinate pairs, plus GPX files. Plain Kotlin so it is unit tested on the JVM.
+ * geo: URIs, map links (lat=..&lon=.., q=lat,lon, Google's !3d..!4d.. pin and
+ * /search/lat,lon, @lat,lon) and plain coordinate pairs, plus GPX files. Google
+ * Maps short links hold no position: [resolveShort] follows them to the long link
+ * with a fetch the caller supplies. Plain Kotlin so it is unit tested on the JVM.
  */
 object Shared {
     private const val NUM = """[-+]?\d{1,3}(?:\.\d+)?"""
     private val geo = Regex("""geo:($NUM),($NUM)""")
     private val latLonParams = Regex("""[?&](?:lat|mlat)=($NUM)&(?:lon|lng|mlon)=($NUM)""")
-    private val q = Regex("""[?&](?:q|query|ll|daddr|saddr)=($NUM)(?:,|%2C)\s*($NUM)""", RegexOption.IGNORE_CASE)
+    private val q = Regex("""[?&](?:q|query|ll|daddr|saddr)=($NUM)(?:,|%2C)(?:\s|\+|%20)*($NUM)""", RegexOption.IGNORE_CASE)
     private val at = Regex("""@($NUM),($NUM)""")
+    // Google place links: !3d!4d is the place itself, @ only the map's center
+    private val pin = Regex("""!3d($NUM)!4d($NUM)""")
+    private val search = Regex("""/maps/search/($NUM)(?:,|%2C)(?:\s|\+|%20)*($NUM)""", RegexOption.IGNORE_CASE)
     private val pair = Regex("""(?<![\w.])([-+]?\d{1,2}\.\d{2,})\s*°?\s*([NS])?\s*[,;\s]\s*([-+]?\d{1,3}\.\d{2,})\s*°?\s*([EW])?(?![\w.])""",
         RegexOption.IGNORE_CASE)
 
@@ -32,8 +37,10 @@ object Shared {
             val key = "%.5f,%.5f".format(java.util.Locale.US, lat, lon)
             found.putIfAbsent(key, SharedPoint(Coords.format(LatLon(lat, lon)), LatLon(lat, lon)))
         }
-        for (re in listOf(geo, latLonParams, q, at)) for (m in re.findAll(text)) {
-            add(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
+        val pins = pin.containsMatchIn(text)
+        for (re in listOf(geo, latLonParams, q, pin, search, at)) {
+            if (re === at && pins) continue
+            for (m in re.findAll(text)) add(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
         }
         if (found.isEmpty()) for (m in pair.findAll(text)) {
             var lat = m.groupValues[1].toDouble()
@@ -44,9 +51,45 @@ object Shared {
         }
         // A short label before the position (OsmAnd shares "Name\nLocation: ...") names a single point
         val label = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.contains("://") && !it.contains("geo:") && pair.find(it) == null }
+            ?.takeUnless { it.equals("Dropped pin", true) }
         return if (found.size == 1 && label != null && label.length <= 60)
             listOf(found.values.first().copy(name = label.removeSuffix(":")))
         else found.values.toList()
+    }
+
+    // Google Maps short links (the Share button), resolved by following redirects
+    private val short = Regex("""https?://(?:maps\.app\.goo\.gl|goo\.gl/maps|g\.co/kgs|share\.google)/[\w\-./?=&%]+""", RegexOption.IGNORE_CASE)
+    private val googleHost = Regex("""(?:[\w-]+\.)*(?:google\.[a-z]{2,3}(?:\.[a-z]{2})?|goo\.gl|g\.co|share\.google)""", RegexOption.IGNORE_CASE)
+    private const val MAX_HOPS = 6
+
+    /** Google Maps short links in shared text. */
+    fun shortLinks(text: String): List<String> = short.findAll(text).map { it.value.trimEnd('.', ',', ')') }.distinct().toList()
+
+    /**
+     * The long link a short link leads to, following redirects with [location]
+     * (one request: the Location header, or null if there is none). Only Google
+     * hosts are followed; a consent page's continue= link is taken as is.
+     */
+    fun resolveShort(link: String, location: (String) -> String?): String? {
+        var url = link
+        repeat(MAX_HOPS) {
+            val host = Regex("""^https://([^/?#:]+)""").find(url)?.groupValues?.get(1) ?: return null
+            if (!googleHost.matches(host)) return null
+            if (host.startsWith("consent.", true)) {
+                val cont = Regex("""[?&]continue=([^&]+)""").find(url)?.groupValues?.get(1) ?: return null
+                return java.net.URLDecoder.decode(cont, "UTF-8")
+            }
+            val next = location(url) ?: return if (url == link) null else url
+            url = if (next.startsWith("/")) "https://$host$next" else next
+        }
+        return url
+    }
+
+    /** The place a Google link names when it holds no position (q=Name, or /maps/place/Name/). */
+    fun placeName(url: String): String? {
+        val raw = Regex("""[?&]q=([^&]+)""").find(url)?.groupValues?.get(1)
+            ?: Regex("""/maps/place/([^/@?]+)""").find(url)?.groupValues?.get(1) ?: return null
+        return runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private val tag = Regex("""<(wpt|rtept|trkpt)\b([^>]*?)(/>|>(.*?)</\1>)""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))

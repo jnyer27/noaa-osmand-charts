@@ -30,6 +30,44 @@ class SharedTest {
     }
 
     @Test
+    fun googleLongLinks() {
+        // A place: the !3d!4d pin, not the @ map center
+        val place = "https://www.google.com/maps/place/Annapolis+Yacht+Club/@38.9772,-76.4870,16z/data=!3m1!4b1!4m6!3m5!1s0x89b7f6:0x1!8m2!3d38.97731!4d-76.48559!16s%2Fg%2F1"
+        assertEquals(LatLon(38.97731, -76.48559), one(place).pos)
+        // A dropped pin
+        assertEquals(LatLon(39.32371, -76.39998), one("https://www.google.com/maps/search/39.32371,+-76.39998?entry=tts").pos)
+        assertEquals(LatLon(39.32371, -76.39998), one("https://maps.google.com/maps?q=39.32371,+-76.39998").pos)
+    }
+
+    @Test
+    fun googleShortLinks() {
+        val text = "Annapolis Yacht Club\nhttps://maps.app.goo.gl/AbC123xyz"
+        assertTrue(Shared.parseText(text).isEmpty())
+        assertEquals(listOf("https://maps.app.goo.gl/AbC123xyz"), Shared.shortLinks(text))
+        val long = "https://www.google.com/maps/place/Annapolis+Yacht+Club/@38.97,-76.48,16z/data=!3d38.97731!4d-76.48559"
+        val hops = mapOf("https://maps.app.goo.gl/AbC123xyz" to "https://goo.gl/maps/x", "https://goo.gl/maps/x" to long)
+        val resolved = Shared.resolveShort("https://maps.app.goo.gl/AbC123xyz") { hops[it] }
+        assertEquals(long, resolved)
+        val p = one(text + "\n" + resolved)
+        assertEquals("Annapolis Yacht Club", p.name)
+        assertEquals(LatLon(38.97731, -76.48559), p.pos)
+        // Relative redirects, consent pages, and no redirect at all
+        assertEquals("https://www.google.com/maps?q=39.1,-76.4",
+            Shared.resolveShort("https://www.google.com/x") { if (it.endsWith("/x")) "/maps?q=39.1,-76.4" else null })
+        assertEquals("https://www.google.com/maps/search/39.1,-76.4",
+            Shared.resolveShort("https://maps.app.goo.gl/c") { "https://consent.google.com/ml?continue=https://www.google.com/maps/search/39.1%2C-76.4&gl=US" })
+        assertNull(Shared.resolveShort("https://maps.app.goo.gl/none") { null })
+        // Never followed off Google, or over plain http
+        assertNull(Shared.resolveShort("https://maps.app.goo.gl/evil") { "https://example.com/maps/@39.1,-76.4" })
+        assertNull(Shared.resolveShort("http://maps.app.goo.gl/a") { "https://www.google.com/maps/@39.1,-76.4" })
+        // A dropped pin's label is not a name
+        assertEquals("39.32371, -76.39998".let { Shared.parseText(it)[0].name },
+            one("Dropped pin\nhttps://www.google.com/maps/search/39.32371,+-76.39998").name)
+        // A place link without coordinates gives its name
+        assertEquals("West River Marina", Shared.placeName("https://www.google.com/maps?q=West+River+Marina&ftid=0x89b7:0x2"))
+    }
+
+    @Test
     fun gpxPoints() {
         val gpx = """<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
             <wpt lat="39.32371" lon="-76.39998"><name>Maryland Marina</name></wpt>
