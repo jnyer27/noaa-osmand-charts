@@ -72,6 +72,16 @@ class AreaRoutesTest {
                             failures.add("$name: $short legs under 40 m, more than ${(test["maxShort"] as Double).toInt()} (grid staircase?)")
                         r.totalNm < straight * 0.99 -> failures.add("$name: shorter than a straight line?")
                     }
+                    // "resolve": run Try to avoid checks; a number is the fewest stretches it must clear
+                    test["resolve"]?.let { want ->
+                        val t1 = System.currentTimeMillis()
+                        val res = Planner(charts).resolveChecks(r, pts, stayInside = inside)
+                        val a = res.route
+                        println("RESOLVE $name: ${res.summary} %.1f nm, %.1f s".format(a.totalNm, (System.currentTimeMillis() - t1) / 1000.0))
+                        println("POINTS $name (adjusted): " + a.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
+                        if (want is Double && res.resolved < want) failures.add("$name: avoid checks resolved ${res.resolved}, expected at least ${want.toInt()}")
+                        if (a.points.first() != r.points.first() || a.points.last() != r.points.last()) failures.add("$name: avoid checks moved an end")
+                    }
                 } catch (e: PlanException) {
                     println("REFUSED $name: ${e.message!!.lines().first()}")
                     if (!mustFail) failures.add("$name: ${e.message}")
