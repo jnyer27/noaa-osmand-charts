@@ -52,7 +52,7 @@ Leg Course  Dist nm  Notes
 | **Bridge name span (clearance N ft)** | A fixed bridge span you clear by your air draft. | Check the clearance board; water levels vary. |
 | **Cable name (clearance N ft)** or **(clearance not charted)** | An overhead cable. | Make sure your air draft clears it with margin. |
 | **Area name: rules (CFR)** | A restricted area: no wake, anchoring rules, entry restricted, or an area to be avoided by large ships. | Read the rule; the route is not blocked by it. |
-| **Zone name: security zone, entry may be prohibited: check (33 CFR 165.xxx)** | The leg crosses a Coast Guard security zone. Some are always closed (the Cove Point LNG terminal, nuclear plants, Navy bases), others only around particular vessels or when the Coast Guard announces them; the charts do not say which, so the route is not changed. | Read the regulation and the Local Notice to Mariners. If entry is prohibited, add a via point to go around the zone, or call the Coast Guard on VHF 16 for permission. |
+| **Zone name: security zone, entry may be prohibited: check (33 CFR 165.xxx)** | The leg crosses a Coast Guard security zone. Some are always closed (the Cove Point LNG terminal, nuclear plants, Navy bases), others only around particular vessels or when the Coast Guard announces them; the charts do not say which, so the route is not changed. | Read the regulation and the Local Notice to Mariners. If entry is prohibited, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around the zone, or call the Coast Guard on VHF 16 for permission. |
 
 ## How the shallow-water note is measured
 
