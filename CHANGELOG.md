@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-10-19: route packs build 127 (app 0.1.116 unchanged)
+## 2026-10-19: route packs build 128 (app 0.1.116 unchanged)
 
 Routing and safety:
 - **Coast Guard security zones are checks.** NOAA charts many security zones (33 CFR 165) with only the regulation's number and no restriction code, so routes went through them unreported: a Maryland to North Carolina route crossed the Cove Point LNG terminal's zone (33 CFR 165.502). A leg through any charted security zone now has a check note, with check markers in the GPX: "Cove Point Liquefied Natural Gas Terminal Security Zone: security zone, entry may be prohibited: check (33 CFR 165.502)". Routes are not blocked, because many zones apply only around particular vessels or when the Coast Guard announces them (New York harbor and the Hudson, the Houston Ship Channel). Read the regulation and the Local Notice to Mariners; if a zone applies, add a via point to go around it.
