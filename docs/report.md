@@ -52,6 +52,7 @@ Leg Course  Dist nm  Notes
 | **Bridge name span (clearance N ft)** | A fixed bridge span you clear by your air draft. | Check the clearance board; water levels vary. |
 | **Cable name (clearance N ft)** or **(clearance not charted)** | An overhead cable. | Make sure your air draft clears it with margin. |
 | **Area name: rules (CFR)** | A restricted area: no wake, anchoring rules, entry restricted, or an area to be avoided by large ships. | Read the rule; the route is not blocked by it. |
+| **Zone name: security zone, may be enforced (check the regulation and Local Notice to Mariners) (33 CFR 165.xxx)** | A Coast Guard security zone that applies only around particular vessels (tankers, cruise ships, escorted vessels) or when the Coast Guard announces it. Permanent security zones, fixed areas that are always closed, are never used. | Check the Local Notice to Mariners and listen on VHF 16; keep out of the zone when it is enforced. |
 
 ## How the shallow-water note is measured
 
