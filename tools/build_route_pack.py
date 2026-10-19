@@ -123,13 +123,34 @@ RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishin
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
 # Security zones (33 CFR 165) charted without a restriction code: entry prohibited without the
-# Captain of the Port's permission (33 CFR 165.33). Sections from tools/security_zones.py.
-SECURITY_ZONES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                             "security_zones.json")))["sections"]
+# Captain of the Port's permission (33 CFR 165.33). Sections fetched from eCFR when the build
+# starts (load_security_zones), so zones the Coast Guard adds are caught by the weekly build.
+SECURITY_ZONES = {}
+SECURITY_NAME_RE = re.compile(r"security zone", re.I)  # charted with neither a code nor a section
 SECURITY_MAX_KM2 = 10.0  # larger areas are whole port zones (165.169, New York): reported only
 SECURITY_NOTE = "entry prohibited without Coast Guard permission"
 _security_logged = set()
 OPENING_KINDS = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
+
+
+def load_security_zones():
+    """Current security zone sections from eCFR, or the committed list if eCFR fails."""
+    import security_zones
+    _, known = security_zones.committed()
+    try:
+        source, sections = security_zones.fetch()
+    except Exception as e:  # eCFR down or changed: never fail the build for it
+        log(f"Security zones: eCFR not reached ({e}); using tools/security_zones.json")
+        source, sections = security_zones.committed()
+    new = sorted(set(sections) - set(known))
+    gone = sorted(set(known) - set(sections))
+    log(f"Security zones: {len(sections)} sections ({source})" +
+        (f"; new since tools/security_zones.json: {', '.join(new)}" if new else "") +
+        (f"; removed: {', '.join(gone)}" if gone else ""))
+    for s in new:
+        log(f"  new security zone {sections[s]}")
+    SECURITY_ZONES.clear()
+    SECURITY_ZONES.update(sections)
 
 
 def log(msg):
@@ -834,7 +855,10 @@ def build(cells, grid, work, depth=None, quiet=False):
                 pro.append((geom, 1))
             rules = [RESTRN[c] for c in codes if c in RESTRN]
             sec = re.search(r"33 CFR (165\.\d+)", fstr(f, "INFORM") or "")
-            if sec and sec.group(1) in SECURITY_ZONES and "7" not in codes:
+            secid = sec.group(1) if sec and sec.group(1) in SECURITY_ZONES else None
+            if secid is None and not codes and not sec and SECURITY_NAME_RE.search(fstr(f, "OBJNAM") or ""):
+                secid = "by name"  # a security zone charted with only its name
+            if secid and "7" not in codes:
                 g2 = geom.Clone()
                 g2.FlattenTo2D()
                 lat = (g2.GetEnvelope()[2] + g2.GetEnvelope()[3]) / 2
@@ -843,15 +867,15 @@ def build(cells, grid, work, depth=None, quiet=False):
                 if block:
                     pro.append((geom, 1))
                     rules = [SECURITY_NOTE] + rules
-                key = (sec.group(1), round(lat, 2))
+                key = (secid, round(lat, 2))
                 if key not in _security_logged:  # once per zone, not per band or block
                     _security_logged.add(key)
-                    log(f"Security zone 33 CFR {sec.group(1)} ({fstr(f, 'OBJNAM') or 'unnamed'}, "
+                    log(f"Security zone {'33 CFR ' + secid if sec else secid} ({fstr(f, 'OBJNAM') or 'unnamed'}, "
                         f"{lat:.3f} N, {km2:.2f} km2): {'entry prohibited' if block else 'too large, reported only'}")
             if rules:
                 resn.append((geom, 1))
                 cfr = re.search(r"\d+ CFR [\d.]+", fstr(f, "INFORM") or "")
-                unnamed = "security zone" if sec and sec.group(1) in SECURITY_ZONES else "restricted area"
+                unnamed = "security zone" if secid else "restricted area"
                 notes.append(note("resare", band, geom, name=fstr(f, "OBJNAM") or unnamed,
                                   rules=rules, cfr=cfr.group(0) if cfr else None))
         flags |= np.where(burn(grid, pro) > 0, PROHIB, 0).astype(np.uint8)
@@ -1253,6 +1277,7 @@ def main():
     ap.add_argument("-o", "--out", default="packs")
     ap.add_argument("--blocks", action="store_true", help="build in blocks whatever the region's size (for checking build_blocks)")
     a = ap.parse_args()
+    load_security_zones()
     areas = json.load(open(a.areas))["areas"]
     if a.area:
         areas = [x for x in areas if x["id"] == a.area] or sys.exit(f"Unknown area {a.area}")

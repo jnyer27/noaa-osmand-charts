@@ -8,7 +8,9 @@ NOAA charts these zones as restricted areas (RESARE) without a restriction code:
 Point LNG terminal's zone is CATREA 1 with only "33 CFR 165.502" in INFORM, so the planner
 neither blocked nor reported it. Under 33 CFR 165.33 no vessel may enter a security zone
 without the Captain of the Port's permission, so build_route_pack.py makes the charted
-area of a section listed here entry prohibited. Rerun when the regulations change.
+area of a security zone section entry prohibited. The weekly build fetches the current
+sections itself (fetch()) and falls back to this file when eCFR cannot be reached; rerun
+this to update the file when the build log reports new sections.
 """
 import json
 import os
@@ -29,7 +31,11 @@ def get(url):
         return data
 
 
-def main():
+FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "security_zones.json")
+
+
+def fetch():
+    """(source, {section: heading}) for the security zone sections in eCFR's latest issue."""
     titles = json.loads(get(f"{API}/titles.json"))["titles"]
     date = next(t["latest_issue_date"] for t in titles if t["number"] == 33)
     root = ET.fromstring(get(f"{API}/full/{date}/title-33.xml?part=165"))
@@ -42,10 +48,19 @@ def main():
         if re.search(r"\b(is|are) (a |the )?(safety and )?security zones?\b|\bsecurity zones?:", text, re.I) or \
                 re.match(r"§?\s*[\d.]+\s+(Safety and )?Security Zones?\b", head, re.I):
             sections[num] = head
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "security_zones.json")
-    json.dump({"source": f"eCFR, 33 CFR part 165, issue of {date}", "sections": dict(sorted(sections.items()))},
-              open(out, "w"), indent=1)
-    print(f"{len(sections)} security zone sections -> {out}")
+    return f"eCFR, 33 CFR part 165, issue of {date}", dict(sorted(sections.items()))
+
+
+def committed():
+    """(source, sections) from tools/security_zones.json."""
+    d = json.load(open(FILE))
+    return d["source"], d["sections"]
+
+
+def main():
+    source, sections = fetch()
+    json.dump({"source": source, "sections": sections}, open(FILE, "w"), indent=1)
+    print(f"{len(sections)} security zone sections -> {FILE}")
 
 
 if __name__ == "__main__":
