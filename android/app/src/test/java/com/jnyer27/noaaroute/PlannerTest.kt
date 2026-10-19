@@ -408,12 +408,12 @@ class PlannerTest {
 
     @Test
     fun resolveChecksKeepsFartherFromHazardsWhenNoWayAround() {
-        // A 12-cell channel (cols 250-261) with two 0.5 m rocks at row 250 (cols 252 and 257)
+        // A 10-cell channel (cols 250-259) with two 0.5 m rocks at row 250 (cols 252 and 257)
         // whose 60 m buffers leave no way past at more than 40 m. A via point one cell off
         // the west rock makes the route pass it close; with only the ends fixed, the stretch
         // moves to the middle, still a check but farther off.
         val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
-        for (r in 40..470) for (c in 250..261) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 40..470) for (c in 250..259) planes[Pack.P_DEPTH][r * size + c] = 1
         planes[Pack.P_HAZARD][250 * size + 252] = 6
         planes[Pack.P_HAZARD][250 * size + 257] = 6
         Pack(writePack(planes, "[]")).use { pack ->
