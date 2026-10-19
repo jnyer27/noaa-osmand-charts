@@ -400,9 +400,34 @@ class PlannerTest {
             val r = planner.plan("t", pts, 5.0, null)
             val res = planner.resolveChecks(r, pts)
             assertEquals(res.summary, 1, res.runs)
-            assertEquals(res.summary, 0, res.resolved + res.partly)
+            assertTrue(res.summary, !res.changed)
             assertEquals(r.points, res.route.points)
             assertTrue(res.summary, res.summary.endsWith("1 unchanged (no way around within 0.2 nm or 10% of the stretch)."))
+        }
+    }
+
+    @Test
+    fun resolveChecksKeepsFartherFromHazardsWhenNoWayAround() {
+        // A 12-cell channel (cols 250-261) with two 0.5 m rocks at row 250 (cols 251 and 258)
+        // whose 60 m buffers close it from bank to bank. A via point one cell off the west
+        // rock makes the route pass it close; with only the ends fixed, the stretch moves to
+        // the middle, still a check but farther off.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 40..470) for (c in 250..261) planes[Pack.P_DEPTH][r * size + c] = 1
+        planes[Pack.P_HAZARD][250 * size + 251] = 6
+        planes[Pack.P_HAZARD][250 * size + 258] = 6
+        Pack(writePack(planes, "[]")).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val ends = listOf(cellCenter(100, 255), cellCenter(400, 255))
+            val r = planner.plan("t", listOf(ends[0], cellCenter(250, 252), ends[1]), 5.0, null)
+            assertTrue("passes the rock", r.legs.any { Gpx.flagged(it) })
+            val res = planner.resolveChecks(r, ends)
+            assertEquals(res.summary, 1, res.runs)
+            assertEquals(res.summary, 1, res.improved)
+            assertTrue(res.summary, res.changed)
+            assertTrue("still a check", res.route.legs.any { Gpx.flagged(it) })
+            assertTrue("moved off the via point", cellCenter(250, 252) !in res.route.points)
+            assertTrue(res.summary, res.summary.startsWith("Avoid checks: 0 of 1 check stretches resolved, 1 improved (farther from what needs checking) ("))
         }
     }
 }
