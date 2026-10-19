@@ -77,7 +77,7 @@ class AreaRoutesTest {
                         val t1 = System.currentTimeMillis()
                         val res = Planner(charts).resolveChecks(r, pts, stayInside = inside)
                         val a = res.route
-                        println("RESOLVE $name: ${res.summary} %.1f nm, %.1f s".format(a.totalNm, (System.currentTimeMillis() - t1) / 1000.0))
+                        println("RESOLVE $name: " + res.summary + " %.1f nm, %.1f s".format(a.totalNm, (System.currentTimeMillis() - t1) / 1000.0))
                         println("POINTS $name (adjusted): " + a.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
                         if (want is Double && res.resolved < want) failures.add("$name: avoid checks resolved ${res.resolved}, expected at least ${want.toInt()}")
                         if (a.points.first() != r.points.first() || a.points.last() != r.points.last()) failures.add("$name: avoid checks moved an end")
