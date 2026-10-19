@@ -61,3 +61,11 @@ android {
 dependencies {
     testImplementation("junit:junit:4.13.2")
 }
+
+// Show assertion messages (route summaries) in the CI log when a unit test fails
+tasks.withType<Test>().configureEach {
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        events("failed")
+    }
+}

@@ -337,4 +337,72 @@ class PlannerTest {
         assertEquals("passes 10-30 m from charted piles or snags: check",
             Planner.NearHazard(0, 20.0, Planner.HZ_SNAG, 0.0).note(20.0))
     }
+
+    /**
+     * Open water (rows 40-470, cols 40-470) with a charted security zone (rows 240-270,
+     * cols 230-280) across the straight line from row 100 to row 400 at col 255.
+     */
+    private fun securityZonePack(): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 40..470) for (c in 40..470) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 240..270) for (c in 230..280) planes[Pack.P_FLAGS][r * size + c] = Pack.F_RESNOTE.toByte()
+        val n = north - 240 * dlat
+        val s = north - 271 * dlat
+        val w = west + 230 * dlon
+        val e = west + 281 * dlon
+        val notes = """[{"kind":"resare","band":5,"bbox":[$w,$s,$e,$n],"type":"Polygon",""" +
+            """"coords":[[[$w,$n],[$e,$n],[$e,$s],[$w,$s],[$w,$n]]],"name":"Test Security Zone",""" +
+            """"rules":["security zone, entry may be prohibited: check"],"cfr":"33 CFR 165.999"}]"""
+        return writePack(planes, notes)
+    }
+
+    @Test
+    fun resolveChecksGoesAroundSecurityZone() {
+        Pack(securityZonePack()).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val pts = listOf(cellCenter(100, 255), cellCenter(400, 255))
+            val r = planner.plan("t", pts, 5.0, null)
+            val zone = "Test Security Zone: security zone, entry may be prohibited: check (33 CFR 165.999)"
+            assertTrue("crosses the zone", r.legs.any { zone in it.notes })
+            val res = planner.resolveChecks(r, pts)
+            assertEquals(res.summary, 1, res.runs)
+            assertEquals(res.summary, 1, res.resolved)
+            val a = res.route
+            assertTrue("no checks left", a.legs.none { Gpx.flagged(it) })
+            assertEquals("same ends", pts.first(), a.points.first())
+            assertEquals("same ends", pts.last(), a.points.last())
+            val extra = (a.totalNm - r.totalNm) * Planner.NM
+            assertTrue("small detour: $extra m", extra > 0 && extra <= max(Planner.RESOLVE_EXTRA_M, r.totalNm * Planner.NM * Planner.RESOLVE_EXTRA_FRAC))
+            assertTrue(a.messages.last(), a.messages.last().startsWith("Avoid checks: 1 of 1 check stretches resolved (+"))
+            assertEquals("t_adjusted", a.name)
+            // A route with no checks is left alone
+            val clear = planner.resolveChecks(a, pts)
+            assertEquals(0, clear.runs)
+            assertEquals(a.points, clear.route.points)
+        }
+    }
+
+    @Test
+    fun resolveChecksKeepsStretchWithNoWayAround() {
+        // The zone spans the whole water: nothing to gain, the route stays
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 40..470) for (c in 250..261) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 240..270) for (c in 250..261) planes[Pack.P_FLAGS][r * size + c] = Pack.F_RESNOTE.toByte()
+        val n = north - 240 * dlat
+        val s = north - 271 * dlat
+        val w = west + 250 * dlon
+        val e = west + 262 * dlon
+        val notes = """[{"kind":"resare","band":5,"bbox":[$w,$s,$e,$n],"type":"Polygon",""" +
+            """"coords":[[[$w,$n],[$e,$n],[$e,$s],[$w,$s],[$w,$n]]],"name":"Zone","rules":["security zone, entry may be prohibited: check"]}]"""
+        Pack(writePack(planes, notes)).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val pts = listOf(cellCenter(100, 255), cellCenter(400, 255))
+            val r = planner.plan("t", pts, 5.0, null)
+            val res = planner.resolveChecks(r, pts)
+            assertEquals(res.summary, 1, res.runs)
+            assertEquals(res.summary, 0, res.resolved + res.partly)
+            assertEquals(r.points, res.route.points)
+            assertTrue(res.summary, res.summary.endsWith("1 unchanged (no way around within 0.2 nm or 10% of the stretch)."))
+        }
+    }
 }
