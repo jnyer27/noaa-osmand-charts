@@ -1743,7 +1743,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     if (nl.sumOf { it.distM } <= limit && was > 0 &&
                         exposure(a, pen, idx) <= was * RESOLVE_EXPOSURE_KEEP && checkKinds(oldLegs).containsAll(checkKinds(nl))) {
                         best = nw to nl
-                        better = true
+                        clear = nl.none { Gpx.flagged(it) }
+                        better = !clear
                     }
                 }
             }
