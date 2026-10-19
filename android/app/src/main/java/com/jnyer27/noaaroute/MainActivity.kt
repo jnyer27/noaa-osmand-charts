@@ -74,6 +74,10 @@ class MainActivity : Activity() {
     private var pendingFix: ((Location?) -> Unit)? = null
     private var route: Route? = null
     private var gpxUri: Uri? = null
+    /** The last plan's inputs and report lines, for Try to avoid checks. */
+    private class Planned(val pts: List<LatLon>, val stayInside: Boolean, val checks: Boolean, val datum: String,
+                          val trip: List<String>, val used: List<Pack>)
+    private var planned: Planned? = null
 
     private lateinit var packStatus: TextView
     private lateinit var packButton: Button
@@ -95,6 +99,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var result: TextView
     private lateinit var actions: LinearLayout
+    private lateinit var resolveButton: Button
 
     // ------------------------------------------------------------ layout
 
@@ -195,6 +200,8 @@ class MainActivity : Activity() {
         }
         col.addView(result)
         actions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        resolveButton = button("Try to avoid checks") { resolveChecks() }
+        actions.addView(resolveButton)
         actions.addView(button("Open in OsmAnd") { openInOsmAnd() })
         actions.addView(button("Show routes folder in Files") { showFolder() })
         actions.addView(button("Share GPX") { shareGpx() })
@@ -1178,11 +1185,13 @@ class MainActivity : Activity() {
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val (uri, savedAs) = saveGpx(r, datum, markChecks)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
+                val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside })
                 ui.post {
                     route = r
                     gpxUri = uri
-                    result.text = Gpx.report(r, tripLines(a, vias, b) + listOfNotNull(
-                        "Stay inside: on (no open ocean)".takeIf { stayInside }), afterLines(used, sec), BUF_M, datum)
+                    planned = Planned(listOf(a) + vias + listOf(b), stayInside, markChecks, datum, trip, used)
+                    resolveButton.visibility = if (Gpx.checkRuns(r).isNotEmpty()) View.VISIBLE else View.GONE
+                    result.text = Gpx.report(r, trip, afterLines(used, sec), BUF_M, datum)
                     status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format(sec) +
                         if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
                     actions.visibility = View.VISIBLE
@@ -1194,6 +1203,50 @@ class MainActivity : Activity() {
                 ui.post { status.text = "Out of memory: try closer points or add via points."; planButton.isEnabled = true; packButton.isEnabled = true }
             } catch (e: Exception) {
                 ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true }
+            }
+        }
+    }
+
+    /**
+     * Replan each stretch of checked legs around what caused its checks, keeping a change
+     * only when the checks are gone and the detour is small (Planner.resolveChecks). The
+     * adjusted route is saved as its own GPX (<name>_adjusted), and Open in OsmAnd and
+     * Share GPX use it; the original file stays.
+     */
+    private fun resolveChecks() {
+        val p = charts ?: return
+        val r = route ?: return
+        val pl = planned ?: return
+        planButton.isEnabled = false
+        packButton.isEnabled = false
+        resolveButton.isEnabled = false
+        worker.execute {
+            val t0 = System.currentTimeMillis()
+            try {
+                val res = Planner(p).resolveChecks(r, pl.pts, BUF_M, pl.stayInside) { msg -> ui.post { status.text = msg } }
+                val sec = (System.currentTimeMillis() - t0) / 1000.0
+                if (res.resolved + res.partly == 0) {
+                    ui.post {
+                        status.text = res.summary
+                        planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true
+                    }
+                    return@execute
+                }
+                val ar = res.route
+                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks)
+                ui.post {
+                    route = ar
+                    gpxUri = uri
+                    result.text = Gpx.report(ar, pl.trip, afterLines(pl.used, sec), BUF_M, pl.datum)
+                    status.text = res.summary + "\nSaved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
+                    resolveButton.visibility = View.GONE
+                    resolveButton.isEnabled = true
+                    planButton.isEnabled = true; packButton.isEnabled = true
+                }
+            } catch (e: OutOfMemoryError) {
+                ui.post { status.text = "Out of memory while avoiding checks."; planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true }
+            } catch (e: Exception) {
+                ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true }
             }
         }
     }

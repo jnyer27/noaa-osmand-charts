@@ -47,6 +47,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val SKIP_GUIDES = 3 // a full-detail piece may reach this many guide points ahead, skipping those between
         const val REJOIN_M = 2000.0 // route replanned this far either side of each guide point at the end
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
+        const val RESOLVE_EXTRA_M = 0.2 * NM // resolveChecks: a detour may add this much to a stretch...
+        const val RESOLVE_EXTRA_FRAC = 0.10 // ...or this share of it, whichever is more
+        private const val RESOLVE_PAD_M = 500.0 // clear legs either side of a check stretch replanned with it
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
@@ -1628,4 +1631,134 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     private fun fmt(v: Double) = if (v == floor(v)) v.toInt().toString() else v.toString()
+
+    // ------------------------------------------------------------ avoiding checks
+
+    /**
+     * What [resolveChecks] did: [runs] check stretches before, [resolved] now clear,
+     * [partly] down to shallow water only, [extraM] added to the route.
+     */
+    class Resolution(val route: Route, val runs: Int, val resolved: Int, val partly: Int, val extraM: Double) {
+        val summary = summary(runs, resolved, partly, extraM)
+
+        companion object {
+            fun summary(runs: Int, resolved: Int, partly: Int, extraM: Double): String {
+                if (runs == 0) return "Avoid checks: the route has no checks."
+                val left = runs - resolved - partly
+                    return String.format(Locale.US, "Avoid checks: %d of %d check stretches resolved", resolved, runs) +
+                    (if (partly > 0) ", $partly down to shallow water only" else "") +
+                    (if (resolved + partly > 0) String.format(Locale.US, " (%+.2f nm)", extraM / NM) else "") +
+                    (if (left > 0) ", $left unchanged (no way around within %.1f nm or %.0f%% of the stretch)"
+                        .format(Locale.US, RESOLVE_EXTRA_M / NM, RESOLVE_EXTRA_FRAC * 100) else "") + "."
+            }
+        }
+    }
+
+    /**
+     * Replan each stretch of checked legs (Gpx.checkRuns) with what caused its checks as
+     * walls: hazard buffers, piers and seawalls, snags, wrong-side channel marks, security
+     * zones and, on a first try, water that may be under the safe depth. A new stretch is
+     * kept when its legs have no checks (or, on the second try, only less shallow water)
+     * and it is at most RESOLVE_EXTRA_M or RESOLVE_EXTRA_FRAC longer. Only walls are added,
+     * so a kept stretch is never less safe; its notes come from the normal grid. [pts] are
+     * your points, which stay; "connects your point to usable water" legs stay as they are.
+     */
+    fun resolveChecks(r: Route, pts: List<LatLon>, bufM: Double = 60.0, stayInside: Boolean = false,
+                      progress: (String) -> Unit = {}): Resolution {
+        inside = stayInside
+        val c = Ctx(r.depthFt, r.airFt, r.depthFt * Pack.FT, r.airFt?.let { it * Pack.FT }, bufM, progress)
+        val wps = r.points.toMutableList()
+        val legs = r.legs.toMutableList()
+        val runs = Gpx.checkRuns(r)
+        val fixed = pts.toHashSet()
+        fun hasCheck(l: Leg) = l.notes.any { it.contains("check") }
+        var resolved = 0
+        var partly = 0
+        var extra = 0.0
+        for ((n, run) in runs.withIndex().reversed()) { // from the end, so earlier indices stay valid
+            progress("Avoiding checks: stretch ${runs.size - n} of ${runs.size}")
+            var s = run.first
+            var e = run.last + 1
+            while (s < e && OFF_WATER in legs[s].notes) s++
+            while (e > s && OFF_WATER in legs[e - 1].notes) e--
+            if (s >= e) continue
+            var d = 0.0
+            while (s > 0 && d < RESOLVE_PAD_M && wps[s] !in fixed && !Gpx.flagged(legs[s - 1])) { d += legs[s - 1].distM; s-- }
+            d = 0.0
+            while (e < wps.size - 1 && d < RESOLVE_PAD_M && wps[e] !in fixed && !Gpx.flagged(legs[e])) { d += legs[e].distM; e++ }
+            val old = wps.subList(s, e + 1).toList()
+            val oldLegs = legs.subList(s, e).toList()
+            val oldM = oldLegs.sumOf { it.distM }
+            val a = area(old, 1.0)
+            if (a.f != 1) continue
+            val g = buildGrid(a, c.depthM, c.airM, c.bufM)
+            val sec = securityCells(a, g)
+            val sp = a.cell(old.first())
+            val sq = a.cell(old.last())
+            // notes reported elsewhere on the route (bridges, cables, areas) are not repeated
+            val seen = HashSet<String>()
+            for ((k, l) in legs.withIndex()) if (k < s || k >= e) seen.addAll(l.notes)
+            val limit = oldM + max(RESOLVE_EXTRA_M, oldM * RESOLVE_EXTRA_FRAC)
+            var best: Pair<List<LatLon>, List<Leg>>? = null
+            var clear = false
+            for (shallowOk in listOf(false, true)) {
+                val strict = strictGrid(a, g, sec, shallowOk, sp, sq)
+                val path = astar(a, strict, sp, sq) ?: continue
+                if (path.size < 2) continue
+                val idx = simplify(a, strict, path)
+                val nw = idx.map { a.latlon(it) }.toMutableList()
+                nw[0] = old.first()
+                nw[nw.size - 1] = old.last()
+                val nl = legs(a, g, nw, idx, HashSet(seen))
+                if (nl.sumOf { it.distM } > limit) continue
+                val left = nl.filter { Gpx.flagged(it) }
+                if (left.isEmpty()) { best = nw to nl; clear = true; break }
+                if (shallowOk && left.none { hasCheck(it) } && oldLegs.any { hasCheck(it) } &&
+                    nl.sumOf { it.shoalM } <= oldLegs.sumOf { it.shoalM } + 1.0) best = nw to nl
+            }
+            val (nw, nl) = best ?: continue
+            for (k in s until e) legs.removeAt(s)
+            legs.addAll(s, nl)
+            for (k in s..e) wps.removeAt(s)
+            wps.addAll(s, nw)
+            extra += nl.sumOf { it.distM } - oldM
+            if (clear) resolved++ else partly++
+        }
+        val text = Resolution.summary(runs.size, resolved, partly, extra)
+        return Resolution(Route(r.name + "_adjusted", wps, legs, r.depthFt, r.airFt, r.resM, r.messages + text, r.guideM),
+            runs.size, resolved, partly, extra)
+    }
+
+    /** The grid with what causes checks as walls (shallow water too unless [shallowOk]); the stretch's ends stay open. */
+    private fun strictGrid(a: Area, g: Grid, sec: BooleanArray, shallowOk: Boolean, sp: Int, sq: Int): Grid {
+        val nav = g.nav.copyOf()
+        val ok = g.ok.copyOf()
+        val cost = g.cost.copyOf()
+        for (i in 0 until a.n) {
+            if (!ok[i] || i == sp || i == sq) continue
+            if (g.soft[i] || g.pier[i] || sec[i] || (!shallowOk && nav[i].toInt() == MARGINAL)) {
+                ok[i] = false
+                cost[i] = Float.POSITIVE_INFINITY
+                nav[i] = BLOCKED.toByte()
+            }
+        }
+        return Grid(nav, ok, cost, g.prox, g.planes, g.nopass, g.rad, g.k, g.pier, g.snag, g.soft, g.gate)
+    }
+
+    /** Cells of charted security zones (reported, never blocked by the planner itself). */
+    private fun securityCells(a: Area, g: Grid): BooleanArray {
+        val out = BooleanArray(a.n)
+        val sw = a.latlon(a.n - a.w)
+        val ne = a.latlon(a.w - 1)
+        val zones = pack.notes.filter { z ->
+            z.kind == "resare" && z.rules.any { it.startsWith("security zone") } &&
+                z.bbox[0] <= ne.lon && z.bbox[2] >= sw.lon && z.bbox[1] <= ne.lat && z.bbox[3] >= sw.lat
+        }
+        if (zones.isEmpty()) return out
+        for (i in 0 until a.n) if ((g.planes[Pack.P_FLAGS][i].toInt() and Pack.F_RESNOTE) != 0) {
+            val p = a.latlon(i)
+            if (zones.any { it.near(p.lat, p.lon, a.res * 0.75) }) out[i] = true
+        }
+        return out
+    }
 }
