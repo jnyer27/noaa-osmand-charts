@@ -41,7 +41,7 @@ With **Stay inside**, open ocean is never used. Open ocean is the water reached 
 
 ## Restricted areas
 
-Entry-prohibited areas are never used. That includes permanent Coast Guard security zones (33 CFR 165), fixed areas that are always closed, such as those around the Cove Point LNG terminal, the Calvert Cliffs nuclear plant and the Newport News shipyard: no vessel may enter one without the Captain of the Port's permission. Other security zones apply only around particular vessels or when the Coast Guard announces them; routes may pass through them, and the report names them with "security zone, may be enforced". Check the Local Notice to Mariners for those. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.
+Entry-prohibited areas are never used. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, add a via point to go around it. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.
 
 ## Long trips
 

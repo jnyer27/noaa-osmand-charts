@@ -122,15 +122,13 @@ SEA_LAYERS = ("CONZNE", "EXEZNE")  # seeds of mark_sea; TESARE is only a 12 nm l
 RESTRN = {"1": "anchoring prohibited", "2": "anchoring restricted", "3": "fishing prohibited",
           "4": "fishing restricted", "7": "entry prohibited", "8": "entry restricted",
           "13": "no wake", "14": "area to be avoided"}
-# Security zones (33 CFR 165) charted without a restriction code. The reviewed permanent ones
-# (fixed areas always closed, tools/security_zones.json) are entry prohibited (33 CFR 165.33);
-# the others (around vessels, enforced on notice) are reported. Sections are fetched from
-# eCFR when the build starts (load_security_zones), so new zones are reported at once.
+# Security zones (33 CFR 165) charted without a restriction code (the Cove Point LNG terminal's
+# only names 33 CFR 165.502): reported as a check, never blocked, since many apply only around
+# vessels or when announced. Sections are fetched from eCFR when the build starts
+# (load_security_zones), so zones the Coast Guard adds are reported at once.
 SECURITY_ZONES = {}
-SECURITY_PERMANENT = {}
 SECURITY_NAME_RE = re.compile(r"security zone", re.I)  # charted with neither a code nor a section
-SECURITY_NOTE = "entry prohibited without Coast Guard permission"
-SECURITY_MAYBE = "security zone, may be enforced (check the regulation and Local Notice to Mariners)"
+SECURITY_NOTE = "security zone, entry may be prohibited: check"
 _security_logged = set()
 OPENING_KINDS = {"2": "opening", "3": "swing", "4": "lift", "5": "bascule", "7": "draw", "8": "transporter"}
 
@@ -150,11 +148,9 @@ def load_security_zones():
         (f"; new since tools/security_zones.json: {', '.join(new)}" if new else "") +
         (f"; removed: {', '.join(gone)}" if gone else ""))
     for s in new:
-        log(f"  new security zone (reported, not blocked until reviewed): {sections[s]}")
+        log(f"  new security zone: {sections[s]}")
     SECURITY_ZONES.clear()
     SECURITY_ZONES.update(sections)
-    SECURITY_PERMANENT.clear()
-    SECURITY_PERMANENT.update(security_zones.permanent())
 
 
 def log(msg):
@@ -863,16 +859,13 @@ def build(cells, grid, work, depth=None, quiet=False):
             if secid is None and not codes and not sec and SECURITY_NAME_RE.search(fstr(f, "OBJNAM") or ""):
                 secid = "by name"  # a security zone charted with only its name
             if secid and "7" not in codes:
-                block = secid in SECURITY_PERMANENT
-                if block:
-                    pro.append((geom, 1))
-                rules = [SECURITY_NOTE if block else SECURITY_MAYBE] + rules
+                rules = [SECURITY_NOTE] + rules
                 env = geom.GetEnvelope()
                 key = (secid, round((env[2] + env[3]) / 2, 2))
                 if key not in _security_logged:  # once per zone, not per band or block
                     _security_logged.add(key)
                     log(f"Security zone {'33 CFR ' + secid if sec else secid} ({fstr(f, 'OBJNAM') or 'unnamed'}, "
-                        f"{key[1]:.2f} N): {'entry prohibited' if block else 'reported'}")
+                        f"{key[1]:.2f} N): reported as a check")
             if rules:
                 resn.append((geom, 1))
                 cfr = re.search(r"\d+ CFR [\d.]+", fstr(f, "INFORM") or "")

@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Write tools/security_zones.json: the sections of 33 CFR 165 (Coast Guard regulated
 navigation areas and limited access areas) whose text makes a security zone, from eCFR.
-The hand-reviewed "permanent" list in the file is kept.
 
   python3 tools/security_zones.py
 
 NOAA charts these zones as restricted areas (RESARE) without a restriction code: the Cove
 Point LNG terminal's zone is CATREA 1 with only "33 CFR 165.502" in INFORM, so the planner
-neither blocked nor reported it. Many sections are zones around vessels or enforced only
-on notice (New York's 165.169 runs up the Hudson; 165.814 is the whole Houston Ship
-Channel), so build_route_pack.py blocks only the sections in the reviewed "permanent"
-list and reports the others. The weekly build fetches the current sections itself
-(fetch()) and falls back to this file when eCFR cannot be reached; rerun this to update
-the file when the build log reports new sections, and review them for "permanent".
+neither blocked nor reported it. build_route_pack.py reports a leg through any charted
+security zone as a check (with GPX check markers) and never blocks one: many are zones
+around vessels or enforced only on notice (New York's 165.169 runs up the Hudson; 165.814
+is the whole Houston Ship Channel), and telling them from permanent ones takes reading each
+regulation. The weekly build fetches the current sections itself (fetch()) and falls back
+to this file when eCFR cannot be reached; rerun this to refresh the fallback.
 """
 import json
 import os
@@ -59,16 +58,9 @@ def committed():
     return d["source"], d["sections"]
 
 
-def permanent():
-    """{section: why} for the reviewed zones that are fixed areas always closed."""
-    return json.load(open(FILE))["permanent"]
-
-
 def main():
     source, sections = fetch()
-    d = json.load(open(FILE))
-    d.update(source=source, sections=sections)
-    json.dump(d, open(FILE, "w"), indent=1)
+    json.dump({"source": source, "sections": sections}, open(FILE, "w"), indent=1)
     print(f"{len(sections)} security zone sections -> {FILE}")
 
 

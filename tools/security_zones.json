@@ -1,28 +1,5 @@
 {
  "source": "eCFR, 33 CFR part 165, issue of 2026-10-14",
- "permanent_comment": "Reviewed by reading each regulation (2026-10-19): fixed areas always closed. Blocked by build_route_pack.py. Every other section in 'sections' (zones around vessels, enforced on notice, or mixing both) gets a report note only. Add a section here only after reading it.",
- "permanent": {
-  "165.102": "Walkers Point, Kennebunkport: fixed area marked by buoys, entry prohibited",
-  "165.502": "Cove Point LNG terminal: fixed area, entry prohibited",
-  "165.504": "Newport News Shipbuilding: fixed area, entry prohibited",
-  "165.505": "Calvert Cliffs nuclear plant: fixed area, entry prohibited",
-  "165.553": "Salem and Hope Creek nuclear plants: fixed area, entry prohibited",
-  "165.705": "Port Canaveral East (Trident) and Middle Basins: fixed areas",
-  "165.722": "Naval Air Station Jacksonville, St. Johns River: fixed area 400 ft off the shore",
-  "165.731": "Kings Bay, Cumberland Sound: permanent security zone",
-  "165.776": "Coast Guard Base San Juan: fixed area",
-  "165.912": "Perry nuclear plant, Lake Erie: fixed area",
-  "165.916": "Kewaunee and Point Beach nuclear plants, Lake Michigan: fixed areas",
-  "165.1110": "Coronado Bay Bridge: 25 yards around piers and fenders (the channel stays open)",
-  "165.1131": "Wilson Cove, San Clemente Island: fixed area",
-  "165.1155": "Diablo Canyon nuclear plant: fixed area",
-  "165.1189": "Yerba Buena Island east side: fixed area, closed to all vessel traffic",
-  "165.1190": "Coast Guard Island, Alameda: fixed areas",
-  "165.1192": "San Francisco and Oakland airports: fixed areas off the runways",
-  "165.1197": "San Francisco Bay refinery wharves: 100 yards around fixed wharves",
-  "165.1302": "Bangor Naval Submarine Base, Hood Canal: fixed area",
-  "165.1334": "Coast Guard Base Seattle, Pier 36: fixed area"
- },
  "sections": {
   "165.102": "\u00a7 165.102 Security Zone: Walkers Point, Kennebunkport ME.",
   "165.103": "\u00a7 165.103 Safety and Security Zones; LPG Vessel Transits in Portland, Maine, Captain of the Port Zone, Portsmouth Harbor, Portsmouth, New Hampshire.",
