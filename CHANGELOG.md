@@ -4,6 +4,12 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-19: app 0.1.129 (route packs build 128 unchanged)
+
+Planning:
+- **Try to avoid checks.** A new button under the report, shown when the route has legs to check. It replans each stretch of flagged legs with what caused the checks (shallow water, hazard buffers, piers and seawalls, piles, security zones) as land, and keeps the new stretch only when its checks are gone (or only less shallow water is left) and it is at most 0.2 nm or 10% longer. Your start, via points and destination never move. The adjusted route is saved as `<name>_adjusted.gpx` and the report, Open in OsmAnd and Share GPX switch to it; the original file is unchanged. The status line says how many stretches were resolved. On the reference routes: the Cove Point security zone is now passed around (+0.03 nm), Maryland Marina to Mobjack Bay 5 of 5 stretches resolved (+0.02 nm), Maryland Marina to Ego Alley 1 of 3, Solomons to off Stingray Point 1 of 2. Narrow ICW channels mostly stay as they are: their checks are piles in the channel or soundings at its edge, with no way around.
+- All reference routes unchanged.
+
 ## 2026-10-19: route packs build 128 (app 0.1.116 unchanged)
 
 Routing and safety:
