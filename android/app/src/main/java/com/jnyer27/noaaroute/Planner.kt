@@ -49,12 +49,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val FINE_GUIDE_M = 8000.0 // and on the 20 m paths near its ends (a stretch's window reaches 6.7 km past its points)
         const val RESOLVE_EXTRA_M = 0.2 * NM // resolveChecks: a detour may add this much to a stretch...
         const val RESOLVE_EXTRA_FRAC = 0.10 // ...or this share of it, whichever is more
-        private const val RESOLVE_PAD_M = 500.0
-        // Least-exposure try: kept when the exposure is at most this share of the old stretch's
-        private const val RESOLVE_EXPOSURE_KEEP = 0.5
-        private const val EXPOSE_NEAR = 20.0 // next to a hazard, falling to 0 at the buffer's edge
-        private const val EXPOSE_HIT = 40f   // on a snag, pier or seawall, or in a security zone
-        private const val EXPOSE_SHALLOW = 8f // clear legs either side of a check stretch replanned with it
+        private const val RESOLVE_PAD_M = 500.0 // clear legs either side of a check stretch replanned with it
         const val BLOCKED = 0
         const val SAFE = 1
         const val MARGINAL = 2
@@ -1643,18 +1638,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * What [resolveChecks] did: [runs] check stretches before, [resolved] now clear,
      * [partly] down to shallow water only, [extraM] added to the route.
      */
-    class Resolution(val route: Route, val runs: Int, val resolved: Int, val partly: Int, val improved: Int, val extraM: Double) {
-        val summary = summary(runs, resolved, partly, improved, extraM)
-        val changed get() = resolved + partly + improved > 0
+    class Resolution(val route: Route, val runs: Int, val resolved: Int, val partly: Int, val extraM: Double) {
+        val summary = summary(runs, resolved, partly, extraM)
 
         companion object {
-            fun summary(runs: Int, resolved: Int, partly: Int, improved: Int, extraM: Double): String {
+            fun summary(runs: Int, resolved: Int, partly: Int, extraM: Double): String {
                 if (runs == 0) return "Avoid checks: the route has no checks."
-                val left = runs - resolved - partly - improved
+                val left = runs - resolved - partly
                     return String.format(Locale.US, "Avoid checks: %d of %d check stretches resolved", resolved, runs) +
                     (if (partly > 0) ", $partly down to shallow water only" else "") +
-                    (if (improved > 0) ", $improved improved (farther from what needs checking)" else "") +
-                    (if (resolved + partly + improved > 0) String.format(Locale.US, " (%+.2f nm)", extraM / NM) else "") +
+                    (if (resolved + partly > 0) String.format(Locale.US, " (%+.2f nm)", extraM / NM) else "") +
                     (if (left > 0) ", $left unchanged (no way around within %.1f nm or %.0f%% of the stretch)"
                         .format(Locale.US, RESOLVE_EXTRA_M / NM, RESOLVE_EXTRA_FRAC * 100) else "") + "."
             }
@@ -1667,10 +1660,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * zones and, on a first try, water that may be under the safe depth. A new stretch is
      * kept when its legs have no checks (or, on the second try, only less shallow water)
      * and it is at most RESOLVE_EXTRA_M or RESOLVE_EXTRA_FRAC longer. Only walls are added,
-     * so a kept stretch is never less safe; its notes come from the normal grid. When there
-     * is no way around (a narrow ICW channel past charted piles), the stretch is replanned
-     * for the least exposure (exposureCells) and kept when that exposure at least halves
-     * with no new kind of check. [pts] are
+     * so a kept stretch is never less safe; its notes come from the normal grid. [pts] are
      * your points, which stay; "connects your point to usable water" legs stay as they are.
      */
     fun resolveChecks(r: Route, pts: List<LatLon>, bufM: Double = 60.0, stayInside: Boolean = false,
@@ -1684,7 +1674,6 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         fun hasCheck(l: Leg) = l.notes.any { it.contains("check") }
         var resolved = 0
         var partly = 0
-        var improved = 0
         var extra = 0.0
         for ((n, run) in runs.withIndex().reversed()) { // from the end, so earlier indices stay valid
             progress("Avoiding checks: stretch ${runs.size - n} of ${runs.size}")
@@ -1727,85 +1716,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (shallowOk && left.none { hasCheck(it) } && oldLegs.any { hasCheck(it) } &&
                     nl.sumOf { it.shoalM } <= oldLegs.sumOf { it.shoalM } + 1.0) best = nw to nl
             }
-            var better = false
-            if (best == null) {
-                val pen = exposureCells(a, g, sec)
-                val eg = Grid(g.nav, g.ok, FloatArray(a.n) { g.cost[it] * (1f + pen[it]) }, g.prox, g.planes, g.nopass,
-                    g.rad, g.k, g.pier, g.snag, g.soft, g.gate)
-                val path = astar(a, eg, sp, sq)
-                if (path != null && path.size >= 2) {
-                    val idx = simplify(a, eg, path)
-                    val nw = idx.map { a.latlon(it) }.toMutableList()
-                    nw[0] = old.first()
-                    nw[nw.size - 1] = old.last()
-                    val nl = legs(a, g, nw, idx, HashSet(seen))
-                    val was = exposure(a, pen, old.map { a.cell(it) }.toIntArray())
-                    if (nl.sumOf { it.distM } <= limit && was > 0 &&
-                        exposure(a, pen, idx) <= was * RESOLVE_EXPOSURE_KEEP && checkKinds(oldLegs).containsAll(checkKinds(nl))) {
-                        best = nw to nl
-                        clear = nl.none { Gpx.flagged(it) }
-                        better = !clear
-                    }
-                }
-            }
             val (nw, nl) = best ?: continue
             for (k in s until e) legs.removeAt(s)
             legs.addAll(s, nl)
             for (k in s..e) wps.removeAt(s)
             wps.addAll(s, nw)
             extra += nl.sumOf { it.distM } - oldM
-            if (clear) resolved++ else if (better) improved++ else partly++
+            if (clear) resolved++ else partly++
         }
-        val text = Resolution.summary(runs.size, resolved, partly, improved, extra)
+        val text = Resolution.summary(runs.size, resolved, partly, extra)
         return Resolution(Route(r.name + "_adjusted", wps, legs, r.depthFt, r.airFt, r.resM, r.messages + text, r.guideM),
-            runs.size, resolved, partly, improved, extra)
-    }
-
-    /**
-     * Per-cell cost of passing what causes checks, for the least-exposure try: inside a
-     * hazard buffer it grows toward the hazard, so the route keeps as far off as the channel
-     * allows; snags, piers and seawalls, security zones and water that may be under the safe
-     * depth cost a fixed amount.
-     */
-    private fun exposureCells(a: Area, g: Grid, sec: BooleanArray): FloatArray {
-        val pen = FloatArray(a.n)
-        val rad = g.rad
-        for (i in 0 until a.n) if (g.nav[i].toInt() == HAZARD || g.snag[i]) {
-            val r = i / a.w
-            val c = i % a.w
-            for (dr in -rad..rad) for (dc in -rad..rad) {
-                val d2 = dr * dr + dc * dc
-                val rr = r + dr
-                val cc = c + dc
-                if (d2 > rad * rad || rr !in 0 until a.h || cc !in 0 until a.w) continue
-                val j = rr * a.w + cc
-                val f = (rad + 1 - sqrt(d2.toDouble())) / (rad + 1)
-                if (g.ok[j]) pen[j] = max(pen[j], (EXPOSE_NEAR * f * f).toFloat())
-            }
-        }
-        for (i in 0 until a.n) {
-            if (!g.ok[i]) continue
-            if (g.snag[i] || g.pier[i] || sec[i]) pen[i] = max(pen[i], EXPOSE_HIT)
-            if (g.nav[i].toInt() == MARGINAL) pen[i] = max(pen[i], EXPOSE_SHALLOW)
-        }
-        return pen
-    }
-
-    /** Sum of [pen] over the cells the lines between [idx] cross. */
-    private fun exposure(a: Area, pen: FloatArray, idx: IntArray): Double {
-        var t = 0.0
-        for (k in 1 until idx.size) for (i in lineCells(a, idx[k - 1], idx[k])) t += pen[i]
-        return t
-    }
-
-    /** The kinds of check on [legs] (notes with their numbers left out, and shallow water). */
-    private fun checkKinds(legs: List<Leg>): Set<String> {
-        val out = HashSet<String>()
-        for (l in legs) {
-            if (l.shoalM > 0) out.add("shallow")
-            for (n in l.notes) if (n.contains("check")) out.add(n.replace(Regex("[0-9.]+"), "#"))
-        }
-        return out
+            runs.size, resolved, partly, extra)
     }
 
     /** The grid with what causes checks as walls (shallow water too unless [shallowOk]); the stretch's ends stay open. */

@@ -1225,7 +1225,7 @@ class MainActivity : Activity() {
             try {
                 val res = Planner(p).resolveChecks(r, pl.pts, BUF_M, pl.stayInside) { msg -> ui.post { status.text = msg } }
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
-                if (!res.changed) {
+                if (res.resolved + res.partly == 0) {
                     ui.post {
                         status.text = res.summary
                         planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true

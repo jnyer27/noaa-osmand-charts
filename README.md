@@ -42,7 +42,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 
    [What each note means](https://jnyer27.github.io/noaa-osmand-charts/report.html#what-each-note-means) explains every note and what to do. With **Check markers in the GPX** on, each stretch of flagged legs has an orange start and a green end marker in OsmAnd, which announces them as you approach.
 
-   **Try to avoid checks**, under the report, replans each flagged stretch around its causes and keeps the change only when the checks are gone and the detour is small (at most 0.2 nm or 10% of the stretch). Where there is no way around (a narrow ICW channel), it moves the stretch as far from the hazards as the channel allows. Anything it changes is saved as `<name>_adjusted.gpx`; the original stays as it was, and the adjusted route still needs checking.
+   **Try to avoid checks**, under the report, replans each flagged stretch around its causes and keeps the change only when the checks are gone and the detour is small (at most 0.2 nm or 10% of the stretch). Anything it changes is saved as `<name>_adjusted.gpx`; the original stays as it was, and the adjusted route still needs checking.
 6. Tap **Open in OsmAnd** to follow the route. Underway, follow the buoys rather than the line and watch the depth sounder where the report flags shallow water.
 
 <p>
