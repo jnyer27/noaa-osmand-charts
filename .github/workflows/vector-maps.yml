@@ -4,7 +4,8 @@ name: Vector charts for OsmAnd
 # per NCDS region (tools/osm_to_obf.sh): <Name>_depth.depth.obf (contours, depth areas and
 # soundings in zoom 11/13/15 sections) and <Name>_seamarks.obf. The NOAA Route app offers
 # them per region from the vector-maps release (vector-maps-beta for APKs built from a
-# branch), listed in its catalog.json.
+# branch), listed in its catalog.json. The publish job also writes the OsmAnd plugin
+# (tools/build_osf.py): zipped maps, osmand-items.json and noaa-charts.osf.
 #   push (converter changes): quick check, the Middle River test box and region 04 with the
 #     strict tag list, nothing published; a commit message with "[vector all]" or
 #     "[vector 26b 07]" builds and publishes those regions instead (manual runs need the
@@ -225,10 +226,16 @@ jobs:
           print(f"Built {sorted(built)}; catalog lists {len(out)} regions")
           PY
           built="$(cat built.txt)"
-          files=(maps/catalog.json)
+          # OsmAnd plugin: zipped maps for the built regions (their names and sizes go into
+          # the catalog), osmand-items.json and noaa-charts.osf (tools/build_osf.py)
+          python3 tools/build_osf.py --catalog maps/catalog.json --maps maps \
+            --base "https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag/" -o osf
+          files=()
           for c in $built; do files+=(maps/Ncds_${c}_depth.depth.obf maps/Ncds_${c}_seamarks.obf); done
-          # catalog last, so it never lists files not uploaded yet
-          gh release upload $tag "${files[@]:1}" --clobber
+          # maps, then the OsmAnd item list and plugin, then the catalog, so neither lists
+          # files not uploaded yet
+          gh release upload $tag "${files[@]}" osf/*.obf.zip --clobber
+          gh release upload $tag osf/osmand-items.json osf/noaa-charts.osf --clobber
           gh release upload $tag maps/catalog.json --clobber
           day="$(date -u +%Y-%m-%d)"
           failed="${{ needs.build.result == 'success' && 'none' || 'some regions, see the run' }}"
