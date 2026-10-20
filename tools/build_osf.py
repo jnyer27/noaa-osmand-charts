@@ -52,8 +52,8 @@ KIND = {
 DESCRIPTION = (
     "NOAA's official vector charts (ENC) as OsmAnd maps, rebuilt every week with Notices to Mariners "
     "corrections: a depth map (contours and soundings) and a seamarks map (buoys, lights, hazards, "
-    "channels and bridges) for each NOAA chart region. Download them under Menu > Maps & Resources > "
-    "NOAA vector charts and use the Nautical map style.<br /><br />"
+    "channels and bridges) for each NOAA chart region. Download them under Menu > Maps & Resources, Extra maps, "
+    "NOAA vector charts, and use the Nautical map style.<br /><br />"
     "For depth-aware boat routes on the same charts, use the "
     "<a href=\"https://jnyer27.github.io/noaa-osmand-charts/\">NOAA Route app</a>.<br /><br />"
     "Not for navigation: a planning aid. Charted depths are at MLLW with no tide added."

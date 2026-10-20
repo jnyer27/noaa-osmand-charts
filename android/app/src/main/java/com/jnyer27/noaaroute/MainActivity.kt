@@ -1055,7 +1055,7 @@ class MainActivity : Activity() {
                 contentResolver.openOutputStream(uri, "wt")!!.use { it.write(bytes) }
                 ui.post {
                     status.text = "Saved Download/${ChartMaps.SUBDIR}/$name. In OsmAnd, add the plugin, then download regions under " +
-                        "Menu > Maps & Resources > NOAA vector charts."
+                        "Menu > Maps & Resources, under Extra maps: NOAA vector charts."
                     importInOsmAnd(uri, name)
                 }
             } catch (e: Exception) {
