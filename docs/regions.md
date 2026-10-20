@@ -17,7 +17,7 @@ While a region downloads, the line under **Plan route** shows the progress ("Dow
 
 <img src="regions-screen.jpg" alt="The Regions screen: regions 03, 04 and 05 on the map with You, Start and Destination markers, the automatic Wi-Fi download checkbox, and the region list with update status" width="300">
 
-Tap **Regions** on the main screen. **Close** (top right) returns to the main screen.
+Tap **Regions** on the main screen. **Close** (top right) returns to the main screen. **Get the OsmAnd plugin**, beside it, gets the plugin that lets OsmAnd download any region's vector charts itself; see [The OsmAnd plugin](osmand.html#the-osmand-plugin).
 
 ### The map
 
@@ -50,7 +50,7 @@ Below the map, every region with its status. Tap a row to open its region card.
 | up to date, NOAA data from date | You have the latest |
 | replaced by ... | An old area replaced by newer regions (for example the old Chesapeake Bay area by 04 and 05); removed once those are downloaded |
 
-Further down are **Chart maps for OsmAnd** (each chart map you have, with its status; **Combine chart maps for OsmAnd** appears once two or more are ready) and **Vector charts for OsmAnd** (each region's vector charts and their status, and **Get the OsmAnd plugin**). Tap one to open its card.
+Further down are **Chart maps for OsmAnd** (each chart map you have, with its status; **Combine chart maps for OsmAnd** appears once two or more are ready) and **Vector charts for OsmAnd** (each region's vector charts and their status). Tap one to open its card.
 
 ## The region card
 

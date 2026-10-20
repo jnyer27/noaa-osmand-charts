@@ -630,6 +630,7 @@ class MainActivity : Activity() {
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(button("Get the OsmAnd plugin") { d.dismiss(); getOsmAndPlugin() })
         top.addView(button("Close") { d.dismiss() })
         root.addView(top)
         root.addView(TextView(this).apply {
@@ -719,8 +720,6 @@ class MainActivity : Activity() {
                 setPadding(0, dp(10), 0, dp(10))
                 setOnClickListener { regionCard(e.ncds) }
             })
-            rows.addView(TextView(this).apply { text = PLUGIN_ABOUT; setPadding(0, dp(10), 0, 0) })
-            rows.addView(button("Get the OsmAnd plugin") { d.dismiss(); getOsmAndPlugin() })
         }
         fill()
         regionsChanged = { fill() }
