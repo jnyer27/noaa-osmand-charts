@@ -4,6 +4,12 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-20: app 0.1.133 (route packs build 128 unchanged)
+
+Vector charts for OsmAnd:
+- **OsmAnd plugin.** NOAA vector charts now come as an OsmAnd plugin too. **Get the OsmAnd plugin**, at the top of the Regions screen and on every region card, opens it in OsmAnd, which then lists every region under Extra maps in Maps & Resources and downloads its depth and seamarks maps itself, with no files to import. They are the same maps from the same weekly builds as **Download vector charts**; use one way or the other for a region. See [The OsmAnd plugin](https://jnyer27.github.io/noaa-osmand-charts/osmand.html#the-osmand-plugin) in the guide, with screenshots.
+- The plugin covers every region from the first weekly vector chart build after this release (Saturday). Until then the button says it is not published yet.
+
 ## 2026-10-19: app 0.1.129 (route packs build 128 unchanged)
 
 Planning:
