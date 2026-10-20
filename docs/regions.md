@@ -17,7 +17,7 @@ While a region downloads, the line under **Plan route** shows the progress ("Dow
 
 <img src="regions-screen.jpg" alt="The Regions screen: regions 03, 04 and 05 on the map with You, Start and Destination markers, the automatic Wi-Fi download checkbox, and the region list with update status" width="300">
 
-Tap **Regions** on the main screen. **Close** (top right) returns to the main screen.
+Tap **Regions** on the main screen. **Close** (top right) returns to the main screen. **Get the OsmAnd plugin**, beside it, gets the plugin that lets OsmAnd download any region's vector charts itself; see [The OsmAnd plugin](osmand.html#the-osmand-plugin).
 
 ### The map
 
@@ -92,6 +92,8 @@ NOAA's vector charts as two OsmAnd maps: a depth map and a seamarks map. Before 
 | Downloading, or saving to Download/noaa-charts... | **Cancel download** while downloading |
 | Ready ("ready: Download/noaa-charts/Ncds_05_depth.depth.obf, Ncds_05_seamarks.obf (25 MB, NOAA data from 2026-10-16)", plus "UPDATE available" when a newer build is out) | **Update vector charts** (when an update is out), **Open depth map in OsmAnd**, **Open seamarks map in OsmAnd**, **Show in Files**, **Delete vector charts** |
 | Failed | **Try again**, **Remove** |
+
+In every state, **Get the OsmAnd plugin** downloads the plugin that lets OsmAnd download any region's vector charts itself; see [The OsmAnd plugin](osmand.html#the-osmand-plugin).
 
 If there is not enough free space, the app says how much is needed before it starts.
 
