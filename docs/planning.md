@@ -44,7 +44,7 @@ Your boat's height above the waterline. With it, the route goes only under bridg
 
 ## Stay inside (avoid open ocean)
 
-Keeps the route on bays, sounds, rivers and the ICW. The note under the checkbox puts it as no water seaward of the line across inlets and bay mouths: the planner treats as open ocean the water reached from 12 nm offshore without crossing land or one of those lines. For example, Maryland to the Neuse River goes down the Chesapeake, through the ICW's Virginia Cut and the North Carolina sounds instead of around Cape Hatteras. If a point you entered is itself out in the ocean, the planner says so.
+Keeps the route on bays, sounds, rivers and the ICW. The note under the checkbox puts it as no water seaward of the line across inlets and bay mouths: the planner treats as open ocean the water reached from 12 nm offshore without crossing land or one of those lines. For example, Maryland to the Neuse River goes down the Chesapeake, through the ICW's Virginia Cut and the North Carolina sounds instead of around Cape Hatteras. If a point you entered is itself out in the ocean, the planner says so ("... is in open ocean, and Stay inside is on"): turn off Stay inside, or move the point inside the line across the bay mouth or inlet. Outside the Golden Gate, for example, the bar channel is open ocean.
 
 Without it, the planner takes the cheapest safe water, which can include the ocean along the beach or past a cape.
 

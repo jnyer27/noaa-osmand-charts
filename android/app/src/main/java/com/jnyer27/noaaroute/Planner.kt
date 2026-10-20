@@ -420,7 +420,20 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
             if (best >= 0 && bestD <= rad) return best to bestD * a.res
         }
-        throw PlanException("No navigable water within ${maxM.toInt()} m of %.5f, %.5f for this depth".format(p.lat, p.lon))
+        // With Stay inside, open sea is a wall too: say so rather than blame the depth
+        // (a start in San Francisco's bar channel, 7 nm outside the Golden Gate, was told
+        // "for this depth" in 12 m of water)
+        val at = "%.5f, %.5f".format(p.lat, p.lon)
+        if (g.nav[start].toInt() == SEA)
+            throw PlanException("$at is in open ocean, and Stay inside is on: there is no water inside the lines across " +
+                "bay mouths and inlets within ${maxM.toInt()} m. Turn off Stay inside to route from there, or move the point inside.")
+        val seaNear = (maxOf(0, r0 - lim)..minOf(a.h - 1, r0 + lim)).any { r ->
+            (maxOf(0, c0 - lim)..minOf(a.w - 1, c0 + lim)).any { c -> g.nav[r * a.w + c].toInt() == SEA }
+        }
+        if (seaNear)
+            throw PlanException("No water within ${maxM.toInt()} m of $at is both deep enough for this depth and inside: " +
+                "the open ocean nearby is off limits while Stay inside is on. Turn off Stay inside, lower the depth, or move the point.")
+        throw PlanException("No navigable water within ${maxM.toInt()} m of $at for this depth")
     }
 
     /** Usable water reachable from start (4-connected). */

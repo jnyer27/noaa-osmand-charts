@@ -191,6 +191,25 @@ class PlannerTest {
     }
 
     @Test
+    fun startInOpenOceanWithStayInsideSaysSo() {
+        // Open water everywhere; rows 0-299 are open sea (SPANCLR SEA_MARK without the SPAN flag)
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 0 until 300) for (c in 0 until size) planes[Pack.P_SPANCLR][r * size + c] = Pack.SEA_MARK.toByte()
+        Pack(writePack(planes, "[]")).use { pack ->
+            val pts = listOf(cellCenter(50, 256), cellCenter(450, 256)) // start 5 km out in the open sea
+            try {
+                Planner(ChartSet(listOf(pack))).plan("t", pts, 3.0, null, stayInside = true)
+                fail("planned from the open sea with Stay inside on")
+            } catch (e: PlanException) {
+                assertTrue(e.message, e.message!!.contains("is in open ocean, and Stay inside is on"))
+                assertTrue(e.message, !e.message!!.contains("for this depth"))
+            }
+            Planner(ChartSet(listOf(pack))).plan("t", pts, 3.0, null) // and fine with it off
+        }
+    }
+
+    @Test
     fun startOnLandKeepsItsWaterWaypoint() {
         Pack(headlandPack()).use { pack ->
             val start = cellCenter(300, 250) // 5 cells inside the land block

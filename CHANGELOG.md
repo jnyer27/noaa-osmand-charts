@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased (branch sea-snap-message)
+
+Planning:
+- **Clearer message for a point in open ocean with Stay inside on.** A start in San Francisco's bar channel, 7 nm outside the Golden Gate, was refused with "No navigable water within 3000 m ... for this depth" in 41 ft of water. It now says "37.76344, -122.63615 is in open ocean, and Stay inside is on" and suggests turning Stay inside off or moving the point inside. Where open ocean and too-shallow water together leave nothing usable within 3 km, the message names both. Routes are unchanged.
+
 ## 2026-10-20: app 0.1.133 (route packs build 128 unchanged)
 
 Vector charts for OsmAnd:

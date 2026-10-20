@@ -85,6 +85,8 @@ class AreaRoutesTest {
                 } catch (e: PlanException) {
                     println("REFUSED $name: ${e.message!!.lines().first()}")
                     if (!mustFail) failures.add("$name: ${e.message}")
+                    // failText: the refusal must give this reason
+                    (test["failText"] as String?)?.let { if (!e.message!!.contains(it)) failures.add("$name: refused without \"$it\": ${e.message}") }
                 }
             }
             open.forEach { it.close() }
