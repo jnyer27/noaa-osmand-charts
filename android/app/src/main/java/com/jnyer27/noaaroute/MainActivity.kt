@@ -48,6 +48,8 @@ class MainActivity : Activity() {
         /** From a chart map notice: open this region's card ("" = the Regions screen). */
         const val EXTRA_REGION = "region"
         const val BUF_M = 60.0 // hazard buffer around shallow soundings and obstructions
+        const val PLUGIN_ABOUT = "Or get the OsmAnd plugin: OsmAnd then downloads the vector charts of any region itself " +
+            "from the same weekly builds, with no files to import or delete."
         val DEFAULT_PLACES = listOf(
             "Maryland Marina" to "39.32371, -76.39998",
             "Hart-Miller Island beach" to "39.24700, -76.38800",
@@ -717,6 +719,8 @@ class MainActivity : Activity() {
                 setPadding(0, dp(10), 0, dp(10))
                 setOnClickListener { regionCard(e.ncds) }
             })
+            rows.addView(TextView(this).apply { text = PLUGIN_ABOUT; setPadding(0, dp(10), 0, 0) })
+            rows.addView(button("Get the OsmAnd plugin") { d.dismiss(); getOsmAndPlugin() })
         }
         fill()
         regionsChanged = { fill() }
@@ -908,6 +912,8 @@ class MainActivity : Activity() {
                     if (v.state == VectorMaps.State.DOWNLOADING) vbox.addView(act("Cancel download") { vmaps.cancel(code); regionsChanged?.invoke() })
                 }
             }
+            vbox.addView(TextView(this).apply { text = PLUGIN_ABOUT; setPadding(0, dp(10), 0, 0) })
+            vbox.addView(act("Get the OsmAnd plugin") { getOsmAndPlugin() })
         }
         vectorSection()
         if (vcatalog.isEmpty()) refreshVectorCatalog { if (d.isShowing) vectorSection() }
@@ -1036,6 +1042,29 @@ class MainActivity : Activity() {
     }
 
     /** Hand a map file in Download/noaa-charts to OsmAnd to import; if it will not take it, show the folder. */
+    /** Download the vector charts' OsmAnd plugin to Download/noaa-charts and hand it to OsmAnd. */
+    private fun getOsmAndPlugin() {
+        status.text = "Downloading the OsmAnd plugin…"
+        worker.execute {
+            try {
+                val bytes = vmaps.fetchPlugin()
+                if (bytes == null) {
+                    ui.post { status.text = "The OsmAnd plugin is not published yet. Download vector charts from a region card instead." }
+                    return@execute
+                }
+                val (uri, name) = DownloadFiles.target(this, ChartMaps.SUBDIR, VectorMaps.PLUGIN.substringBefore("."), "osf", "application/octet-stream")
+                contentResolver.openOutputStream(uri, "wt")!!.use { it.write(bytes) }
+                ui.post {
+                    status.text = "Saved Download/${ChartMaps.SUBDIR}/$name. In OsmAnd, add the plugin, then download regions under " +
+                        "Menu > Maps & Resources > NOAA vector charts."
+                    importInOsmAnd(uri, name)
+                }
+            } catch (e: Exception) {
+                ui.post { status.text = "Could not get the OsmAnd plugin: ${e.message}" }
+            }
+        }
+    }
+
     private fun importInOsmAnd(uri: Uri, name: String) {
         val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/octet-stream").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         osmandPackage()?.let { i.setPackage(it) }

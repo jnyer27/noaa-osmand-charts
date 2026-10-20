@@ -24,6 +24,8 @@ class VectorMaps(private val ctx: Context) {
     companion object {
         val BASE: String = BuildConfig.VECTOR_BASE
         private const val MIME = "application/octet-stream"
+        /** The OsmAnd plugin on the same release (vector-maps.yml, tools/build_osf.py). */
+        const val PLUGIN = "noaa-charts.osf"
 
         /** Free space needed: the download plus the copy in Download. */
         fun spaceNeeded(r: Region) = 2 * r.size
@@ -70,6 +72,22 @@ class VectorMaps(private val ctx: Context) {
                 FileInfo(f.getString("kind"), f.getString("file"), f.getLong("size"), f.optString("sha256"))
             })
         }
+    }
+
+    /**
+     * The OsmAnd plugin (blocking), from tools/build_osf.py: OsmAnd then downloads and
+     * updates every region's vector charts itself. Null if not published yet.
+     */
+    fun fetchPlugin(): ByteArray? {
+        val c = URL(BASE + PLUGIN).openConnection() as HttpURLConnection
+        c.connectTimeout = 20000
+        c.readTimeout = 60000
+        c.instanceFollowRedirects = true
+        try {
+            if (c.responseCode == 404) return null
+            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for the OsmAnd plugin")
+            return c.inputStream.use { it.readBytes() }
+        } finally { c.disconnect() }
     }
 
     /** The published catalog (blocking); kept for offline use. */
