@@ -40,10 +40,11 @@ class AreaRoutesTest {
                 val air = test["air"] as Double?
                 val mustFail = test["fail"] == true
                 val inside = test["inside"] == true // Stay inside: open sea is a wall
+                val moveEnds = test["moveEnds"] == true // Move ends to navigable water
                 val t0 = System.currentTimeMillis()
                 try {
                     // Progress (overview, guide points, each stretch's grid) goes to the log too
-                    val r = Planner(charts).plan("test", pts, depth, air, stayInside = inside) { msg -> println("PROGRESS $name: $msg") }
+                    val r = Planner(charts).plan("test", pts, depth, air, stayInside = inside, moveEnds = moveEnds) { msg -> println("PROGRESS $name: $msg") }
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM
@@ -52,6 +53,7 @@ class AreaRoutesTest {
                     println("PASS? $name: %.1f nm (straight %.1f), %d points, %d legs under 40 m, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, short, r.resM, sec))
                     // The route itself, so a surprising length can be looked at from the log
                     println("POINTS $name: " + r.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
+                    for (m in r.messages) println("MESSAGE $name: $m")
                     // "avoid": [[lat, lon, meters], ...]: places the route must keep away from
                     // (where an earlier version strayed out of a channel)
                     val strayed = (test["avoid"] as List<*>?).orEmpty().mapNotNull { av ->

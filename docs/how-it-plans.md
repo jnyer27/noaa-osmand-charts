@@ -39,6 +39,10 @@ The cost of a cell rises within about 100 m of land, shallow water, piers and ha
 
 With **Stay inside**, open ocean is never used. Open ocean is the water reached from 12 nm offshore without crossing land or a COLREGS demarcation line (the lines across inlets and bay mouths). The Chesapeake, Delaware Bay and the North Carolina sounds are inside; the ocean along the beaches is not.
 
+## Move ends to navigable water
+
+A point in a pocket of water walled in only by land or structures (a marina basin behind a pier too thin for the grid) moves up to 250 m to connected water. With **Move ends to navigable water**, a point in a pocket closed by anything (water shallower than your safe depth, a hazard buffer, a bridge or cable too low for your air draft, land) moves to the nearest water within 3 km that leads to the rest of the trip. The leg between is never planned, only marked to check.
+
 ## Restricted areas
 
 Entry-prohibited areas are never used. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around it. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.

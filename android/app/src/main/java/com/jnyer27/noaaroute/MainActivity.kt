@@ -95,6 +95,7 @@ class MainActivity : Activity() {
     private lateinit var depth: EditText
     private lateinit var air: EditText
     private lateinit var inside: CheckBox
+    private lateinit var moveEnds: CheckBox
     private lateinit var checks: CheckBox
     private lateinit var name: EditText
     private lateinit var planButton: Button
@@ -174,6 +175,12 @@ class MainActivity : Activity() {
             text = "Keeps the route on bays, sounds, rivers and the ICW: no water seaward of the territorial sea baseline (the line across inlets and bay mouths)."
             textSize = 12f
         })
+        moveEnds = CheckBox(this).apply { text = "Move ends to navigable water" }
+        col.addView(moveEnds)
+        col.addView(TextView(this).apply {
+            text = "When the start or destination is in water too shallow, too low or too blocked for your boat to get out, the route starts or ends at the nearest water (up to 3 km away) that leads on. The leg to your point is marked to check."
+            textSize = 12f
+        })
         checks = CheckBox(this).apply { text = "Check markers in the GPX" }
         col.addView(checks)
         col.addView(TextView(this).apply {
@@ -215,6 +222,7 @@ class MainActivity : Activity() {
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
         inside.isChecked = prefs.getBoolean("inside", false)
+        moveEnds.isChecked = prefs.getBoolean("moveEnds", false)
         checks.isChecked = prefs.getBoolean("checks", true)
         start.setText(prefs.getString("start", ""))
         dest.setText(prefs.getString("dest", ""))
@@ -1195,8 +1203,10 @@ class MainActivity : Activity() {
             "route_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
         }.replace(Regex("[^\\w.-]+"), "_")
         val stayInside = inside.isChecked
+        val moveToWater = moveEnds.isChecked
         val markChecks = checks.isChecked
         prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString()).putBoolean("inside", stayInside)
+            .putBoolean("moveEnds", moveToWater)
             .putBoolean("checks", markChecks)
             .putString("start", start.text.toString()).putString("dest", dest.text.toString()).apply()
         planButton.isEnabled = false
@@ -1208,12 +1218,13 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside) { msg -> ui.post { status.text = msg } }
+                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } }
                 val used = usedPacks(p, r)
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val (uri, savedAs) = saveGpx(r, datum, markChecks)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
-                val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside })
+                val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside },
+                    "Move ends to navigable water: on".takeIf { moveToWater })
                 ui.post {
                     route = r
                     gpxUri = uri
