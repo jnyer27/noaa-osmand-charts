@@ -426,6 +426,40 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         throw PlanException("No navigable water within ${maxM.toInt()} m of %.5f, %.5f for this depth".format(p.lat, p.lon))
     }
 
+    /**
+     * Move ends to navigable water: the nearest cell, along usable water from [start]
+     * (so not across a point of land into the next creek), charted at least the safe
+     * depth and clear of hazard buffers, piers, snags and channel markers, within maxM
+     * of the way there; with its straight distance from p. Null if start already is one
+     * or none is that close.
+     */
+    private fun nearestNavigable(a: Area, g: Grid, p: LatLon, start: Int, maxM: Double = MOVE_ENDS_M): Pair<Int, Double>? {
+        fun clear(i: Int) = g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
+        if (clear(start)) return null
+        val steps = IntArray(a.n) { -1 }
+        val queue = IntArray(a.n)
+        var head = 0
+        var tail = 0
+        steps[start] = 0
+        queue[tail++] = start
+        val lim = (maxM / a.res).toInt()
+        while (head < tail) {
+            val i = queue[head++]
+            if (clear(i)) {
+                val q = a.latlon(i)
+                return i to distanceM(p, q)
+            }
+            if (steps[i] >= lim) continue
+            val r = i / a.w
+            val c = i % a.w
+            for (j in intArrayOf(if (r > 0) i - a.w else -1, if (r < a.h - 1) i + a.w else -1,
+                                 if (c > 0) i - 1 else -1, if (c < a.w - 1) i + 1 else -1)) {
+                if (j >= 0 && steps[j] < 0 && g.ok[j]) { steps[j] = steps[i] + 1; queue[tail++] = j }
+            }
+        }
+        return null
+    }
+
     /** Usable water reachable from start (4-connected). */
     private fun region(a: Area, ok: BooleanArray, start: Int) = region(a, ok, intArrayOf(start))
 
@@ -1047,8 +1081,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
             val g = buildGrid(a, c.depthM, c.airM, c.bufM)
-            val (sp, mp) = snap(a, g, p)
-            val (sq, mq) = snap(a, g, q)
+            var (sp, mp) = snap(a, g, p)
+            var (sq, mq) = snap(a, g, q)
+            if (moveEnds) {
+                // Your points in water charted under the safe depth (or in a hazard buffer)
+                // start or end at the nearest water that is not: the leg between is not planned
+                for (e in 0..1) {
+                    val n = (if (e == 0) np else nq) ?: continue
+                    val pt = if (e == 0) p else q
+                    val (cell, dist) = nearestNavigable(a, g, pt, if (e == 0) sp else sq) ?: continue
+                    if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
+                    val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards; with Move ends " +
+                        "to navigable water on, the route uses the nearest water charted at least ${fmt(c.depthFt)} ft, ${dist.roundToInt()} m away. " +
+                        "Check the way between on a chart."
+                    if (msg !in c.messages) c.messages.add(msg)
+                    c.moved.add(n)
+                }
+            }
             for ((n, m) in listOf(np to mp, nq to mq)) if (n != null && m > a.res && n !in c.moved) {
                 c.moved.add(n)
                 c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
@@ -1306,6 +1355,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val out = region(fa, fg.ok, border)
             nearestIn(fa, out, pt, if (moveEnds) MOVE_ENDS_M else CUT_OFF_M)?.let { s = it.first; enc = enclosure(fa, fg, s) }
         }
+        if (moveEnds && enc.edge) nearestNavigable(fa, fg, pt, s)?.let { s = it.first }
         val (cost, parent) = costField(fa, fg, s)
         return Approach(fa, cost, parent, if (enc.edge) null else noRoute(c, fa, fg, who, pt, enc))
     }

@@ -332,6 +332,7 @@
     {"name": "Maryland Marina to Chesapeake City (C&D Canal)", "points": ["39.32,-76.40", "39.5268,-75.8107"], "depth": 3, "nm": [31, 38], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to Delaware City (whole C&D Canal, DE charts)", "points": ["39.32371,-76.39998", "39.56139,-75.52338"], "depth": 3, "air": 10, "nm": [38, 50], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina at 6 ft is boxed in", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "fail": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina slips to Hampton Roads at 3 ft with Move ends to navigable water (starts at 3 ft+ water, not 0.37 nm of 0-6 ft legs)", "points": ["39.32949,-76.40050", "36.98022,-76.39517"], "depth": 3, "air": 10, "moveEnds": true, "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina at 6 ft with Move ends to navigable water (starts outside the 3.9 ft soundings)", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "moveEnds": true, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Norfolk Waterside to Hampton River", "points": ["36.8440,-76.2930", "37.0180,-76.3380"], "depth": 4, "nm": [10, 14], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Solomons to off Stingray Point (Deltaville)", "points": ["38.3240,-76.4560", "37.5600,-76.2750"], "depth": 4, "nm": [46, 56], "resolve": true, "areas": ["ncds_04", "ncds_05"]},

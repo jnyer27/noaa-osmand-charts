@@ -241,6 +241,29 @@ class PlannerTest {
         }
     }
 
+    @Test
+    fun moveEndsStartsInWaterDeepEnough() {
+        // Open water (2.0-3.6 m) with a cove of 0-1.8 m water (rows 100-160, cols 100-160),
+        // open to the east: usable but flagged at 3 ft, like a marina in a 0-6 ft creek
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 100..160) for (c in 100..160) planes[Pack.P_DEPTH][r * size + c] = 2
+        Pack(writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val start = cellCenter(130, 150) // 10 cells from the cove's east edge
+            val end = cellCenter(130, 400)
+            val plain = planner.plan("t", listOf(start, end), 3.0, null)
+            assertTrue("without the option the route leaves through the cove", plain.legs.any { it.shoalM > 0 })
+            val r = planner.plan("t", listOf(start, end), 3.0, null, moveEnds = true)
+            assertEquals(start, r.points[0])
+            assertTrue("first leg flagged", r.legs[0].notes.firstOrNull()?.startsWith("connects your point") == true)
+            assertTrue("no shallow legs after it", r.legs.drop(1).none { it.shoalM > 0 })
+            val moved = Planner.distanceM(r.points[0], r.points[1])
+            assertTrue("moved %.0f m".format(moved), moved in 180.0..260.0)
+            assertTrue("message: ${r.messages}", r.messages.any { it.startsWith("Point 1 is in water charted under your 3 ft") })
+        }
+    }
+
     /** Open water (2.0-3.6 m) with a pier or seawall line (HAZARD = HZ_PIER) along col 300, rows [rows]. */
     private fun pierPack(rows: IntRange): File {
         val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
