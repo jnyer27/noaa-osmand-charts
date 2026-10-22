@@ -202,6 +202,68 @@ class PlannerTest {
         }
     }
 
+    /**
+     * Open water (2.0-3.6 m) with two basins of the same water (11 x 11 cells, centered
+     * at rows/cols 150 and 360), each walled in by a 10-cell ring of 0-0.6 m water: too
+     * shallow for 3 ft, like a marina in a creek that dries.
+     */
+    private fun pocketPack(): File {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (ctr in listOf(150, 360)) for (r in ctr - 15..ctr + 15) for (c in ctr - 15..ctr + 15)
+            if (maxOf(Math.abs(r - ctr), Math.abs(c - ctr)) > 5) planes[Pack.P_DEPTH][r * size + c] = 2
+        return writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,0.6,0]]")
+    }
+
+    @Test
+    fun moveEndsLeavesAPocketClosedByShallowWater() {
+        Pack(pocketPack()).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val start = cellCenter(150, 150)
+            val open = cellCenter(100, 450)
+            try {
+                planner.plan("t", listOf(start, open), 3.0, null)
+                fail("planned out of a pocket closed by shallow water with Move ends off")
+            } catch (e: PlanException) {
+                assertTrue(e.message, e.message!!.contains("pocket"))
+            }
+            val r = planner.plan("t", listOf(start, open), 3.0, null, moveEnds = true)
+            assertEquals(start, r.points[0])
+            assertTrue("first leg flagged", r.legs[0].notes.firstOrNull()?.startsWith("connects your point") == true)
+            assertTrue("message: ${r.messages}", r.messages.any { it.startsWith("Point 1: the water there is cut off by water shallower") })
+            // Moved just past the ring: 10 cells from the basin's edge, 16 from its center
+            val moved = Planner.distanceM(r.points[0], r.points[1])
+            assertTrue("moved %.0f m".format(moved), moved in 300.0..400.0)
+            // Both ends in pockets: both move, out to the open water between them
+            val both = planner.plan("t", listOf(start, cellCenter(360, 360)), 3.0, null, moveEnds = true)
+            assertTrue("last leg flagged", both.legs.last().notes.firstOrNull()?.startsWith("connects your point") == true)
+            assertEquals("messages: ${both.messages}", 2, both.messages.count { it.contains("Move ends to navigable water") })
+        }
+    }
+
+    @Test
+    fun moveEndsStartsInWaterDeepEnough() {
+        // Open water (2.0-3.6 m) with a cove of 0-1.8 m water (rows 100-160, cols 100-160),
+        // open to the east: usable but flagged at 3 ft, like a marina in a 0-6 ft creek
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 100..160) for (c in 100..160) planes[Pack.P_DEPTH][r * size + c] = 2
+        Pack(writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val start = cellCenter(130, 150) // 10 cells from the cove's east edge
+            val end = cellCenter(130, 400)
+            val plain = planner.plan("t", listOf(start, end), 3.0, null)
+            assertTrue("without the option the route leaves through the cove", plain.legs.any { it.shoalM > 0 })
+            val r = planner.plan("t", listOf(start, end), 3.0, null, moveEnds = true)
+            assertEquals(start, r.points[0])
+            assertTrue("first leg flagged", r.legs[0].notes.firstOrNull()?.startsWith("connects your point") == true)
+            assertTrue("no shallow legs after it", r.legs.drop(1).none { it.shoalM > 0 })
+            val moved = Planner.distanceM(r.points[0], r.points[1])
+            assertTrue("moved %.0f m".format(moved), moved in 180.0..260.0)
+            assertTrue("message: ${r.messages}", r.messages.any { it.startsWith("Point 1 is in water charted under your 3 ft") })
+        }
+    }
+
     /** Open water (2.0-3.6 m) with a pier or seawall line (HAZARD = HZ_PIER) along col 300, rows [rows]. */
     private fun pierPack(rows: IntRange): File {
         val planes = Array(Pack.NPLANES) { ByteArray(size * size) }

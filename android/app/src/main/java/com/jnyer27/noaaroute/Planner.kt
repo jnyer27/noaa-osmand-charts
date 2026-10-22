@@ -35,12 +35,15 @@ class Route(val name: String, val points: List<LatLon>, val legs: List<Leg>, val
 class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS) {
     /** Stay inside: open sea is a wall (set by [plan]). */
     private var inside = false
+    /** Move ends to navigable water: your points in a pocket move out of it, whatever walls it in (set by [plan]). */
+    private var moveEnds = false
 
     companion object {
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
+        const val MOVE_ENDS_M = 0.5 * NM // ...and with Move ends to navigable water, from any pocket or along the water
         const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
         const val MAX_DROP_GUIDES = 2 // guide points one stretch may drop when cut off at full detail
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
@@ -421,6 +424,53 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (best >= 0 && bestD <= rad) return best to bestD * a.res
         }
         throw PlanException("No navigable water within ${maxM.toInt()} m of %.5f, %.5f for this depth".format(p.lat, p.lon))
+    }
+
+    /**
+     * Move ends to navigable water: the nearest cell, along usable water from [start]
+     * (so not across a point of land into the next creek), charted at least the safe
+     * depth and clear of hazard buffers, piers, snags and channel markers, within maxM
+     * of the way there; with its straight distance from p. Null if start already is one
+     * or none is that close.
+     */
+    /** Water charted at least the safe depth, clear of hazard buffers, piers and markers. */
+    private fun clearWater(g: Grid, i: Int) =
+        g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
+
+    /**
+     * Nearest clear water along usable water from start, at most maxM along the way
+     * (8-connected, diagonals sqrt 2, not across a corner of land). Null when start is
+     * clear already or none is that close. Steps counted 4-connected made a diagonal
+     * creek 40% longer: Podickery Point's 3 ft water, 430 m away, was out of reach of 400 m.
+     */
+    private fun nearestNavigable(a: Area, g: Grid, p: LatLon, start: Int, maxM: Double = MOVE_ENDS_M): Pair<Int, Double>? {
+        if (clearWater(g, start)) return null
+        val dist = FloatArray(a.n) { Float.MAX_VALUE }
+        val heap = Heap(1024)
+        val lim = (maxM / a.res).toFloat()
+        val diag = sqrt(2.0).toFloat()
+        dist[start] = 0f
+        heap.push(0f, start)
+        while (heap.size > 0) {
+            val d = heap.keys[0]
+            val i = heap.pop()
+            if (d > dist[i]) continue
+            if (clearWater(g, i)) return i to distanceM(p, a.latlon(i))
+            val r = i / a.w
+            val c = i % a.w
+            for (dr in -1..1) for (dc in -1..1) {
+                if (dr == 0 && dc == 0) continue
+                val r2 = r + dr
+                val c2 = c + dc
+                if (r2 !in 0 until a.h || c2 !in 0 until a.w) continue
+                val j = r2 * a.w + c2
+                if (!g.ok[j]) continue
+                if (dr != 0 && dc != 0 && (!g.ok[r2 * a.w + c] || !g.ok[r * a.w + c2])) continue
+                val nd = d + if (dr != 0 && dc != 0) diag else 1f
+                if (nd <= lim && nd < dist[j]) { dist[j] = nd; heap.push(nd, j) }
+            }
+        }
+        return null
     }
 
     /** Usable water reachable from start (4-connected). */
@@ -1034,6 +1084,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val best = if (limitedByDepth) deepestThatGetsOut(pt, c) else null
         if (best != null) sb.append("With a safe depth of ${fmt(best)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
         else if (limitedByDepth) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
+        if (moveEnds) sb.append("Move ends to navigable water is on, but no water within ${fmt(MOVE_ENDS_M / NM)} nm of this point leads out.\n")
         sb.append("Move the point into open water, or adjust depth or air draft.")
         return PlanException(sb.toString())
     }
@@ -1043,8 +1094,32 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for ((attempt, widen) in widths.withIndex()) {
             val a = area(listOf(p, q), widen)
             val g = buildGrid(a, c.depthM, c.airM, c.bufM)
-            val (sp, mp) = snap(a, g, p)
-            val (sq, mq) = snap(a, g, q)
+            var (sp, mp) = snap(a, g, p)
+            var (sq, mq) = snap(a, g, q)
+            if (moveEnds) {
+                // Your points in water charted under the safe depth (or in a hazard buffer)
+                // start or end at the nearest water that is not: the leg between is not planned
+                for (e in 0..1) {
+                    val n = (if (e == 0) np else nq) ?: continue
+                    val pt = if (e == 0) p else q
+                    val s0 = if (e == 0) sp else sq
+                    val (cell, dist) = nearestNavigable(a, g, pt, s0) ?: run {
+                        if (!clearWater(g, s0)) {
+                            val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards, and no water " +
+                                "charted at least ${fmt(c.depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, so Move ends to " +
+                                "navigable water left it; the legs there are flagged."
+                            if (msg !in c.messages) c.messages.add(msg)
+                        }
+                        null
+                    } ?: continue
+                    if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
+                    val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards; with Move ends " +
+                        "to navigable water on, the route uses the nearest water charted at least ${fmt(c.depthFt)} ft, ${dist.roundToInt()} m away. " +
+                        "Check the way between on a chart."
+                    if (msg !in c.messages) c.messages.add(msg)
+                    c.moved.add(n)
+                }
+            }
             for ((n, m) in listOf(np to mp, nq to mq)) if (n != null && m > a.res && n !in c.moved) {
                 c.moved.add(n)
                 c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
@@ -1072,6 +1147,46 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                             " ${dist.roundToInt()} m away at the nearest connected water.")
                         if (n != null) c.moved.add(n)
                         break
+                    }
+                }
+            }
+            if (path == null && moveEnds) {
+                // Move ends to navigable water: your points in a pocket closed by anything
+                // (shallow water, hazard buffers, low clearance, land farther than CUT_OFF_M)
+                // move to the nearest water within MOVE_ENDS_M that leads to the other end,
+                // or out of this window when the other end is in a pocket too. Guide points
+                // are not moved: a stretch drops a cut-off one instead.
+                val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
+                val cells = intArrayOf(sp, sq)
+                val moves = ArrayList<Triple<Int, Int, Double>>() // end, cell, distance
+                val border by lazy {
+                    region(a, g.ok, (0 until a.n).filter { i ->
+                        val r = i / a.w
+                        val col = i % a.w
+                        g.ok[i] && (r == 0 || r == a.h - 1 || col == 0 || col == a.w - 1)
+                    }.toIntArray())
+                }
+                for (e in 0..1) {
+                    if (ends[e].edge || (if (e == 0) np else nq) == null) continue
+                    val target = if (ends[1 - e].edge) region(a, g.ok, cells[1 - e]) else border
+                    val (cell, dist) = nearestIn(a, target, if (e == 0) p else q, MOVE_ENDS_M) ?: continue
+                    moves.add(Triple(e, cell, dist))
+                }
+                if (moves.isNotEmpty()) {
+                    val s0 = moves.firstOrNull { it.first == 0 }?.second ?: sp
+                    val s1 = moves.firstOrNull { it.first == 1 }?.second ?: sq
+                    val retry = astar(a, g, s0, s1)
+                    if (retry != null) {
+                        path = retry
+                        for ((e, _, dist) in moves) {
+                            val n = if (e == 0) np else nq
+                            val walls = ends[e].walls.entries.sortedByDescending { it.value.first }.joinToString(" and ") { wallText[it.key]!! }
+                            // Worded alike for both legs at a via point, so it is reported once
+                            val msg = "Point $n: the water there is cut off by $walls; with Move ends to navigable water on, the route " +
+                                "uses the nearest water that leads out, ${dist.roundToInt()} m away. Check the way between on a chart."
+                            if (msg !in c.messages) c.messages.add(msg)
+                            c.moved.add(n!!)
+                        }
                     }
                 }
             }
@@ -1251,7 +1366,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
         var (s, _) = snap(fa, fg, pt)
         var enc = enclosure(fa, fg, s)
-        if (!enc.edge && enc.walls.keys.all { it == "land" || it == "struct" }) {
+        val landOnly = enc.walls.keys.all { it == "land" || it == "struct" }
+        if (!enc.edge && (landOnly || moveEnds)) {
             // Cut off within the window: use the nearest water that leads out of it
             val border = (0 until fa.n).filter { i ->
                 val r = i / fa.w
@@ -1259,8 +1375,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 fg.ok[i] && (r == 0 || r == fa.h - 1 || col == 0 || col == fa.w - 1)
             }.toIntArray()
             val out = region(fa, fg.ok, border)
-            nearestIn(fa, out, pt, CUT_OFF_M)?.let { s = it.first; enc = enclosure(fa, fg, s) }
+            nearestIn(fa, out, pt, if (moveEnds) MOVE_ENDS_M else CUT_OFF_M)?.let { s = it.first; enc = enclosure(fa, fg, s) }
         }
+        if (moveEnds && enc.edge) nearestNavigable(fa, fg, pt, s)?.let { s = it.first }
         val (cost, parent) = costField(fa, fg, s)
         return Approach(fa, cost, parent, if (enc.edge) null else noRoute(c, fa, fg, who, pt, enc))
     }
@@ -1448,9 +1565,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     // ------------------------------------------------------------ main entry
 
     fun plan(name: String, pts: List<LatLon>, depthFt: Double, airFt: Double?, bufM: Double = 60.0,
-             stayInside: Boolean = false, progress: (String) -> Unit = {}): Route {
+             stayInside: Boolean = false, moveEnds: Boolean = false, progress: (String) -> Unit = {}): Route {
         require(pts.size >= 2)
         inside = stayInside
+        this.moveEnds = moveEnds
         for (p in pts) if (!pack.covers(p.lat, p.lon))
             throw PlanException("%.5f, %.5f is outside your downloaded chart areas (%s). Download the area that covers it.".format(p.lat, p.lon, pack.names))
         val c = Ctx(depthFt, airFt, depthFt * Pack.FT, airFt?.let { it * Pack.FT }, bufM, progress)

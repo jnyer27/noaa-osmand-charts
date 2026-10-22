@@ -40,10 +40,11 @@ class AreaRoutesTest {
                 val air = test["air"] as Double?
                 val mustFail = test["fail"] == true
                 val inside = test["inside"] == true // Stay inside: open sea is a wall
+                val moveEnds = test["moveEnds"] == true // Move ends to navigable water
                 val t0 = System.currentTimeMillis()
                 try {
                     // Progress (overview, guide points, each stretch's grid) goes to the log too
-                    val r = Planner(charts).plan("test", pts, depth, air, stayInside = inside) { msg -> println("PROGRESS $name: $msg") }
+                    val r = Planner(charts).plan("test", pts, depth, air, stayInside = inside, moveEnds = moveEnds) { msg -> println("PROGRESS $name: $msg") }
                     val sec = (System.currentTimeMillis() - t0) / 1000.0
                     val nm = test["nm"] as List<*>?
                     val straight = pts.zipWithNext { p, q -> Planner.distanceM(p, q) }.sum() / Planner.NM
@@ -52,6 +53,7 @@ class AreaRoutesTest {
                     println("PASS? $name: %.1f nm (straight %.1f), %d points, %d legs under 40 m, %.0f m grid, %.1f s".format(r.totalNm, straight, r.points.size, short, r.resM, sec))
                     // The route itself, so a surprising length can be looked at from the log
                     println("POINTS $name: " + r.points.joinToString(";") { "%.5f,%.5f".format(it.lat, it.lon) })
+                    for (m in r.messages) println("MESSAGE $name: $m")
                     // "avoid": [[lat, lon, meters], ...]: places the route must keep away from
                     // (where an earlier version strayed out of a channel)
                     val strayed = (test["avoid"] as List<*>?).orEmpty().mapNotNull { av ->
@@ -71,6 +73,12 @@ class AreaRoutesTest {
                         test["maxShort"] != null && short > (test["maxShort"] as Double) ->
                             failures.add("$name: $short legs under 40 m, more than ${(test["maxShort"] as Double).toInt()} (grid staircase?)")
                         r.totalNm < straight * 0.99 -> failures.add("$name: shorter than a straight line?")
+                        // "message": text one of the route's messages must contain
+                        test["message"] != null && r.messages.none { it.contains(test["message"] as String) } ->
+                            failures.add("$name: no message containing \"${test["message"]}\"")
+                        // "cleanEnd": the leg before the last (the one to your point) has no shallow water
+                        test["cleanEnd"] == true && r.legs.size > 1 && r.legs[r.legs.size - 2].shoalM > 0 ->
+                            failures.add("$name: the leg before the destination has %.0f m of shallow water".format(r.legs[r.legs.size - 2].shoalM))
                     }
                     // "resolve": run Try to avoid checks; a number is the fewest stretches it must clear
                     test["resolve"]?.let { want ->

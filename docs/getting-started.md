@@ -28,7 +28,7 @@ The first time you download a region, the app asks once about **Automatic chart 
 2. **Destination**: the same, with **Places** or typed coordinates.
 3. **Safe operating depth (ft)**: the shallowest charted depth you are willing to use, which is your draft plus a margin. A boat with a 1.8 ft draft might use 3 ft.
 4. **Air draft (ft)**: the height of your boat above the water, so the route avoids low bridges and power lines. Leave it empty only if you never go under anything.
-5. Check **Stay inside (avoid open ocean)** if you want bays, sounds, rivers and the ICW only.
+5. Check **Stay inside (avoid open ocean)** if you want bays, sounds, rivers and the ICW only. Check **Move ends to navigable water** if your dock is in water too shallow for your safe depth.
 6. Tap **Plan route**.
 
 The app shows "Planned in 0.8 s. Saved to Download/noaa-charts/routes/..." and the route report below it: one line per leg, with the course, distance and anything to check. See [Reading the route report](report.html).

@@ -1,5 +1,5 @@
 {
-  "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), (legacy areas built from state sets, with states + bbox, still work). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused, 'avoid' lists [lat, lon, meters] the route must keep away from. Nothing is published unless every test passes.",
+  "comment": "Route pack areas: NOAA Chart Display Service (NCDS) regions, built from every active ENC cell that covers them (ncds_bbox = NOAA's region rectangle), (legacy areas built from state sets, with states + bbox, still work). Each area's 'tests' run on its own pack; top-level 'tests' run on the packs listed in their 'areas'. 'nm' is the accepted length range, 'fail' marks routes that must be refused, 'avoid' lists [lat, lon, meters] the route must keep away from, 'inside' plans with Stay inside, 'moveEnds' with Move ends to navigable water. Nothing is published unless every test passes.",
   "areas": [
     {
       "id": "ncds_02a",
@@ -332,6 +332,9 @@
     {"name": "Maryland Marina to Chesapeake City (C&D Canal)", "points": ["39.32,-76.40", "39.5268,-75.8107"], "depth": 3, "nm": [31, 38], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to Delaware City (whole C&D Canal, DE charts)", "points": ["39.32371,-76.39998", "39.56139,-75.52338"], "depth": 3, "air": 10, "nm": [38, 50], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina at 6 ft is boxed in", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "fail": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina slips to Hampton Roads at 3 ft with Move ends to navigable water (starts at 3 ft+ water, not 0.37 nm of 0-6 ft legs)", "points": ["39.32949,-76.40050", "36.98022,-76.39517"], "depth": 3, "air": 10, "moveEnds": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina at 6 ft with Move ends to navigable water (starts outside the 3.9 ft soundings)", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 6, "air": 10, "moveEnds": true, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Podickery Point Yacht Club at 3 ft with Move ends to navigable water (ends at 3 ft+ water ~430 m out, not through 1 ft soundings)", "points": ["39.32371,-76.39998", "39.03254,-76.40594"], "depth": 3, "air": 10, "moveEnds": true, "nm": [13, 18], "message": "Point 2 is in water charted under your 3 ft", "cleanEnd": true, "areas": ["ncds_04", "ncds_05"]},
     {"name": "Norfolk Waterside to Hampton River", "points": ["36.8440,-76.2930", "37.0180,-76.3380"], "depth": 4, "nm": [10, 14], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Solomons to off Stingray Point (Deltaville)", "points": ["38.3240,-76.4560", "37.5600,-76.2750"], "depth": 4, "nm": [46, 56], "resolve": true, "areas": ["ncds_04", "ncds_05"]},
     {"name": "Potomac: Point Lookout to Colonial Beach", "points": ["38.0480,-76.3300", "38.2560,-76.9600"], "depth": 4, "nm": [29, 37], "areas": ["ncds_04", "ncds_05"]},
