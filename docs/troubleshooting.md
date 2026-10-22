@@ -12,7 +12,7 @@ nav_order: 10
 | "Start must be LAT, LON" | Type decimal degrees with a comma (`39.25, -76.48`) or hemispheres (`39.25 N, 76.48 W`), or use **Places** / **Here**. |
 | "No location fix" | Turn on Location, wait for a GPS fix outdoors, or type the position. |
 | "No route found ..." | Read the explanation: it names what boxes the point in (shallow water, a hazard buffer, land, a low bridge). Move the point into open water, lower the safe depth if the boat allows, or check the air draft. If you know the way out of the pocket, check **Move ends to navigable water**. |
-| A point moved away from where you put it | It was on land or a dock, or in a pocket of water cut off from the rest. With **Move ends to navigable water** on, it can also move up to 400 m, to the nearest water charted at least your safe depth. The report says how far it moved and why. |
+| A point moved away from where you put it | It was on land or a dock, or in a pocket of water cut off from the rest. With **Move ends to navigable water** on, it can also move up to 0.5 nm, to the nearest water charted at least your safe depth. The report says how far it moved and why. |
 | The route goes a way you would not | Check the report notes and the chart. If it looks wrong, [report it](report-a-problem.html). |
 | OsmAnd does not open the route | Tap **Show routes folder in Files** and open the `.gpx` from there, choosing OsmAnd. |
 | A chart map imported but nothing shows in OsmAnd | Turn on the Online maps plugin, select the chart as overlay, and move the transparency slider off the far left. |

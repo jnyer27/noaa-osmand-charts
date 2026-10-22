@@ -73,6 +73,12 @@ class AreaRoutesTest {
                         test["maxShort"] != null && short > (test["maxShort"] as Double) ->
                             failures.add("$name: $short legs under 40 m, more than ${(test["maxShort"] as Double).toInt()} (grid staircase?)")
                         r.totalNm < straight * 0.99 -> failures.add("$name: shorter than a straight line?")
+                        // "message": text one of the route's messages must contain
+                        test["message"] != null && r.messages.none { it.contains(test["message"] as String) } ->
+                            failures.add("$name: no message containing \"${test["message"]}\"")
+                        // "cleanEnd": the leg before the last (the one to your point) has no shallow water
+                        test["cleanEnd"] == true && r.legs.size > 1 && r.legs[r.legs.size - 2].shoalM > 0 ->
+                            failures.add("$name: the leg before the destination has %.0f m of shallow water".format(r.legs[r.legs.size - 2].shoalM))
                     }
                     // "resolve": run Try to avoid checks; a number is the fewest stretches it must clear
                     test["resolve"]?.let { want ->

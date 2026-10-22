@@ -43,7 +43,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         const val ROUNDING_M = 0.05
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
-        const val MOVE_ENDS_M = 400.0 // ...and with Move ends to navigable water, from any pocket
+        const val MOVE_ENDS_M = 0.5 * NM // ...and with Move ends to navigable water, from any pocket or along the water
         const val APPROACH_M = 20000.0 // a long trip's ends are worked out at 20 m this far out
         const val MAX_DROP_GUIDES = 2 // guide points one stretch may drop when cut off at full detail
         const val GUIDE_M = 18000.0 // guide point spacing on a long trip's overview path
@@ -433,28 +433,41 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * of the way there; with its straight distance from p. Null if start already is one
      * or none is that close.
      */
+    /** Water charted at least the safe depth, clear of hazard buffers, piers and markers. */
+    private fun clearWater(g: Grid, i: Int) =
+        g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
+
+    /**
+     * Nearest clear water along usable water from start, at most maxM along the way
+     * (8-connected, diagonals sqrt 2, not across a corner of land). Null when start is
+     * clear already or none is that close. Steps counted 4-connected made a diagonal
+     * creek 40% longer: Podickery Point's 3 ft water, 430 m away, was out of reach of 400 m.
+     */
     private fun nearestNavigable(a: Area, g: Grid, p: LatLon, start: Int, maxM: Double = MOVE_ENDS_M): Pair<Int, Double>? {
-        fun clear(i: Int) = g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
-        if (clear(start)) return null
-        val steps = IntArray(a.n) { -1 }
-        val queue = IntArray(a.n)
-        var head = 0
-        var tail = 0
-        steps[start] = 0
-        queue[tail++] = start
-        val lim = (maxM / a.res).toInt()
-        while (head < tail) {
-            val i = queue[head++]
-            if (clear(i)) {
-                val q = a.latlon(i)
-                return i to distanceM(p, q)
-            }
-            if (steps[i] >= lim) continue
+        if (clearWater(g, start)) return null
+        val dist = FloatArray(a.n) { Float.MAX_VALUE }
+        val heap = Heap(1024)
+        val lim = (maxM / a.res).toFloat()
+        val diag = sqrt(2.0).toFloat()
+        dist[start] = 0f
+        heap.push(0f, start)
+        while (heap.size > 0) {
+            val d = heap.keys[0]
+            val i = heap.pop()
+            if (d > dist[i]) continue
+            if (clearWater(g, i)) return i to distanceM(p, a.latlon(i))
             val r = i / a.w
             val c = i % a.w
-            for (j in intArrayOf(if (r > 0) i - a.w else -1, if (r < a.h - 1) i + a.w else -1,
-                                 if (c > 0) i - 1 else -1, if (c < a.w - 1) i + 1 else -1)) {
-                if (j >= 0 && steps[j] < 0 && g.ok[j]) { steps[j] = steps[i] + 1; queue[tail++] = j }
+            for (dr in -1..1) for (dc in -1..1) {
+                if (dr == 0 && dc == 0) continue
+                val r2 = r + dr
+                val c2 = c + dc
+                if (r2 !in 0 until a.h || c2 !in 0 until a.w) continue
+                val j = r2 * a.w + c2
+                if (!g.ok[j]) continue
+                if (dr != 0 && dc != 0 && (!g.ok[r2 * a.w + c] || !g.ok[r * a.w + c2])) continue
+                val nd = d + if (dr != 0 && dc != 0) diag else 1f
+                if (nd <= lim && nd < dist[j]) { dist[j] = nd; heap.push(nd, j) }
             }
         }
         return null
@@ -1071,7 +1084,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val best = if (limitedByDepth) deepestThatGetsOut(pt, c) else null
         if (best != null) sb.append("With a safe depth of ${fmt(best)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
         else if (limitedByDepth) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
-        if (moveEnds) sb.append("Move ends to navigable water is on, but no water within ${MOVE_ENDS_M.toInt()} m of this point leads out.\n")
+        if (moveEnds) sb.append("Move ends to navigable water is on, but no water within ${fmt(MOVE_ENDS_M / NM)} nm of this point leads out.\n")
         sb.append("Move the point into open water, or adjust depth or air draft.")
         return PlanException(sb.toString())
     }
@@ -1089,7 +1102,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (e in 0..1) {
                     val n = (if (e == 0) np else nq) ?: continue
                     val pt = if (e == 0) p else q
-                    val (cell, dist) = nearestNavigable(a, g, pt, if (e == 0) sp else sq) ?: continue
+                    val s0 = if (e == 0) sp else sq
+                    val (cell, dist) = nearestNavigable(a, g, pt, s0) ?: run {
+                        if (!clearWater(g, s0)) {
+                            val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards, and no water " +
+                                "charted at least ${fmt(c.depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, so Move ends to " +
+                                "navigable water left it; the legs there are flagged."
+                            if (msg !in c.messages) c.messages.add(msg)
+                        }
+                        null
+                    } ?: continue
                     if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
                     val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards; with Move ends " +
                         "to navigable water on, the route uses the nearest water charted at least ${fmt(c.depthFt)} ft, ${dist.roundToInt()} m away. " +

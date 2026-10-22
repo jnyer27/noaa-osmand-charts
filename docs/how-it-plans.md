@@ -41,7 +41,7 @@ With **Stay inside**, open ocean is never used. Open ocean is the water reached 
 
 ## Move ends to navigable water
 
-A point in a pocket of water walled in only by land or structures (a marina basin behind a pier too thin for the grid) moves up to 250 m to connected water. With **Move ends to navigable water**, a point in water charted under your safe depth or in a hazard buffer moves to the nearest water, along the water within 400 m, charted at least that deep and clear of buffers, piers and markers; and a point in a pocket closed by anything (water shallower than your safe depth, a hazard buffer, a bridge or cable too low for your air draft, land) moves to the nearest water within 400 m that leads to the rest of the trip. The leg between is never planned, only marked to check.
+A point in a pocket of water walled in only by land or structures (a marina basin behind a pier too thin for the grid) moves up to 250 m to connected water. With **Move ends to navigable water**, a point in water charted under your safe depth or in a hazard buffer moves to the nearest water, along the water within 0.5 nm, charted at least that deep and clear of buffers, piers and markers; and a point in a pocket closed by anything (water shallower than your safe depth, a hazard buffer, a bridge or cable too low for your air draft, land) moves to the nearest water within 0.5 nm that leads to the rest of the trip. The leg between is never planned, only marked to check.
 
 ## Restricted areas
 
