@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased (branch move-ends)
+## 2026-10-22: app 0.1.139 (route packs build 128 unchanged)
 
 Planning:
 - **Move ends to navigable water.** New checkbox, off by default. When your start or destination is in water charted under your safe depth (a marina in a 0-6 ft creek at 3 ft) or in the buffer around charted hazards, the route starts or ends at the nearest water, along the water and within 0.5 nm, charted at least your safe depth, instead of being routed out through the shallow water and flagged. When the point is in water your boat cannot get out of at all (closed in by shallow water, a hazard buffer, a bridge or cable too low for your air draft, or land), the route starts or ends at the nearest water within 0.5 nm that leads to the rest of the trip, instead of stopping with "No route found". The report says which point moved, how far and why, and the leg from your point to that water is a check ("connects your point to usable water"), with check markers in the GPX. Off, nothing changes: such points are refused with the explanation as before (ends walled in only by land still move up to 250 m).
