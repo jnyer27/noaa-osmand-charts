@@ -68,7 +68,7 @@ object Gpx {
         return notes.joinToString("; ") + ". Check the chart and the water."
     }
 
-    /** The route as GPX; [checks] adds the check markers and marks flagged route points. */
+    /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. */
     fun write(r: Route, datum: String = "MLLW", checks: Boolean = true): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
@@ -97,8 +97,11 @@ object Gpx {
                 else -> String.format(Locale.US, "WP%02d", k)
             }
             val leg = r.legs.getOrNull(k)
-            val check = checks && leg != null && flagged(leg)
-            if (check) label += " check"
+            // Named in any case: the one warning every chart app shows, and it adds nothing to
+            // the map. The markers' checkbox only adds the symbol and comment.
+            val flaggedLeg = leg != null && flagged(leg)
+            if (flaggedLeg) label += " check"
+            val check = checks && flaggedLeg
             sb.append(String.format(Locale.US, "<rtept lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>", p.lat, p.lon, label))
             if (leg != null) {
                 val d = esc(legDesc(leg, r.depthFt))

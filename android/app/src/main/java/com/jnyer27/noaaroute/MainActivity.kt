@@ -184,7 +184,7 @@ class MainActivity : Activity() {
         checks = CheckBox(this).apply { text = "Check markers in the GPX" }
         col.addView(checks)
         col.addView(TextView(this).apply {
-            text = "Marks where each stretch to check starts (orange) and ends (green), with its notes, for OsmAnd and other chart apps."
+            text = "Marks where each stretch to check starts (orange) and ends (green), with its notes, for OsmAnd and other chart apps. Route points of legs to check are named "check" either way."
             textSize = 12f
         })
         name = field("route name")
