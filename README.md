@@ -216,7 +216,7 @@ NOAA Route is a planning aid. These are the steps between NOAA's charts and a ro
         ╰───────────────────────────────╯   ↓
 ```
 
-With **Check markers in the GPX** on (the default), the GPX also gets an orange waypoint where each stretch of legs to check starts and a green one where it ends, with the notes, for OsmAnd (which announces them during navigation when GPX waypoints are on in its voice prompts) and other chart apps; see the [user guide](https://jnyer27.github.io/noaa-osmand-charts/report.html#in-the-gpx-file).
+With **Check markers in the GPX** on (the default), the GPX also gets an orange waypoint where each stretch of legs to check starts and a green one where it ends, with the notes, for OsmAnd (which announces them during navigation when GPX waypoints are on in its voice prompts) and other chart apps. On or off, the route points of legs to check are named "check" (**WP09 check**); see the [user guide](https://jnyer27.github.io/noaa-osmand-charts/report.html#in-the-gpx-file).
 
 <p>
   <img src="docs/osmand-check-markers.jpg" alt="OsmAnd chart of Middle River with a planned route as a dashed line: an orange Check marker labeled Check: leg 10 (1.00 nm) where the stretch starts near Galloway Point, and a green check mark labeled Check ends: leg 10 where it ends, past the Eastern Yacht Club, with the marker details panel below" width="300" align="top">

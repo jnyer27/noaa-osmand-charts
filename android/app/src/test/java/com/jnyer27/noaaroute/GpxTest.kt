@@ -40,10 +40,11 @@ class GpxTest {
         assertTrue(gpx, gpx.contains("<name>WP04 check</name><cmt>Next: 090 T, 0.50 nm; passes charted piles or snags: check</cmt>"))
         assertTrue(gpx, gpx.contains("<name>WP02</name><desc>Next: 090 T, 0.50 nm; Bay Bridge span (clearance 186 ft)</desc></rtept>"))
         assertTrue(gpx.contains("<name>End</name></rtept>"))
-        // Markers off: no waypoints or check names, the notes stay in the descriptions
+        // Markers off: no waypoints or symbols, but flagged route points are still named check
         val plain = Gpx.write(route, checks = false)
-        assertFalse(plain.contains("<wpt") || plain.contains(" check</name>") || plain.contains("<sym>"))
-        assertTrue(plain, plain.contains("<name>WP04</name><desc>Next: 090 T, 0.50 nm; passes charted piles or snags: check</desc></rtept>"))
+        assertFalse(plain.contains("<wpt") || plain.contains("<sym>") || plain.contains("<cmt>"))
+        assertTrue(plain, plain.contains("<name>WP04 check</name><desc>Next: 090 T, 0.50 nm; passes charted piles or snags: check</desc></rtept>"))
+        assertTrue(plain, plain.contains("<name>WP02</name><desc>"))
         // The report names the safe depth; a sounding at or above it is not called out
         val text = Gpx.report(route)
         assertTrue(text, text.contains("95 m where charted depth may be under 5 ft, shallowest sounding within 100 m 3.9 ft, under your 5 ft"))
