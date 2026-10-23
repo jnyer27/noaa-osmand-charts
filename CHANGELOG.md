@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased (branch check-names)
+## 2026-10-23: app 0.1.142 (route packs build 128 unchanged)
 
 GPX:
 - **Route points of legs to check are named "check" with markers off too.** Turning off **Check markers in the GPX** used to drop the "check" from route point names (WP17 instead of WP17 check), the one warning every chart app shows in its route point list. Now only the orange and green markers and their symbols go away.
