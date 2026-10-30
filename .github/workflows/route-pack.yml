@@ -38,7 +38,7 @@ jobs:
     outputs:
       ids: ${{ steps.ids.outputs.ids }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: ids
         run: echo "ids=$(python3 -c 'import json; print(json.dumps([a["id"] for a in json.load(open("tools/areas.json"))["areas"]]))')" >> "$GITHUB_OUTPUT"
 
@@ -51,7 +51,7 @@ jobs:
       matrix:
         id: ${{ fromJSON(needs.areas.outputs.ids) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install GDAL
         run: |
@@ -63,7 +63,7 @@ jobs:
           python3 tools/build_route_pack.py -a ${{ matrix.id }} -o packs
           mv packs/catalog.json packs/catalog-${{ matrix.id }}.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pack-${{ matrix.id }}
           path: packs/
@@ -76,12 +76,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - if: inputs.mode == 'test-only' && inputs.run_id == ''
         run: echo "test-only needs run_id" && exit 1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: pack-*
           path: packs
@@ -108,12 +108,12 @@ jobs:
           EOF
           ls -l packs
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.11.1"
 
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
