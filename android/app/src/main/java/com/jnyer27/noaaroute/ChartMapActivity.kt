@@ -25,6 +25,8 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.sources.GeoJsonSource
 import java.io.File
+import java.io.InputStream
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 /**
@@ -175,6 +177,7 @@ class ChartMapActivity : Activity() {
         sb.append("Proof of concept, not for navigation. NOAA ENC of Middle River, depths in feet. ")
         sb.append("Safe operating depth $depth ft: darker blue is charted under it, pale blue is deeper, olive dries. ")
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
+        sb.append("The small dot beside a mark is its light, in that light's colour. ")
         if (routeJson != null) sb.append("Orange dashed legs are checks. ")
         sb.append("The blue dot is your GPS position.")
         if (outside) sb.append(" Charts cover Middle River only; past that, the route is the line alone.")
@@ -189,12 +192,39 @@ class ChartMapActivity : Activity() {
         return LocalChart(mb, glyphs)
     }
 
+    /**
+     * Copy a bundled chart file into private storage. MapLibre reads a real file, not an asset.
+     * The previous check skipped the copy when the length matched. The light-colour tile was the
+     * same number of bytes as the one already on the phone, so the new style looked up `col` in
+     * the old file and every light fell through to the gray fallback. A checksum catches that.
+     */
     private fun copyAsset(asset: String, dest: File) {
         dest.parentFile?.mkdirs()
-        assets.openFd(asset).use { afd ->
-            if (dest.isFile && dest.length() == afd.length) return
-            afd.createInputStream().use { input -> dest.outputStream().use { input.copyTo(it) } }
+        val stamp = File(dest.path + ".sha256")
+        val digest = sha256(assets.open(asset))
+        val saved = try { if (stamp.isFile) stamp.readText().trim() else null } catch (_: Exception) { null }
+        if (dest.isFile && saved == digest) return
+        val tmp = File(dest.path + ".part")
+        assets.open(asset).use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        if (dest.exists()) dest.delete()
+        if (!tmp.renameTo(dest)) {
+            tmp.copyTo(dest, overwrite = true)
+            tmp.delete()
         }
+        stamp.writeText(digest)
+    }
+
+    private fun sha256(input: InputStream): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        input.use {
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = it.read(buf)
+                if (n < 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { b -> "%02x".format(b) }
     }
 
     private fun readBounds(mbtiles: File): DoubleArray? = try {
