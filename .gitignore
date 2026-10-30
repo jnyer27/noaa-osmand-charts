@@ -1,8 +1,10 @@
 *.sqlitedb
 *.mbtiles
+!android/app/src/main/assets/middle_river.mbtiles
 *.part
 *.tmp
 android/.gradle/
+android/.kotlin/
 android/build/
 android/app/build/
 android/local.properties

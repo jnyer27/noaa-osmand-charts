@@ -1,0 +1,22 @@
+name: ENC vector tiles
+
+# Rebuilds the Middle River chart the app bundles (tools/build_enc_tiles.py).
+# The APK build does not run this: it uses the mbtiles already in android/app/src/main/assets.
+# Run it when the chart should pick up newer Notice to Mariners, then commit the new file.
+on:
+  workflow_dispatch:
+
+jobs:
+  tiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup
+        run: tools/cloud-setup.sh
+      - name: Build Middle River tiles
+        run: python3 tools/build_enc_tiles.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: middle-river-mbtiles
+          path: android/app/src/main/assets/middle_river.mbtiles

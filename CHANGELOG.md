@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-30: in-app chart, proof of concept (not released yet)
+
+Chart display:
+- **View on map.** After planning, a new button draws the route on NOAA's ENC chart of Middle River, MD, inside the app. Depth areas are shaded for your safe operating depth (darker blue where the charted range is under it, pale where it is deeper), with contours, soundings in feet, land, lateral buoys and daybeacons in their IALA-B colors, lights, wrecks, rocks, obstructions and bridges. Legs to check are an orange dashed line. Your GPS position is the blue dot when location is allowed. The chart is bundled and works offline. It covers Middle River only, from the marina creeks out to the bay off Hart-Miller. **Plan route**, the GPX file, **Open in OsmAnd** and **Share GPX** are unchanged, and OsmAnd is still how you follow a route.
+
 ## 2026-10-23: app 0.1.142 (route packs build 128 unchanged)
 
 GPX:

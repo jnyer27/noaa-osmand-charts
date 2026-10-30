@@ -211,6 +211,7 @@ class MainActivity : Activity() {
         actions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         resolveButton = button("Try to avoid checks") { resolveChecks() }
         actions.addView(resolveButton)
+        actions.addView(button("View on map") { showOnMap() })
         actions.addView(button("Open in OsmAnd") { openInOsmAnd() })
         actions.addView(button("Show routes folder in Files") { showFolder() })
         actions.addView(button("Share GPX") { shareGpx() })
@@ -1188,6 +1189,17 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ planning
 
+    /** The chart screen for this route. The Middle River tiles are bundled; other waters draw the line only. */
+    private fun showOnMap() {
+        val r = route ?: return
+        val f = File(cacheDir, "map-route.json")
+        f.writeText(ChartTiles.routeGeoJson(r))
+        startActivity(Intent(this, ChartMapActivity::class.java)
+            .putExtra(ChartMapActivity.EXTRA_ROUTE, f.absolutePath)
+            .putExtra(ChartMapActivity.EXTRA_DEPTH, r.depthFt)
+            .putExtra(ChartMapActivity.EXTRA_NAME, r.name))
+    }
+
     private fun plan() {
         val p = charts ?: run { toast("Download a chart region first (Regions)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
@@ -1249,7 +1261,7 @@ class MainActivity : Activity() {
     /**
      * Replan each stretch of checked legs around what caused its checks, keeping a change
      * only when the checks are gone and the detour is small (Planner.resolveChecks). The
-     * adjusted route is saved as its own GPX (<name>_adjusted), and Open in OsmAnd and
+     * adjusted route is saved as its own GPX (<name>_adjusted), and View on map, Open in OsmAnd and
      * Share GPX use it; the original file stays.
      */
     private fun resolveChecks() {

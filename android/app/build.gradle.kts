@@ -19,6 +19,11 @@ android {
         applicationId = "com.jnyer27.noaaroute"
         minSdk = 29
         targetSdk = 35
+        // MapLibre ships native libraries. Phones we run on are arm64; the emulator is x86_64.
+        // 32-bit ABIs are left out so the APK does not carry a second copy of the renderer.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
         // APKs built from a branch read the route-pack-beta release (packs from branch runs
@@ -56,9 +61,19 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // The chart MBTiles and glyph PBFs are copied out with openFd, which needs them stored
+    // uncompressed. SQLite cannot be opened from inside the APK either way.
+    androidResources {
+        noCompress += listOf("mbtiles", "pbf")
+    }
 }
 
 dependencies {
+    // In-app chart. BSD-2-Clause; no API key and no online base map.
+    // AndroidX comes in with it (annotation, and whatever the renderer pulls). The rest of
+    // the app stays on the platform widgets.
+    implementation("org.maplibre.gl:android-sdk:13.7.1")
     testImplementation("junit:junit:4.13.2")
 }
 
