@@ -7,6 +7,7 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 ## 2026-10-30: in-app chart, proof of concept (not released yet)
 
 Chart display:
+- **Light colours.** A green light (Fl G) was drawn as the same red dot as a red light. Each light is now the colour on the chart: green, red, white, or yellow.
 - **View map.** Under **Regions**, opens the Middle River chart with no route: depth contours, soundings and marks, shaded for the safe operating depth on the form. The chart file is about 1 MB inside the app, and the first open copies about 1.1 MB into the app's private storage. It is not a file in Download/noaa-charts.
 - **View on map.** After planning, a button draws the route on that same chart. Depth areas are shaded for your safe operating depth (darker blue where the charted range is under it, pale where it is deeper), with contours, soundings in feet, land, lateral buoys and daybeacons in their IALA-B colors, lights, wrecks, rocks, obstructions and bridges. Legs to check are an orange dashed line. Your GPS position is the blue dot when location is allowed. The chart is bundled and works offline. It covers Middle River only, from the marina creeks out to the bay off Hart-Miller. **Plan route**, the GPX file, **Open in OsmAnd** and **Share GPX** are unchanged, and OsmAnd is still how you follow a route.
 

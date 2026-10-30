@@ -152,6 +152,12 @@ def point_z(geom):
     return None
 
 
+def light_colour(f, eto):
+    """First exhibited colour. S-57 COLOUR is a list (3 red, 4 green, 1 white, 6 yellow)."""
+    cols = [LIGHT_COL[x] for x in eto.codes(f, "COLOUR") if x in LIGHT_COL]
+    return cols[0] if cols else None
+
+
 def light_label(f, eto):
     ch = [eto.LITCHR[x] for x in eto.codes(f, "LITCHR") if x in eto.LITCHR]
     cols = [LIGHT_COL[x] for x in eto.codes(f, "COLOUR") if x in LIGHT_COL]
@@ -337,8 +343,15 @@ def props_of(cls, feat, geom, eto, z=None):
     if cls == "LIGHTS":
         if gt != ogr.wkbPoint:
             return None
+        p = {}
         label = light_label(feat, eto)
-        return "lights", ({"label": label} if label else {})
+        if label:
+            p["label"] = label
+        # The dot uses this, not a single magenta. Lateral marks keep their own CATLAM colour.
+        col = light_colour(feat, eto)
+        if col:
+            p["col"] = col
+        return "lights", p
     if cls in ("WRECKS", "UWTROC", "OBSTRN"):
         ft = feet(num(feat, "VALSOU", eto))
         if cls == "WRECKS":
@@ -422,8 +435,10 @@ def field_defs(layer):
         return [("ft", ogr.OFTInteger)]
     if layer in ("buoy", "beacon"):
         return [("side", ogr.OFTString), ("name", ogr.OFTString)]
-    if layer in ("lights", "bridge", "bridge_area"):
+    if layer in ("bridge", "bridge_area"):
         return [("label", ogr.OFTString)]
+    if layer == "lights":
+        return [("label", ogr.OFTString), ("col", ogr.OFTString)]
     if layer in ("slcons", "slcons_area"):
         return [("cat", ogr.OFTString)]
     if layer == "fairwy":

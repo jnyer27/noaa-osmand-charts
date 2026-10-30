@@ -50,6 +50,9 @@ class ChartTilesTest {
         assertTrue(style.contains("[\"<\", [\"get\", \"ft\"], 5]"))
         assertTrue(style.contains("NotoSansRegular"))
         assertTrue(style.contains("route-check"))
+        // A green light is not the same dot as a red one. col comes from S-57 COLOUR.
+        assertTrue(style.contains("""["match",["get","col"],"G","#1b8a34","R","#d01818"""))
+        assertFalse(style.contains("#e91e63"))
         assertFalse(style.contains("__DEPTH__"))
         assertFalse(style.contains("__MBTILES__"))
         // A 3 ft boat shades a different line than this 5 ft example.

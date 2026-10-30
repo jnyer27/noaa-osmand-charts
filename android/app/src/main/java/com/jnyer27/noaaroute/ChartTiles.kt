@@ -84,6 +84,13 @@ object ChartTiles {
     private const val MARK_COLOR =
         """["match",["get","side"],"port","#1b8a34","pref_stbd","#1b8a34","starboard","#d01818","pref_port","#d01818","#555555"]"""
 
+    /** S-57 light COLOUR, written on the tile as col (G, R, W, Y, ...). */
+    private const val LIGHT_COLOR =
+        """["match",["get","col"],"G","#1b8a34","R","#d01818","Y","#e6b800","W","#f4f4f4","Bu","#1565c0","Or","#e67e22","#5c6b73"]"""
+
+    private const val LIGHT_TEXT =
+        """["match",["get","col"],"G","#146b28","R","#a81414","Y","#8a6a00","W","#222222","Bu","#0d47a1","Or","#a85a12","#222222"]"""
+
     private const val STYLE = """
 {
   "version": 8,
@@ -153,10 +160,12 @@ object ChartTiles {
       "layout": {"text-field": ["get", "name"], "text-font": ["$FONT"], "text-size": 10, "text-offset": [0, 1.1]},
       "paint": {"text-color": "#222222", "text-halo-color": "#ffffff", "text-halo-width": 1}},
     {"id": "lights", "type": "circle", "source": "enc", "source-layer": "lights", "minzoom": 13,
-      "paint": {"circle-radius": 7, "circle-color": "#e91e63", "circle-opacity": 0.85, "circle-stroke-color": "#fff4a8", "circle-stroke-width": 1.5}},
+      "paint": {"circle-radius": 7, "circle-color": $LIGHT_COLOR, "circle-opacity": 0.95,
+        "circle-stroke-color": ["match", ["get", "col"], "W", "#333333", "Y", "#333333", "#ffffff"],
+        "circle-stroke-width": 1.5}},
     {"id": "lights-label", "type": "symbol", "source": "enc", "source-layer": "lights", "minzoom": 14,
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 10, "text-offset": [0, 1.3]},
-      "paint": {"text-color": "#8e1248", "text-halo-color": "#ffffff", "text-halo-width": 1}},
+      "paint": {"text-color": $LIGHT_TEXT, "text-halo-color": "#ffffff", "text-halo-width": 1}},
     {"id": "route-casing", "type": "line", "source": "route",
       "filter": ["==", ["get", "kind"], "leg"],
       "paint": {"line-color": "#ffffff", "line-width": 7}},
