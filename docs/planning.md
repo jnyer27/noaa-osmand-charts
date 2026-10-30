@@ -13,6 +13,8 @@ The main screen, top to bottom.
 
 Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
 
+**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). See [View on map](#view-on-map).
+
 The line under **Plan route** shows what the app is doing: download progress ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."), where a shared point went ("Start set: ..."), or the result of planning.
 
 ## Start, Destination and Via points
@@ -103,7 +105,7 @@ If anything changed, the adjusted route is saved as a new file, `<name>_adjusted
 
 ## View on map
 
-A proof of concept, and not a replacement for OsmAnd. **View on map**, under the report, opens a chart of Middle River, MD (the marina creeks out to the bay off Hart-Miller Island) drawn by the app itself, with this route on it. It works with no signal: the chart is part of the app.
+A proof of concept, and not a replacement for OsmAnd. **View map**, under **Regions**, opens a chart of Middle River, MD (the marina creeks out to the bay off Hart-Miller Island) with no route on it. **View on map**, under the report, is the same chart with this route drawn on it. Both work with no signal: the chart is part of the app, about 1 MB. The first time you open either screen the app copies that file into its private storage (about 1.1 MB with the labels). It does not add a file under Download/noaa-charts, and opening the chart again does not copy it again.
 
 The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and a magenta dot is a light. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
 

@@ -37,7 +37,7 @@ The app shows "Planned in 0.8 s. Saved to Download/noaa-charts/routes/..." and t
 
 Tap **Open in OsmAnd**. OsmAnd shows the route; start navigation or just follow the line. If OsmAnd does not open it, tap **Show routes folder in Files** and tap the `.gpx` file there. See [Using routes in OsmAnd](osmand.html).
 
-**View on map**, next to that button, draws the same route on a chart of Middle River inside NOAA Route. It is a proof of concept for that one area (the marina creeks out to the bay), it works offline, and it does not replace OsmAnd. See [View on map](planning.html#view-on-map).
+**View map**, under **Regions**, opens that chart of Middle River with no route on it. **View on map**, next to **Open in OsmAnd**, draws the route you just planned on the same chart. It is a proof of concept for that one area (the marina creeks out to the bay), it works offline, and it does not replace OsmAnd. See [View on map](planning.html#view-on-map).
 
 ## 4. Share places from other map apps
 

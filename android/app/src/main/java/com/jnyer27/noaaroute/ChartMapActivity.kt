@@ -175,7 +175,8 @@ class ChartMapActivity : Activity() {
         sb.append("Proof of concept, not for navigation. NOAA ENC of Middle River, depths in feet. ")
         sb.append("Safe operating depth $depth ft: darker blue is charted under it, pale blue is deeper, olive dries. ")
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
-        sb.append("Orange dashed legs are checks. The blue dot is your GPS position.")
+        if (routeJson != null) sb.append("Orange dashed legs are checks. ")
+        sb.append("The blue dot is your GPS position.")
         if (outside) sb.append(" Charts cover Middle River only; past that, the route is the line alone.")
         return sb.toString()
     }

@@ -145,6 +145,11 @@ class MainActivity : Activity() {
         col.addView(label("Charts"))
         col.addView(packStatus)
         col.addView(packButton)
+        col.addView(button("View map") { showChart() })
+        col.addView(TextView(this).apply {
+            text = "Middle River chart: depth contours, soundings and marks for your safe operating depth. No route needed. A planned route is drawn on it from View on map, under the report."
+            textSize = 12f
+        })
         noticeText = TextView(this)
         noticeButton = button("Switch") {}
         notice = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, dp(4), 0, 0) }
@@ -1188,6 +1193,12 @@ class MainActivity : Activity() {
     }
 
     // ------------------------------------------------------------ planning
+
+    /** The Middle River chart alone, shaded for the safe depth on the form (3 ft if that field is empty). */
+    private fun showChart() {
+        val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
+        startActivity(Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d))
+    }
 
     /** The chart screen for this route. The Middle River tiles are bundled; other waters draw the line only. */
     private fun showOnMap() {
