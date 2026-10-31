@@ -42,7 +42,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       publish: ${{ steps.plan.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
@@ -89,20 +89,20 @@ jobs:
       NAME: ${{ matrix.name }}
       JAVA_OPTS: -Xmx12g
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Week
         id: week
         run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache chart cells
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: enc-work
           key: enc-cells-${{ matrix.name }}-${{ steps.week.outputs.week }}
 
       - name: Cache OsmAndMapCreator
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: omc
           key: omc-${{ steps.week.outputs.week }}
@@ -117,7 +117,7 @@ jobs:
           python3 tools/enc_to_osm.py ${{ matrix.args }} -o "out/$NAME" -w enc-work
           ls -l out
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -167,7 +167,7 @@ jobs:
           print(json.dumps(e, indent=1))
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: vec-${{ matrix.name }}
@@ -185,9 +185,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: vec-*
           path: maps

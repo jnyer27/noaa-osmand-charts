@@ -62,6 +62,11 @@
                 <data android:scheme="geo" />
             </intent-filter>
         </activity>
+        <!-- In-app ENC chart (Middle River proof of concept). Not exported: opened after planning. -->
+        <activity
+            android:name=".ChartMapActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
         <!-- Chart maps: a finished DownloadManager download starts the conversion job -->
         <receiver
             android:name=".ChartDownloadReceiver"

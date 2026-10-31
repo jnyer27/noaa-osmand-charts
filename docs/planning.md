@@ -13,6 +13,8 @@ The main screen, top to bottom.
 
 Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
 
+**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). See [View on map](#view-on-map).
+
 The line under **Plan route** shows what the app is doing: download progress ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."), where a shared point went ("Start set: ..."), or the result of planning.
 
 ## Start, Destination and Via points
@@ -68,6 +70,7 @@ Optional. Routes are saved as `Download/noaa-charts/routes/<name>.gpx`, or `rout
 
 Plans the route, shows the report and saves the GPX. Read the report's notes before you go: see [Check the route before you go](#check-the-route-before-you-go). Then:
 
+- **View on map** draws this route on a chart of Middle River inside the app (see [View on map](#view-on-map)),
 - **Open in OsmAnd** sends the route to OsmAnd,
 - **Show routes folder in Files** opens `Download/noaa-charts/routes` in Android's Files app,
 - **Share GPX** sends the file to any app (email, messages, another navigation app).
@@ -98,7 +101,22 @@ When the route has legs to check, a **Try to avoid checks** button appears under
 
 Your start, via points and destination never move, and the legs at either end that connect your points to usable water are left alone. The status line says what happened, for example *Avoid checks: 1 of 3 check stretches resolved (+0.12 nm), 2 unchanged (no way around within 0.2 nm or 10% of the stretch).* A stretch with no small way around (a creek or marina entrance that is shallow all the way across) stays as it was, still flagged.
 
-If anything changed, the adjusted route is saved as a new file, `<name>_adjusted.gpx`, and the report, **Open in OsmAnd** and **Share GPX** switch to it; the original route file is unchanged. The adjusted route still needs checking: read its report the same way.
+If anything changed, the adjusted route is saved as a new file, `<name>_adjusted.gpx`, and the report, **View on map**, **Open in OsmAnd** and **Share GPX** switch to it; the original route file is unchanged. The adjusted route still needs checking: read its report the same way.
+
+## View on map
+
+A proof of concept, and not a replacement for OsmAnd. **View map**, under **Regions**, opens a chart of Middle River, MD (the marina creeks out to the bay off Hart-Miller Island) with no route on it. **View on map**, under the report, is the same chart with this route drawn on it. Both work with no signal: the chart is part of the app, about 1 MB. The first time you open either screen the app copies that file into its private storage (about 1.1 MB with the labels). It does not add a file under Download/noaa-charts. Opening the chart again reuses the copy, and an app update replaces the copy when the chart itself has changed. The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
+
+The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and a magenta dot is a light. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
+
+The chart covers that one area. A route that starts there and leaves (Middle River to Annapolis, for example) is still drawn the whole way, and the screen says the chart stops. **Open in OsmAnd** is unchanged, and it is still how you follow a route. The screen says it is not for navigation: check the route on a current chart before you go, the same as the report.
+
+<p>
+  <img src="middle-river-map.jpg" alt="Middle River chart in the app: tan land, blue water shaded for a 3 ft safe operating depth, a blue route down the river from Maryland Marina with an orange dashed leg at the start and a blue GPS dot" width="300">
+  <img src="middle-river-map-close.jpg" alt="Closer Middle River chart: soundings in whole feet, red where under 3 ft, green and red lateral marks, a wreck labeled Wk, snags, piers, and the orange dashed check leg leaving the marina creek" width="300">
+</p>
+
+*View on map for a 3 ft safe operating depth. Left: the route from the marina down Middle River, the orange dashed stretch is a leg to check, and the blue dot is the GPS position. Right: the same spot closer in, with soundings, marks, a wreck and snags.*
 
 ## When there is no route
 
