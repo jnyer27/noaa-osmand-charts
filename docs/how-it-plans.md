@@ -5,7 +5,7 @@ nav_order: 8
 
 # How the planner chooses a route
 
-The app turns NOAA's charts into a grid of 20 m cells and finds the cheapest path from start to destination. "Cheap" means deep, clear, well-marked water, away from the shore. This page explains the rules in plain words; the [README](https://github.com/jnyer27/noaa-osmand-charts#how-the-planner-decides-where-you-can-go) has the full details.
+The app turns NOAA's charts into a grid of 20 m cells and finds the cheapest path from start to destination. "Cheap" means deep, clear, well-marked water, away from the shore. This page explains the rules in plain words; the [README](https://github.com/jnyer27/noaa-osmand-charts#how-the-planner-decides-where-you-can-go) has the full details. On the chart screen, **Route data** draws these classes on the map. See [Route data](planning.html#route-data).
 
 ## Depth
 

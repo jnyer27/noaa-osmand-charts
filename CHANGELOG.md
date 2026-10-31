@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-10-31: route data on the chart (not released yet)
+
+Chart display:
+- **Route data.** On the Middle River chart (**View map** and **View on map**), a **Route data** checkbox, off by default and remembered, draws what the route planner sees from the route pack already on the phone. Red is too shallow or drying, amber straddles your safe depth, faint blue is deep enough, teal is dredged, indigo is a fairway or track, bright red is a hazard, black is a pier or structure, a purple hatch is entry prohibited, maroon is a bridge that is too low, orange is a cable that is too low, cyan is the wrong side of a channel marker, and brown is a pile or snag. Land stays clear so the chart shows through. **View map** uses the depth and air draft on the form (3 ft if the depth field is empty). **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked. If no downloaded pack covers the area on screen, the checkbox says so. The bright red cell is the hazard itself; the keep-off buffer around it is not drawn. The layer is drawn on the phone and works offline. It is the planner's grid, not a chart to steer by.
+
 ## 2026-10-30: in-app chart, proof of concept (not released yet)
 
 Chart display:
