@@ -13,7 +13,14 @@ name: Vector charts for OsmAnd
 #   Saturday schedule, manual runs: every region in tools/areas.json (or the codes given),
 #     published (main: vector-maps; a branch: vector-maps-beta). The catalog is merged with
 #     the published one, so building some regions keeps the others.
-# Chart cells and OsmAndMapCreator are cached for the ISO week.
+# The same region job also builds the in-app chart tiles (tools/build_enc_tiles.py -r)
+# into Ncds_<region>.mbtiles and a "tiles" object on that region's catalog entry
+# (file, size, sha256, bounds, minzoom, maxzoom, created). The app does not download
+# it yet: the object is not one of the OsmAnd "files". A tile failure does not fail
+# the region job, so the OsmAnd maps still publish. Main publishes to vector-maps;
+# a branch publishes to vector-maps-beta.
+# Chart cells and OsmAndMapCreator are cached for the ISO week. The tile step reuses
+# the cells just downloaded into enc-work.
 on:
   push:
     paths:
@@ -144,6 +151,35 @@ jobs:
           cat compare.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
 
+      # After the OsmAnd maps, so a slow or failed tile build does not change their
+      # timing or block publishing. 90 minutes, then the step is dropped and the obf
+      # files still go out.
+      - name: In-app chart tiles
+        id: tiles
+        if: matrix.code != ''
+        continue-on-error: true
+        timeout-minutes: 90
+        env:
+          CODE: ${{ matrix.code }}
+        run: |
+          python3 tools/build_enc_tiles.py -r "$CODE" -o "out/$NAME.mbtiles" -w enc-work
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY" || true
+          import os, sqlite3
+          name = os.environ["NAME"]
+          path = f"out/{name}.mbtiles"
+          db = sqlite3.connect(path)
+          meta = dict(db.execute("select name, value from metadata"))
+          zooms = db.execute("select zoom_level, count(*) from tiles group by 1 order by 1").fetchall()
+          db.close()
+          print(f"### {name} in-app tiles")
+          print(f"{os.path.getsize(path) / 1e6:.1f} MB, zoom {meta.get('minzoom')}-{meta.get('maxzoom')}, bounds {meta.get('bounds')}")
+          print("tiles: " + ", ".join(f"z{z}={n}" for z, n in zooms))
+          PY
+
+      - name: Drop a partial tile file
+        if: matrix.code != '' && steps.tiles.outcome == 'failure'
+        run: rm -f "out/${NAME}.mbtiles" "out/${NAME}.partial.mbtiles" "out/${NAME}.partial.mbtiles.temp.db" "out/${NAME}.gpkg" "out/${NAME}.gpkg.conf.json"
+
       - name: Catalog entry
         if: matrix.code != ''
         env:
@@ -163,6 +199,25 @@ jobs:
               files.append({"kind": kind, "file": f, "size": os.path.getsize(f"out/{f}"), "sha256": h.hexdigest()})
           e = {"ncds": code, "name": area["name"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "cells": len(rep["cells"]), "files": files}
+          # Sibling of "files", not an entry in it: the app downloads every file as an OsmAnd map.
+          tiles = f"out/{name}.mbtiles"
+          if os.path.isfile(tiles):
+              try:
+                  import sqlite3
+                  h = hashlib.sha256()
+                  with open(tiles, "rb") as fh:
+                      for chunk in iter(lambda: fh.read(1 << 20), b""):
+                          h.update(chunk)
+                  db = sqlite3.connect(f"file:{tiles}?mode=ro", uri=True)
+                  meta = dict(db.execute("select name, value from metadata"))
+                  db.close()
+                  west, south, east, north = (float(x) for x in meta["bounds"].split(","))
+                  e["tiles"] = {
+                      "file": os.path.basename(tiles), "size": os.path.getsize(tiles), "sha256": h.hexdigest(),
+                      "bounds": [round(west, 5), round(south, 5), round(east, 5), round(north, 5)],
+                      "minzoom": int(meta["minzoom"]), "maxzoom": int(meta["maxzoom"]), "created": e["created"]}
+              except Exception as ex:
+                  print(f"tiles left out of the catalog: {ex}")
           json.dump(e, open(f"out/catalog-{code}.json", "w"), indent=1)
           print(json.dumps(e, indent=1))
           PY
@@ -176,6 +231,7 @@ jobs:
             out/*.report.json
             out/compare.md
             out/catalog-*.json
+            out/*.mbtiles
           retention-days: 3
 
   publish:
@@ -216,6 +272,12 @@ jobs:
           for f in glob.glob("maps/catalog-*.json"):
               e = json.load(open(f))
               if all(os.path.exists(f"maps/{x['file']}") for x in e["files"]):
+                  tiles = e.get("tiles")
+                  if tiles and not os.path.exists(f"maps/{tiles['file']}"):
+                      del e["tiles"]
+                  prev = regions.get(e["ncds"])
+                  if "tiles" not in e and prev and prev.get("tiles"):
+                      e["tiles"] = prev["tiles"]
                   regions[e["ncds"]] = e
                   built.append(e["ncds"])
           if not built:
@@ -231,13 +293,23 @@ jobs:
           python3 tools/build_osf.py --catalog maps/catalog.json --maps maps \
             --base "https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag/" -o osf
           files=()
-          for c in $built; do files+=(maps/Ncds_${c}_depth.depth.obf maps/Ncds_${c}_seamarks.obf); done
-          # maps, then the OsmAnd item list and plugin, then the catalog, so neither lists
-          # files not uploaded yet
+          tiles=()
+          for c in $built; do
+            files+=(maps/Ncds_${c}_depth.depth.obf maps/Ncds_${c}_seamarks.obf)
+            if [ -f "maps/Ncds_${c}.mbtiles" ]; then tiles+=("maps/Ncds_${c}.mbtiles"); fi
+          done
+          # maps, then in-app tiles, then the OsmAnd item list and plugin, then the catalog,
+          # so neither lists files not uploaded yet
           gh release upload $tag "${files[@]}" osf/*.obf.zip --clobber
+          if [ ${#tiles[@]} -gt 0 ]; then gh release upload $tag "${tiles[@]}" --clobber; fi
           gh release upload $tag osf/osmand-items.json osf/noaa-charts.osf --clobber
           gh release upload $tag maps/catalog.json --clobber
           day="$(date -u +%Y-%m-%d)"
           failed="${{ needs.build.result == 'success' && 'none' || 'some regions, see the run' }}"
+          if [ ${#tiles[@]} -gt 0 ]; then
+            tile_note="In-app tiles this run: $(basename -a "${tiles[@]}" | paste -sd' ' -)."
+          else
+            tile_note="In-app tiles this run: none."
+          fi
           gh release edit $tag --title "$what, build ${GITHUB_RUN_NUMBER} ($day)" \
-            --notes "OsmAnd vector chart maps from NOAA ENC data for the NOAA Route app, build ${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}. Regions built: $built. Failed: $failed. Not for navigation."
+            --notes "OsmAnd vector chart maps from NOAA ENC data for the NOAA Route app, build ${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}. Regions built: $built. Failed: $failed. ${tile_note} Not for navigation."
