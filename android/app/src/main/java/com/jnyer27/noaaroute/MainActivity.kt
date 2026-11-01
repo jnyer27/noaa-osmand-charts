@@ -147,7 +147,7 @@ class MainActivity : Activity() {
         col.addView(packButton)
         col.addView(button("View map") { showChart() })
         col.addView(TextView(this).apply {
-            text = "View map draws NOAA's chart for your safe operating depth. Region 04 (upper Chesapeake and Delaware Bay) can be downloaded from that screen, about 32 MB, and then works offline. Without it, the bundled Middle River chart is shown. A planned route is drawn from View on map, under the report."
+            text = "View map draws NOAA's chart for your safe operating depth. Region 04 (upper Chesapeake and Delaware Bay) can be downloaded from that screen, about 32 MB, and then works offline. Without it, the bundled Middle River chart is shown. A planned route is drawn from View on map, under the report. On the chart, Route data draws what the planner sees from a region you have downloaded, on whichever chart is showing."
             textSize = 12f
         })
         noticeText = TextView(this)
@@ -1194,21 +1194,28 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ planning
 
+    /** Air draft from the form, or null when the field is empty. The planner treats empty the same way. */
+    private fun formAir(): Double? = air.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 300 }
+
     /** The Middle River chart alone, shaded for the safe depth on the form (3 ft if that field is empty). */
     private fun showChart() {
         val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
-        startActivity(Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d))
+        val i = Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d)
+        formAir()?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
+        startActivity(i)
     }
 
-    /** The chart screen for this route. The Middle River tiles are bundled; other waters draw the line only. */
+    /** The chart screen for this route. Region 04 tiles if downloaded and the trip meets them, otherwise Middle River. */
     private fun showOnMap() {
         val r = route ?: return
         val f = File(cacheDir, "map-route.json")
         f.writeText(ChartTiles.routeGeoJson(r))
-        startActivity(Intent(this, ChartMapActivity::class.java)
+        val i = Intent(this, ChartMapActivity::class.java)
             .putExtra(ChartMapActivity.EXTRA_ROUTE, f.absolutePath)
             .putExtra(ChartMapActivity.EXTRA_DEPTH, r.depthFt)
-            .putExtra(ChartMapActivity.EXTRA_NAME, r.name))
+            .putExtra(ChartMapActivity.EXTRA_NAME, r.name)
+        r.airFt?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
+        startActivity(i)
     }
 
     private fun plan() {

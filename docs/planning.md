@@ -13,7 +13,7 @@ The main screen, top to bottom.
 
 Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
 
-**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). See [View on map](#view-on-map).
+**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). On that screen, **Route data** can draw what the planner sees from a region you have downloaded. See [View on map](#view-on-map).
 
 The line under **Plan route** shows what the app is doing: download progress ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."), where a shared point went ("Start set: ..."), or the result of planning.
 
@@ -114,6 +114,32 @@ If Region 04 is not downloaded, or the route is outside it, the screen uses the 
 The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
 
 The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
+
+### Route data
+
+**Route data** is a checkbox on the chart, off until you turn it on, and remembered after that. It draws what the route planner sees, from the route pack already downloaded for a region, on top of whichever chart is showing (the Region 04 download, or the bundled Middle River chart). It stays on when the chart switches after a download. It sits above the chart picture and under the route line. It does not need a connection. Land and cells with no pack data stay clear, so the chart shows through.
+
+The colours follow the safe operating depth and air draft for this screen. **View map** uses the form, and 3 ft if the depth field is empty. **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked, the same as planning. A bridge deck with no charted clearance is still marked, because the planner will not go under it.
+
+| Colour | What the planner sees |
+|---|---|
+| Red | Depth area too shallow, or drying |
+| Amber | Depth area that straddles your safe depth |
+| Faint blue | Charted at least your safe depth |
+| Teal | Dredged area, deep enough |
+| Dark gold | Dredged area that may be under your depth |
+| Indigo | Fairway or recommended track, deep enough |
+| Lighter purple | Fairway or track that may be under your depth |
+| Bright red | Hazard: an obstruction the planner treats as a wall, or a sounding under your depth |
+| Black | Pier, seawall or other structure |
+| Purple hatch | Entry prohibited |
+| Maroon | Bridge too low for your air draft, or a deck with no charted clearance |
+| Orange | Overhead cable too low, or clearance not charted, when air draft is set |
+| Cyan | Wrong side of a channel marker |
+| Brown | Pile or snag |
+| Clear | Land, or no route-pack data |
+
+Opening bridges are not marked as too low: the planner goes through them and the report names them. The bright red cell is the hazard itself. The planner's keep-off buffer around that cell is not drawn. The screen says it is not for navigation. This layer is the planner's 20 m grid, not a chart to steer by. If you have not downloaded a route pack for the area on screen, the checkbox says so. Zoomed well out, one pixel covers several cells, and a hazard or marker in that square still shows.
 
 **Open in OsmAnd** is unchanged, and it is still how you follow a route. The screen says it is not for navigation: check the route on a current chart before you go, the same as the report. Only Region 04 has a downloadable chart so far. A trip that runs into another region (Maryland to Norfolk, for example) is drawn past the edge of that chart as the line alone.
 

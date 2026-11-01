@@ -3,8 +3,10 @@ package com.jnyer27.noaaroute
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.pm.PackageManager
 import android.database.sqlite.SQLiteDatabase
+import android.graphics.Color
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -12,10 +14,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -23,14 +28,20 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.ImageSource
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Offline NOAA ENC chart, with the planned route drawn on it.
@@ -39,29 +50,41 @@ import java.util.concurrent.Executors
  * source. Otherwise the bundled Middle River chart is shown, and the screen offers the
  * region download. There is no online base map: the picture is NOAA ENC only, so the
  * license is NOAA's public domain data plus MapLibre's own notice (the logo stays on the map).
+ * Route data, off until it is turned on, draws the planner's grid from downloaded route packs
+ * on top of whichever chart is showing, and under the route line.
  */
 class ChartMapActivity : Activity() {
     companion object {
         const val EXTRA_ROUTE = "route"
         const val EXTRA_ROUTE_JSON = "routeJson"
         const val EXTRA_DEPTH = "depthFt"
+        const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
     }
 
     private lateinit var mapView: MapView
     private lateinit var legend: TextView
     private lateinit var downloadButton: Button
+    private lateinit var routeToggle: CheckBox
+    private lateinit var routeLegend: TextView
     private val tiles by lazy { ChartTileStore(this) }
     private val uiHandler = Handler(Looper.getMainLooper())
     private var map: MapLibreMap? = null
     private var style: Style? = null
     private var destroyed = false
     private var depthFt = 3.0
+    private var airFt: Double? = null
     private var routeJson: String? = null
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
     private var loadError = false
     private var chartNote = ""
+    private var overlayOn = false
+    private var generation = 0
+    private var openPacks: List<Pack> = emptyList()
+    private var routeTiles: RouteTiles? = null
+    private val shown = HashSet<String>()
+    private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { loc -> showFix(loc) }
     private val poll = object : Runnable {
@@ -78,6 +101,9 @@ class ChartMapActivity : Activity() {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         depthFt = intent.getDoubleExtra(EXTRA_DEPTH, 3.0)
+        airFt = if (intent.hasExtra(EXTRA_AIR)) {
+            intent.getDoubleExtra(EXTRA_AIR, Double.NaN).takeIf { it.isFinite() && it > 0.0 && it < 300.0 }
+        } else null
         routeJson = intent.getStringExtra(EXTRA_ROUTE_JSON) ?: intent.getStringExtra(EXTRA_ROUTE)?.let { path ->
             try { File(path).takeIf { it.isFile }?.readText() } catch (_: Exception) { null }
         }
@@ -88,6 +114,36 @@ class ChartMapActivity : Activity() {
         mapView.onCreate(savedInstanceState)
         val frame = FrameLayout(this)
         frame.addView(mapView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        routeLegend = TextView(this).apply {
+            visibility = View.GONE
+            textSize = 11f
+            setTextColor(Color.BLACK)
+            setBackgroundColor(0xF2FFFFFF.toInt())
+            setPadding(dp(8), dp(4), dp(8), dp(6))
+        }
+        routeToggle = CheckBox(this).apply {
+            text = RouteOverlay.TOGGLE
+            textSize = 13f
+            setTextColor(Color.BLACK)
+            setBackgroundColor(0xF2FFFFFF.toInt())
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            isChecked = prefs.getBoolean(RouteOverlay.PREF, false)
+            overlayOn = isChecked
+            setOnCheckedChangeListener { _, on ->
+                overlayOn = on
+                prefs.edit().putBoolean(RouteOverlay.PREF, on).apply()
+                if (style != null) refreshOverlay()
+            }
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        frame.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP
+            setMargins(dp(8), dp(8), dp(8), 0)
+        })
         root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         legend = TextView(this).apply {
             text = "Opening the chart..."
@@ -114,6 +170,7 @@ class ChartMapActivity : Activity() {
                 loadError = true
                 legend.text = "Chart did not load: $message"
             }
+            loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
             present()
             uiHandler.post(poll)
             worker.execute {
@@ -221,10 +278,14 @@ class ChartMapActivity : Activity() {
         legend.text = legendText(w, s, e, n, heading, region)
         loaded.setStyle(Style.Builder().fromJson(json)) { st ->
             style = st
+            // A new style drops the previous image layers. Drop any build still aimed at the old one.
+            generation++
+            shown.clear()
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
             position(loaded, w, s, e, n)
+            if (overlayOn) refreshOverlay()
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 listen()
             } else {
@@ -400,10 +461,158 @@ class ChartMapActivity : Activity() {
     override fun onStop() { mapView.onStop(); super.onStop() }
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); mapView.onSaveInstanceState(outState) }
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
+    /**
+     * Draw or clear the route-data images for the current view. Off by default.
+     * The checkbox text says when no downloaded pack covers the view, instead of failing.
+     */
+    private fun refreshOverlay() {
+        val loaded = map ?: return
+        if (style == null || destroyed) return
+        val gen = ++generation
+        if (!overlayOn) {
+            clearOverlayLayers()
+            routeLegend.visibility = View.GONE
+            routeToggle.text = RouteOverlay.TOGGLE
+            return
+        }
+        val bounds = try { loaded.projection.visibleRegion.latLngBounds } catch (_: Exception) { return }
+        val west = bounds.longitudeWest
+        val east = bounds.longitudeEast
+        val south = bounds.latitudeSouth
+        val north = bounds.latitudeNorth
+        // The map opens on a world camera for a moment. Wait until it has fitted the chart.
+        if (!(east > west && north > south) || east - west > 40.0 || north - south > 40.0) return
+        routeLegend.visibility = View.VISIBLE
+        routeLegend.text = RouteOverlay.DRAWING
+        routeToggle.text = RouteOverlay.TOGGLE
+        val depth = depthFt
+        val air = airFt
+        val have = HashSet(shown)
+        try {
+            worker.execute {
+                if (gen != generation || destroyed) return@execute
+                try {
+                    val packs = ensurePacks()
+                    if (gen != generation || destroyed) return@execute
+                    if (packs.isEmpty()) {
+                        runOnUiThread { if (gen == generation && !destroyed) showOverlayMessage(RouteOverlay.NO_PACK_NONE) }
+                        return@execute
+                    }
+                    val tiles = routeTiles ?: RouteTiles(packs, File(filesDir, "route-overlay"), depth, air).also { routeTiles = it }
+                    val result = tiles.build(west, south, east, north, have) { gen == generation && !destroyed }
+                    runOnUiThread {
+                        if (gen != generation || destroyed) {
+                            result.placed.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+                            return@runOnUiThread
+                        }
+                        when {
+                            result.aborted -> { /* a newer view, or the camera was still settling */ }
+                            !result.covered -> showOverlayMessage(RouteOverlay.NO_PACK)
+                            result.ids.isEmpty() -> {
+                                clearOverlayLayers()
+                                routeLegend.visibility = View.VISIBLE
+                                routeLegend.text = RouteOverlay.NOTHING
+                                routeToggle.text = RouteOverlay.TOGGLE
+                            }
+                            else -> {
+                                publish(result)
+                                routeLegend.visibility = View.VISIBLE
+                                routeLegend.text = RouteOverlay.legend(depth, air, result.images, result.seconds, result.stride)
+                                routeToggle.text = RouteOverlay.TOGGLE
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("RouteOverlay", "route data failed", e)
+                    runOnUiThread {
+                        if (gen == generation && !destroyed) {
+                            showOverlayMessage("Route data: ${e.message ?: "could not read the route pack"}")
+                        }
+                    }
+                }
+            }
+        } catch (_: RejectedExecutionException) { }
+    }
+
+    private fun showOverlayMessage(text: String) {
+        clearOverlayLayers()
+        routeLegend.visibility = View.GONE
+        routeToggle.text = text
+    }
+
+    /** Packs in the same order planning uses: file name, first tile with bytes wins. */
+    private fun ensurePacks(): List<Pack> {
+        if (openPacks.isNotEmpty()) return openPacks
+        val dir = PackStore(this).dir
+        val out = ArrayList<Pack>()
+        for (f in dir.listFiles { file -> file.isFile && file.name.endsWith(".bin") }.orEmpty().sortedBy { it.name }) {
+            try { out.add(Pack(f)) } catch (_: Exception) { }
+        }
+        openPacks = out
+        return out
+    }
+
+    private fun publish(result: RouteTiles.Built) {
+        val st = style ?: run {
+            result.placed.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+            return
+        }
+        val keep = result.ids.toSet()
+        for (id in shown.filter { it !in keep }) removeOverlay(st, id)
+        for (p in result.placed) {
+            try {
+                if (p.id !in shown) {
+                    val quad = LatLngQuad(
+                        LatLng(p.north, p.west), LatLng(p.north, p.east),
+                        LatLng(p.south, p.east), LatLng(p.south, p.west),
+                    )
+                    st.addSource(ImageSource("src-${p.id}", quad, p.bitmap))
+                    val layer = RasterLayer("lyr-${p.id}", "src-${p.id}").apply {
+                        setProperties(
+                            PropertyFactory.rasterOpacity(1f),
+                            PropertyFactory.rasterFadeDuration(0f),
+                            PropertyFactory.rasterResampling(Property.RASTER_RESAMPLING_NEAREST),
+                        )
+                    }
+                    // Above every chart layer, under the route line (route-casing is the first route layer).
+                    st.addLayerBelow(layer, "route-casing")
+                    shown.add(p.id)
+                }
+            } catch (e: Exception) {
+                Log.w("RouteOverlay", "could not add ${p.id}", e)
+                try { st.removeLayer("lyr-${p.id}") } catch (_: Exception) {}
+                try { st.removeSource("src-${p.id}") } catch (_: Exception) {}
+                shown.remove(p.id)
+            } finally {
+                if (!p.bitmap.isRecycled) p.bitmap.recycle()
+            }
+        }
+    }
+
+    private fun clearOverlayLayers() {
+        val st = style ?: return
+        for (id in shown.toList()) removeOverlay(st, id)
+    }
+
+    private fun removeOverlay(st: Style, id: String) {
+        try { st.removeLayer("lyr-$id") } catch (_: Exception) {}
+        try { st.removeSource("src-$id") } catch (_: Exception) {}
+        shown.remove(id)
+    }
+
     override fun onDestroy() {
         destroyed = true
+        generation++
         uiHandler.removeCallbacks(poll)
-        worker.shutdownNow()
+        val closing = openPacks
+        openPacks = emptyList()
+        routeTiles = null
+        try {
+            worker.execute { closing.forEach { try { it.close() } catch (_: Exception) {} } }
+        } catch (_: RejectedExecutionException) {
+            closing.forEach { try { it.close() } catch (_: Exception) {} }
+        }
+        worker.shutdown()
         mapView.onDestroy()
         super.onDestroy()
     }
