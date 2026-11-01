@@ -4,6 +4,18 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-01: Region 04 chart on View map (not released yet)
+
+Chart display:
+- **Download a region's chart.** **View map**, **View on map**, and each region card under **Regions** can download the in-app chart for any region the vector catalog lists a `tiles` entry for. The chart on screen is the downloaded one whose bounds cover the route, or the middle of the map once you pan. The button shows the progress, the file is checked, and a later checksum is **Update**. The file stays in the app, works offline, and is not an OsmAnd map. Today that catalog entry is Region 04 (about 32 MB, zooms 8 to 15). A weekly build that publishes another region's chart shows up without a new app.
+- Until a downloaded chart covers the area on screen, the bundled Middle River chart is shown.
+- **Route data** draws on whichever of those charts is showing, above the chart and under the route line. Turning the chart from Middle River to Region 04 after the download keeps the overlay on.
+
+## 2026-10-31: route data on the chart (not released yet)
+
+Chart display:
+- **Route data.** On the chart (**View map** and **View on map**), a **Route data** checkbox, off by default and remembered, draws what the route planner sees from the route pack already on the phone. Red is too shallow or drying, amber straddles your safe depth, faint blue is deep enough, teal is dredged, indigo is a fairway or track, bright red is a hazard, black is a pier or structure, a purple hatch is entry prohibited, maroon is a bridge that is too low, orange is a cable that is too low, cyan is the wrong side of a channel marker, and brown is a pile or snag. Land stays clear so the chart shows through. **View map** uses the depth and air draft on the form (3 ft if the depth field is empty). **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked. If no downloaded pack covers the area on screen, the checkbox says so. The bright red cell is the hazard itself; the keep-off buffer around it is not drawn. The layer is drawn on the phone and works offline. It is the planner's grid, not a chart to steer by. It sits above the chart and under the route line.
+
 ## 2026-10-30: in-app chart, proof of concept (not released yet)
 
 Chart display:

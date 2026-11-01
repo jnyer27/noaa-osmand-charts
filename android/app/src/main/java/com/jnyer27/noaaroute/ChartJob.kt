@@ -13,6 +13,7 @@ class ChartJob : JobService() {
         Thread {
             ChartMaps(this).runPending()
             VectorMaps(this).runPending()
+            ChartTileStore(this).runPending()
             jobFinished(params, false)
         }.start()
         return true
@@ -27,6 +28,7 @@ class ChartJob : JobService() {
 class ChartDownloadReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-        if (id >= 0 && !VectorMaps(ctx).downloadDone(id)) ChartMaps(ctx).downloadDone(id)
+        if (id >= 0 && !ChartTileStore(ctx).downloadDone(id) && !VectorMaps(ctx).downloadDone(id))
+            ChartMaps(ctx).downloadDone(id)
     }
 }

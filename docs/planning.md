@@ -13,7 +13,7 @@ The main screen, top to bottom.
 
 Shows the chart regions you have and how old their NOAA data is (for example "Charts: Region 04, Region 05 · NOAA data from 2026-10-16"). The **Regions** button says how many updates are waiting, for example **Regions (13 updates)**, and opens the Regions screen. See [Chart regions and updates](regions.html).
 
-**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). See [View on map](#view-on-map).
+**View map**, under **Regions**, opens the Middle River chart with no route on it: depth contours, soundings and marks, shaded for the safe operating depth on the form (3 ft if that field is empty). On that screen, **Route data** can draw what the planner sees from a region you have downloaded. See [View on map](#view-on-map).
 
 The line under **Plan route** shows what the app is doing: download progress ("Downloading Region 06: 1.2 of 3.6 MB", then "Region 06 ready."), where a shared point went ("Start set: ..."), or the result of planning.
 
@@ -105,11 +105,43 @@ If anything changed, the adjusted route is saved as a new file, `<name>_adjusted
 
 ## View on map
 
-A proof of concept, and not a replacement for OsmAnd. **View map**, under **Regions**, opens a chart of Middle River, MD (the marina creeks out to the bay off Hart-Miller Island) with no route on it. **View on map**, under the report, is the same chart with this route drawn on it. Both work with no signal: the chart is part of the app, about 1 MB. The first time you open either screen the app copies that file into its private storage (about 1.1 MB with the labels). It does not add a file under Download/noaa-charts. Opening the chart again reuses the copy, and an app update replaces the copy when the chart itself has changed. The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
+A proof of concept, and not a replacement for OsmAnd. **View map**, under **Regions**, opens the chart with no route on it. **View on map**, under the report, draws this route on that chart.
 
-The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and a magenta dot is a light. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
+Any region whose published catalog includes a chart can be downloaded: **Download** on the chart screen for the region under the map, or **Download chart** on that region's card under **Regions**. The button names the region and the size. The download waits for Wi-Fi unless you allow mobile data, shows its progress, and checks the file. After that it works with no signal. It stays in the app. It is not a file under Download/noaa-charts and it is not an OsmAnd map. When a newer chart is published, the button says **Update**. Today the catalog publishes Region 04 (upper Chesapeake and Delaware Bay, about 32 MB). A later weekly build that adds another region's chart shows up here without a new app. The chart's own zoom range is in the file. Pinching in further enlarges that same picture.
 
-The chart covers that one area. A route that starts there and leaves (Middle River to Annapolis, for example) is still drawn the whole way, and the screen says the chart stops. **Open in OsmAnd** is unchanged, and it is still how you follow a route. The screen says it is not for navigation: check the route on a current chart before you go, the same as the report.
+The chart on screen is the downloaded one whose bounds cover the route, or the middle of the map once you have panned. If none does, the screen uses the Middle River chart that comes with the app (the marina creeks out to the bay off Hart-Miller Island, about 1 MB). The first open copies that file into the app's private storage (about 1.1 MB with the labels). An app update replaces the copy when the chart itself has changed. A route that leaves the chart on screen is still drawn the whole way, and the screen says the chart stops.
+
+The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
+
+The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
+
+### Route data
+
+**Route data** is a checkbox on the chart, off until you turn it on, and remembered after that. It draws what the route planner sees, from the route pack already downloaded for a region, on top of whichever chart is showing (a downloaded region chart, or the bundled Middle River chart). It stays on when the chart switches after a download. It sits above the chart picture and under the route line. It does not need a connection. Land and cells with no pack data stay clear, so the chart shows through.
+
+The colours follow the safe operating depth and air draft for this screen. **View map** uses the form, and 3 ft if the depth field is empty. **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked, the same as planning. A bridge deck with no charted clearance is still marked, because the planner will not go under it.
+
+| Colour | What the planner sees |
+|---|---|
+| Red | Depth area too shallow, or drying |
+| Amber | Depth area that straddles your safe depth |
+| Faint blue | Charted at least your safe depth |
+| Teal | Dredged area, deep enough |
+| Dark gold | Dredged area that may be under your depth |
+| Indigo | Fairway or recommended track, deep enough |
+| Lighter purple | Fairway or track that may be under your depth |
+| Bright red | Hazard: an obstruction the planner treats as a wall, or a sounding under your depth |
+| Black | Pier, seawall or other structure |
+| Purple hatch | Entry prohibited |
+| Maroon | Bridge too low for your air draft, or a deck with no charted clearance |
+| Orange | Overhead cable too low, or clearance not charted, when air draft is set |
+| Cyan | Wrong side of a channel marker |
+| Brown | Pile or snag |
+| Clear | Land, or no route-pack data |
+
+Opening bridges are not marked as too low: the planner goes through them and the report names them. The bright red cell is the hazard itself. The planner's keep-off buffer around that cell is not drawn. The screen says it is not for navigation. This layer is the planner's 20 m grid, not a chart to steer by. If you have not downloaded a route pack for the area on screen, the checkbox says so. Zoomed well out, one pixel covers several cells, and a hazard or marker in that square still shows.
+
+**Open in OsmAnd** is unchanged, and it is still how you follow a route. The screen says it is not for navigation: check the route on a current chart before you go, the same as the report. A trip that runs past the chart on screen is drawn past that edge as the line alone. Download the next region's chart from **Regions** when the catalog lists one.
 
 <p>
   <img src="middle-river-map.jpg" alt="Middle River chart in the app: tan land, blue water shaded for a 3 ft safe operating depth, a blue route down the river from Maryland Marina with an orange dashed leg at the start and a blue GPS dot" width="300">
