@@ -19,6 +19,7 @@ Chart display:
 
 Routing and safety:
 - **Shallow edges of depth areas are stored.** Depth was recorded at the center of each 20 m cell, and where two areas overlapped the deeper one won the cell. A route at a 5 ft safe depth clipped the west edge of a 0-6 ft knoll (chart US5MD1ND, about 39.012 N, 76.386 W): the knoll covers about 8 m of the next cells, which stayed 6-12 ft. Where a shallower ordinary depth area covers more than about a quarter of a cell, the pack now stores that shallower range. Dredged areas and charted fairways still keep the deeper depth at the cell center, so a channel one cell wide stays open. The pack format is unchanged, so the current app reads the new packs.
+- **A broken chart outline no longer stops the pack build.** A restricted area whose outline contains a coordinate that is not a number (a security zone, 33 CFR 165.1183, on an overview chart in region 19a) used to abort that region, and the failure cancelled every other region. The bad coordinates are left out of the note. If the outline still cannot be simplified, the note keeps the unsimplified shape. If nothing valid is left, the note is skipped and the build log says so.
 
 ## 2026-11-01: Region 04 chart on View map (not released yet)
 

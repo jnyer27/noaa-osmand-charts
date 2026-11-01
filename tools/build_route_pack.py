@@ -1000,6 +1000,13 @@ def build(cells, grid, work, depth=None, quiet=False):
         flags |= np.where(burn(grid, st) > 0, STRUCT, 0).astype(np.uint8)
         pro, resn = [], []
         for f, geom in features(gp, "RESARE"):
+            # The same outline is simplified for the report. A NaN vertex there
+            # (a 33 CFR 165.1183 area on an overview chart of region 19a) used to
+            # abort the build; drop it before the area is burned or noted.
+            geom = drop_nonfinite(geom)
+            if geom is None:
+                log(f"Skipped restricted area ({fstr(f, 'OBJNAM') or 'unnamed'}): geometry has no finite vertices")
+                continue
             codes = listval(fstr(f, "RESTRN"))
             # Entry prohibited blocks. An area to be avoided (14) is only reported: on US
             # charts these are IMO routing measures for large ships (the Aleutian ATBAs,
@@ -1023,8 +1030,10 @@ def build(cells, grid, work, depth=None, quiet=False):
                 resn.append((geom, 1))
                 cfr = re.search(r"\d+ CFR [\d.]+", fstr(f, "INFORM") or "")
                 unnamed = "security zone" if secid else "restricted area"
-                notes.append(note("resare", band, geom, name=fstr(f, "OBJNAM") or unnamed,
-                                  rules=rules, cfr=cfr.group(0) if cfr else None))
+                got = note("resare", band, geom, name=fstr(f, "OBJNAM") or unnamed,
+                           rules=rules, cfr=cfr.group(0) if cfr else None)
+                if got:
+                    notes.append(got)
         flags |= np.where(burn(grid, pro) > 0, PROHIB, 0).astype(np.uint8)
         flags |= np.where(burn(grid, resn, all_touched=True) > 0, RESNOTE, 0).astype(np.uint8)
         deck, span, opening, anyb = [], [], [], []
@@ -1044,9 +1053,11 @@ def build(cells, grid, work, depth=None, quiet=False):
                 opening.append((geom, 1))
             # Every bridge part is kept so the report can tell that a detailed
             # chart has the bridge here (and ignore overview-chart outlines)
-            notes.append(note("bridge", band, geom, name=fstr(f, "OBJNAM") or "bridge", clr=clr,
-                              opening=kinds[0] if kinds else None,
-                              closed=(fnum(f, "VERCCL") or clr) if kinds else None))
+            got = note("bridge", band, geom, name=fstr(f, "OBJNAM") or "bridge", clr=clr,
+                       opening=kinds[0] if kinds else None,
+                       closed=(fnum(f, "VERCCL") or clr) if kinds else None)
+            if got:
+                notes.append(got)
         flags |= np.where(burn(grid, deck, all_touched=True) > 0, DECK, 0).astype(np.uint8)
         sp = burn(grid, span, all_touched=True, merge="min")
         flags |= np.where(sp > 0, SPAN, 0).astype(np.uint8)
@@ -1064,7 +1075,9 @@ def build(cells, grid, work, depth=None, quiet=False):
             cab.append((geom, 1))
             if clr is not None:
                 cabclr.append((geom, half_m(clr)))
-            notes.append(note("cable", band, geom, name=fstr(f, "OBJNAM") or "overhead cable", clr=clr))
+            got = note("cable", band, geom, name=fstr(f, "OBJNAM") or "overhead cable", clr=clr)
+            if got:
+                notes.append(got)
         flags |= np.where(burn(grid, cab, all_touched=True) > 0, CABLE, 0).astype(np.uint8)
         cc = burn(grid, cabclr, all_touched=True, merge="min")
         # A cable of unknown clearance over a snag mark: the plane is the cable's again (0)
@@ -1350,12 +1363,120 @@ def mark_sea(grid, tiles, depth_table):
         f"beyond {SEA_GAP_M:.0f} m of land), {len(lines)} COLREGS lines")
 
 
-def note(kind, band, geom, **attrs):
+def _xy_finite(x, y):
+    return math.isfinite(x) and math.isfinite(y)
+
+
+def geometry_finite(geom):
+    """False when any vertex is NaN or infinite. An empty geometry counts as finite."""
+    if geom.GetGeometryCount():
+        return all(geometry_finite(geom.GetGeometryRef(i)) for i in range(geom.GetGeometryCount()))
+    for p in geom.GetPoints() or []:
+        if not _xy_finite(p[0], p[1]):
+            return False
+    return True
+
+
+def _clean_ring(ring):
+    """Linear ring with non-finite vertices removed, or None if it no longer closes."""
+    pts = []
+    for p in ring.GetPoints() or []:
+        if not _xy_finite(p[0], p[1]):
+            continue
+        if not pts or (p[0], p[1]) != pts[-1]:
+            pts.append((p[0], p[1]))
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts.pop()
+    if len(pts) < 3:
+        return None
+    out = ogr.Geometry(ogr.wkbLinearRing)
+    for x, y in pts:
+        out.AddPoint_2D(x, y)
+    out.AddPoint_2D(*pts[0])
+    return out
+
+
+def _rebuild_finite(geom):
+    """Copy with NaN/Inf vertices removed. None when nothing usable is left."""
+    t = ogr.GT_Flatten(geom.GetGeometryType())
+    if t == ogr.wkbPoint:
+        return geom.Clone() if _xy_finite(geom.GetX(), geom.GetY()) else None
+    if t == ogr.wkbLineString:
+        pts = [(p[0], p[1]) for p in (geom.GetPoints() or []) if _xy_finite(p[0], p[1])]
+        if len(pts) < 2:
+            return None
+        line = ogr.Geometry(ogr.wkbLineString)
+        for x, y in pts:
+            line.AddPoint_2D(x, y)
+        return line
+    if t == ogr.wkbPolygon:
+        rings = [_clean_ring(geom.GetGeometryRef(i)) for i in range(geom.GetGeometryCount())]
+        if not rings or rings[0] is None:
+            return None
+        poly = ogr.Geometry(ogr.wkbPolygon)
+        poly.AddGeometry(rings[0])
+        for ring in rings[1:]:
+            if ring is not None:
+                poly.AddGeometry(ring)
+        return poly
+    if t in (ogr.wkbMultiPoint, ogr.wkbMultiLineString, ogr.wkbMultiPolygon, ogr.wkbGeometryCollection):
+        out = ogr.Geometry(t)
+        for i in range(geom.GetGeometryCount()):
+            part = _rebuild_finite(geom.GetGeometryRef(i))
+            if part is not None and not part.IsEmpty():
+                out.AddGeometry(part)
+        return None if out.GetGeometryCount() == 0 else out
+    return None
+
+
+def drop_nonfinite(geom):
+    """Flattened geometry safe for GEOS. A finite geometry is returned unchanged
+    apart from dropping Z. None when every vertex was NaN or infinite."""
+    if geom is None or geom.IsEmpty():
+        return None
     g = geom.Clone()
     g.FlattenTo2D()
-    g = g.SimplifyPreserveTopology(0.00005) or g  # ~5 m
-    minx, maxx, miny, maxy = g.GetEnvelope()
-    gj = json.loads(g.ExportToJson())
+    if geometry_finite(g):
+        return g
+    rebuilt = _rebuild_finite(g)
+    if rebuilt is None or rebuilt.IsEmpty():
+        return None
+    try:
+        if not rebuilt.IsValid():
+            fixed = rebuilt.MakeValid()
+            if fixed is not None and not fixed.IsEmpty():
+                fixed.FlattenTo2D()
+                return fixed
+    except RuntimeError:
+        pass
+    return rebuilt
+
+
+def note(kind, band, geom, **attrs):
+    """One report feature. A charted outline with a NaN or infinite vertex used to
+    abort the whole region here (GEOS: orientationIndex encountered NaN/Inf): the
+    bad vertices are dropped, and if simplifying still fails the note keeps the
+    unsimplified outline. None when no finite outline is left; the caller skips it."""
+    label = attrs.get("name") or kind
+    g = drop_nonfinite(geom)
+    if g is None:
+        log(f"Skipped {kind} note ({label}): geometry has no finite vertices")
+        return None
+    try:
+        simple = g.SimplifyPreserveTopology(0.00005)  # ~5 m
+    except RuntimeError as e:
+        log(f"Kept unsimplified {kind} note ({label}): {e}")
+        simple = None
+    if simple is not None and not simple.IsEmpty():
+        g = simple
+    try:
+        minx, maxx, miny, maxy = g.GetEnvelope()
+        if not all(math.isfinite(v) for v in (minx, maxx, miny, maxy)):
+            raise RuntimeError("non-finite envelope")
+        gj = json.loads(g.ExportToJson())
+    except RuntimeError as e:
+        log(f"Skipped {kind} note ({label}): {e}")
+        return None
 
     def rnd(c):
         return [round(c[0], 6), round(c[1], 6)] if isinstance(c[0], (int, float)) else [rnd(x) for x in c]
