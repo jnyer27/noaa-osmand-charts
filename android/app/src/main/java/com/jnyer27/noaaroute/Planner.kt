@@ -41,6 +41,33 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     companion object {
         const val NM = 1852.0
         const val ROUNDING_M = 0.05
+
+        /**
+         * Whole feet, as the chart labels a depth (tools/build_enc_tiles.py feet).
+         * 1.8 m is 6 and 1.5 m is 5. Under half a foot prints as 0. A tie rounds
+         * to the even foot, matching Python's round.
+         */
+        fun printedFeet(meters: Double): Int {
+            val f = meters / Pack.FT
+            if (abs(f) < 0.5) return 0
+            val neg = f < 0
+            val a = abs(f)
+            val base = floor(a)
+            val frac = a - base
+            val up = if (abs(frac - 0.5) < 1e-8) (base.toInt() % 2 != 0) else frac > 0.5
+            val feet = (if (up) base + 1.0 else base).toInt()
+            return if (neg) -feet else feet
+        }
+
+        /** Safe depth in feet from the meters [buildGrid] is given, stable for 5 * 0.3048. */
+        fun depthFeet(depthM: Double) = Math.rint(depthM / Pack.FT * 100.0) / 100.0
+
+        /**
+         * A sounding the chart would label at or under the safe depth. Depth areas
+         * keep [ROUNDING_M]; this is only the printed sounding, which is what the
+         * chart puts on the water (a stored 1.5 m prints as 5).
+         */
+        fun soundingShallow(meters: Double, depthFt: Double) = printedFeet(meters) <= depthFt + 1e-9
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val MOVE_ENDS_M = 0.5 * NM // ...and with Move ends to navigable water, from any pocket or along the water
@@ -198,7 +225,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val n = a.n
         val w = a.w
         val h = a.h
-        val d = depthM - ROUNDING_M
+        val depthFt = depthFeet(depthM)
         val hz = depthM + Pack.FT
         val air = airM ?: 0.0
         val nav = ByteArray(n)
@@ -217,7 +244,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 inside && planes[Pack.P_DEPTH][i].toInt() != 0 && fl and Pack.F_SPAN == 0 &&
                     (planes[Pack.P_SPANCLR][i].toInt() and 0xff) == Pack.SEA_MARK -> SEA
                 hzv != 0 && hzv != Pack.HZ_PIER && !snag[i] && (hzv - 1) / 10.0 < hz -> HAZARD
-                sv != 0 && (sv - 1) / 10.0 < d -> HAZARD
+                sv != 0 && soundingShallow((sv - 1) / 10.0, depthFt) -> HAZARD
                 fl and Pack.F_PROHIB != 0 -> BLOCKED
                 else -> planes[Pack.P_DEPTH][i].toInt() and DREDGED.inv()
             }.toByte()
@@ -765,30 +792,31 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * Drop path points while the straight line stays in water no shallower, no
      * closer to danger and over no more pier or seawall lines than the cells
-     * the planned path itself used.
+     * the planned path itself used. A 0-6 ft cell the path did not already use
+     * refuses the line: that is a shoal the path went around. A cell touching
+     * 0-6 ft the path did cross is the diagonal sample of that same water
+     * (Currituck Sound), and stays allowed.
      */
     private fun simplify(a: Area, g: Grid, path: IntArray): IntArray {
-        fun marg(i: Int) = g.nav[i].toInt() == MARGINAL
         fun px(i: Int) = if (g.pier[i]) 0 else g.prox[i].toInt() // a pier cell is next to danger by definition
-        fun fits(p: Int, q: Int, maxp: Int, nmarg: Int, npier: Int, nsoft: Int): Boolean {
+        fun fits(p: Int, q: Int, maxp: Int, npier: Int, nsoft: Int): Boolean {
             // One level of grid staircase tolerance, but never into the two rings
             // nearest danger unless the path itself went there
             val lim = if (maxp + 1 <= g.k - 3) maxp + 1 else maxp
-            var m = 0
             var sf = 0
             val corners = ArrayList<Int>()
             val cells = lineCells(a, path[p], path[q], corners, g::channel)
-            if (corners.any { !g.ok[it] }) return false
-            // 0-6 ft and buffer cells are compared as shares of the cells crossed, plus one:
-            // a diagonal line samples more cells than the 8-direction path over the same
-            // water, so counts refused every line across open 0-6 ft water (Currituck Sound)
+            val used = HashSet<Int>(q - p + 1)
+            for (k in p..q) used.add(path[k])
+            if (corners.any { !g.ok[it] || marginalUnvisited(g, it, used, a.w) }) return false
+            // Hazard-buffer cells are compared as shares, plus one: a diagonal line
+            // samples more cells than the 8-direction path over the same water.
             val pn = q - p + 1
             val n = cells.size
             for (i in cells) {
-                if (!g.ok[i]) return false
+                if (!g.ok[i] || marginalUnvisited(g, i, used, a.w)) return false
                 if (g.pier[i]) continue // counted below
                 if (g.prox[i] > lim) return false
-                if (marg(i)) { m++; if (m * pn > (nmarg + 1) * n) return false }
                 if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
             return pierSteps(a, cells) { g.pier[it] } <= npier
@@ -800,20 +828,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         keep.add(0)
         var s = 0
         var maxp = px(path[0])
-        var nmarg = if (marg(path[0])) 1 else 0
         var nsoft = if (g.soft[path[0]]) 1 else 0
         var j = 1
         while (j < path.size) {
             val p2 = max(maxp, px(path[j]))
-            val m2 = nmarg + if (marg(path[j])) 1 else 0
             val s2 = nsoft + if (g.soft[path[j]]) 1 else 0
-            if (j == s + 1 || fits(s, j, p2, m2, pc[j] - pc[s] + if (g.pier[path[s]]) 1 else 0, s2)) {
-                maxp = p2; nmarg = m2; nsoft = s2; j++
+            if (j == s + 1 || fits(s, j, p2, pc[j] - pc[s] + if (g.pier[path[s]]) 1 else 0, s2)) {
+                maxp = p2; nsoft = s2; j++
             } else {
                 s = j - 1
                 keep.add(s)
                 maxp = max(px(path[s]), px(path[j]))
-                nmarg = (if (marg(path[s])) 1 else 0) + (if (marg(path[j])) 1 else 0)
                 nsoft = (if (g.soft[path[s]]) 1 else 0) + (if (g.soft[path[j]]) 1 else 0)
             }
         }
@@ -822,17 +847,37 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /**
-     * Second pass over [simplify]'s points: where water usable on the grid is a thin
-     * diagonal band (a narrow canal at 20 m), every straight line clips a corner of
-     * the 0-6 ft water or hazard buffer beside it and the legs stayed a staircase of
-     * one-cell steps. Join points while the line stays within one cell of the planned
-     * path, crosses no more pier lines, and only grazes charted water with nothing
-     * charted in the cell itself (never land, hazards, piers, open ocean, too-shallow
-     * water or a low bridge).
+     * True when [cell] is 0-6 ft water (MARGINAL) the path did not use and is not
+     * touching 0-6 ft the path did use. The chord that contains it cuts a shoal.
+     */
+    private fun marginalUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int): Boolean {
+        if (cell !in g.nav.indices || g.nav[cell].toInt() != MARGINAL || cell in used) return false
+        val r = cell / w
+        val c = cell % w
+        for (dr in -1..1) for (dc in -1..1) {
+            if (dr == 0 && dc == 0) continue
+            val rr = r + dr
+            val cc = c + dc
+            if (cc < 0 || cc >= w || rr < 0) continue
+            val j = rr * w + cc
+            if (j in used && j in g.nav.indices && g.nav[j].toInt() == MARGINAL) return false
+        }
+        return true
+    }
+
+    /**
+     * Second pass over [simplify]'s points: where usable water on the grid is a thin
+     * diagonal band (a narrow canal at 20 m), join points while the line stays within
+     * one cell of the planned path and crosses no more pier lines. The line may use
+     * charted water the path already used. It may not cross 0-6 ft water the path did
+     * not already use, so a straight leg does not clip a shoal the path went around.
+     * Where that clip would be the only way to straighten, the steps stay. Land,
+     * hazards, piers, open ocean, too-shallow water and a low bridge stay forbidden.
      */
     private fun straighten(a: Area, g: Grid, path: IntArray, keep: List<Int>, pc: IntArray): List<Int> {
         val w = a.w
-        fun graze(i: Int): Boolean {
+        fun graze(i: Int, used: Set<Int>): Boolean {
+            if (marginalUnvisited(g, i, used, w)) return false
             if (g.ok[i]) return true
             val v = g.nav[i].toInt()
             return (v == SAFE || v == MARGINAL) && !g.nopass[i] && g.planes[Pack.P_HAZARD][i].toInt() == 0
@@ -860,7 +905,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if ((i0 + 1 until i1).any { off(it, i0, i1) > 1.0 }) break
                 val corners = ArrayList<Int>()
                 val cells = lineCells(a, path[i0], path[i1], corners, g::channel)
-                if (!cells.all { graze(it) } || !corners.all { graze(it) }) continue
+                val used = HashSet<Int>(i1 - i0 + 1)
+                for (k in i0..i1) used.add(path[k])
+                if (!cells.all { graze(it, used) } || !corners.all { graze(it, used) }) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
             }
@@ -982,8 +1029,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         var prevHazard = -1
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
-            var marg = lc.count { g.nav[it].toInt() == MARGINAL }
-            if (marg < 2) marg = 0
+            val marg = lc.count { g.nav[it].toInt() == MARGINAL }
             val notes = ArrayList<String>()
             for ((kind, bit) in kinds) {
                 val hits = ArrayList<Int>()
@@ -1010,7 +1056,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val onGate = pierSteps(a, lc) { g.gate[it] } > 0
             if (onGate && !prevGate) notes.add(0, GATE_NOTE)
             prevGate = onGate
-            val near = lc.count { g.soft[it] } >= 2 // one edge cell is grid noise
+            val near = lc.any { g.soft[it] }
             // Name the closest hazard whose buffer the leg uses; once per hazard along a stretch
             val hz = if (near) nearestHazard(a, g, wps[k], wps[k + 1], g.rad * a.res) else null
             if (near && (hz == null && !prevSoft || hz != null && hz.cell != prevHazard)) notes.add(0, hz?.note(a.res) ?: SOFT_NOTE)

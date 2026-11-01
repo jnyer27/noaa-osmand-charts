@@ -1280,6 +1280,13 @@ class MainActivity : Activity() {
         startActivity(i)
     }
 
+    /**
+     * Notes where a leg line crosses a depth area on a downloaded chart (or the bundled
+     * Middle River chart) whose shoal limit is under the safe depth. No chart for the
+     * leg leaves the route as planned.
+     */
+    private fun withChartDepth(r: Route): Route = try { ChartDepthSource(this).annotate(r) } catch (_: Exception) { r }
+
     /** The chart screen for this route. A downloaded catalog chart that covers it, otherwise Middle River. */
     private fun showOnMap() {
         val r = route ?: return
@@ -1323,7 +1330,7 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } }
+                val r = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
                 val used = usedPacks(p, r)
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val (uri, savedAs) = saveGpx(r, datum, markChecks)
@@ -1376,7 +1383,7 @@ class MainActivity : Activity() {
                     }
                     return@execute
                 }
-                val ar = res.route
+                val ar = withChartDepth(res.route)
                 val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks)
                 ui.post {
                     route = ar

@@ -85,6 +85,7 @@ Every route needs checking. The planner keeps to water charted at least your saf
 After planning, read the [route report](report.html) leg by leg. Each leg with a note needs a look on a current chart before you leave:
 
 - **shallow water**: "N m where charted depth may be under 5 ft" (your own safe depth in place of 5 ft): check the tide and the shallowest sounding named with it,
+- **chart depth areas**: "crosses N m of a depth area that straddles your 5 ft" or "crosses N m charted entirely under your 5 ft", when the leg line crosses that area on a chart downloaded in the app (or the bundled Middle River chart),
 - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
 - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
 - **bridges and cables**: clearances and opening schedules,
@@ -113,7 +114,7 @@ The chart on screen is the downloaded one whose bounds cover the route, or the m
 
 The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
 
-The shading follows your safe operating depth. Darker blue is a depth area charted entirely under it, lighter blue is an area whose range reaches under it (the 0-6 ft band, for a 3 ft setting), and pale blue is charted at least that deep. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
+The shading follows your safe operating depth. Strong blue is charted entirely under it, lighter blue is a range that straddles it (the 0-6 ft band at a 3 ft or 5 ft setting), and pale blue is at or over it. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. The blue dot is your GPS position, once you allow location.
 
 ### Route data
 

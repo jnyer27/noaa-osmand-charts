@@ -103,9 +103,14 @@ class RouteOverlayTest {
 
     @Test
     fun soundingsUseThePlannersRounding() {
-        // 2.5 ft is under 3 ft. 3.0 ft, stored as 1 + round(9.144 dm), is not.
-        assertEquals(RouteOverlay.Kind.HAZARD, kind(sound = 9))
-        assertEquals(RouteOverlay.Kind.SAFE, kind(depth = 2, sound = 10))
+        // The chart prints whole feet. 0.8 m and 0.9 m both print as 3, so both are
+        // hazards at a 3 ft safe depth. 1.2 m prints as 4 and is not.
+        assertEquals(3, Planner.printedFeet(0.8))
+        assertEquals(3, Planner.printedFeet(0.9))
+        assertEquals(4, Planner.printedFeet(1.2))
+        assertEquals(RouteOverlay.Kind.HAZARD, kind(sound = 9)) // 0.8 m
+        assertEquals(RouteOverlay.Kind.HAZARD, kind(depth = 2, sound = 10)) // 0.9 m, prints as 3
+        assertEquals(RouteOverlay.Kind.SAFE, kind(depth = 2, sound = 13)) // 1.2 m, prints as 4
         assertEquals(RouteOverlay.Kind.HAZARD, kind(depth = 1, sound = 9))
     }
 
