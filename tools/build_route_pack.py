@@ -36,6 +36,10 @@ Planes (0 always means "nothing here"):
             the ICW where no dredged area is charted, such as along Oak Island; the
             app follows it like a dredged channel, older apps read it as kind 0).
             0 = land, uncharted or no data.
+            A shallower DEPARE that covers more than about a quarter of a cell is stored
+            instead of the deeper value at the cell center (2x2 supersamples: a straight
+            edge wider than about 5 m). DRGARE, fairway and recommended-track cells keep
+            the deeper center value, so a channel one cell wide stays open.
   1 HAZARD  shallowest OBSTRN/WRECKS/UWTROC: 1 + VALSOU in dm (0-253); unknown
             depth is stored as 1 (0.0 m) so it is a hazard for any boat.
             255 = shoreline construction (SLCONS: pier, seawall, jetty) and no
@@ -615,6 +619,133 @@ def fill_gaps(d, dt):
     return n
 
 
+# 2x2 supersamples (10 m) of each 20 m cell. A shallower DEPARE is stored when it
+# covers strictly more than COVERAGE_FRAC of those samples. On a straight edge that
+# is the fringe wider than about 5 m, a quarter of the cell: the west side of the
+# 0-6 ft knoll on US5MD1ND (about 39.012 N, 76.386 W) covers about 8 m of the next
+# cells and was stored as 6-12 ft. One hit sample (a corner, or an edge under about
+# 5 m) is not enough.
+COVERAGE_SUB = 2
+COVERAGE_FRAC = 0.25
+COVERAGE_STRIP_BYTES = 256 << 20  # supersampled strip kept under this (region 04 is three strips)
+
+
+def depth_rank_array(depth_table):
+    """Rank of each depth-table index, 0 = shallowest. Index 0 (no depth) ranks last.
+    None drval sorts shallow, the same order the center burn uses."""
+    rank = np.full(256, np.uint16(65535))
+    items = []
+    for i, e in enumerate(depth_table):
+        if not e:
+            continue
+        d1, d2 = e[0], e[1]
+        items.append(((d1 if d1 is not None else -1e9, d2 if d2 is not None else -1e9), i))
+    items.sort()
+    # The same drval1/drval2 share a rank, whatever the kind: a fairway copy of a
+    # depth area is not "shallower" than the area itself.
+    prev, r = None, -1
+    for key, i in items:
+        if key != prev:
+            r += 1
+            prev = key
+        rank[i] = r
+    return rank
+
+
+def coverage_need(sub=COVERAGE_SUB, frac=COVERAGE_FRAC):
+    """How many of the sub*sub samples a depth must occupy to count as covering the cell."""
+    return int(math.floor(frac * sub * sub)) + 1
+
+
+def reduce_samples(fine, rank, sub, need):
+    """fine is (h*sub, w*sub) depth indices, shallowest-wins at each sample.
+    Returns (h, w) of the shallowest index occupying at least `need` samples, else 0."""
+    h, w = fine.shape[0] // sub, fine.shape[1] // sub
+    out = np.zeros((h, w), np.uint8)
+    if h == 0 or w == 0:
+        return out
+    n = sub * sub
+    # argsort of the samples is the wide temporary; keep a chunk near 32 MB
+    cols = max(1, int(32e6 // (h * n * 8)))
+    for c0 in range(0, w, cols):
+        c1 = min(w, c0 + cols)
+        tile = np.ascontiguousarray(fine[:, c0 * sub:c1 * sub])
+        out[:, c0:c1] = _reduce_chunk(tile, rank, sub, need)
+    return out
+
+
+def _reduce_chunk(fine, rank, sub, need):
+    h, w = fine.shape[0] // sub, fine.shape[1] // sub
+    samples = np.ascontiguousarray(
+        fine.reshape(h, sub, w, sub).transpose(0, 2, 1, 3)).reshape(h, w, sub * sub)
+    ranks = rank[samples]
+    order = np.argsort(ranks, axis=2, kind="stable")
+    s_idx = np.take_along_axis(samples, order, axis=2)
+    s_rank = np.take_along_axis(ranks, order, axis=2)
+    if need <= 1:
+        return np.where(s_rank[:, :, 0] < 65535, s_idx[:, :, 0], np.uint8(0)).astype(np.uint8)
+    n = sub * sub
+    match = s_rank[:, :, :n - need + 1] == s_rank[:, :, need - 1:]
+    has = match.any(axis=2)
+    idx = np.argmax(match, axis=2)
+    chosen = np.take_along_axis(s_idx, idx[:, :, None], axis=2)[:, :, 0]
+    # A match on the no-data index (0, ranked last) means no real depth covered the cell
+    chosen = np.where(has & (rank[chosen] < 65535), chosen, np.uint8(0))
+    return chosen.astype(np.uint8)
+
+
+def depare_coverage(grid, feats, depth_table, sub=COVERAGE_SUB, frac=COVERAGE_FRAC):
+    """Shallowest DEPARE index covering more than `frac` of each cell, else 0.
+    feats: [(geometry, depth_index)], burned shallowest-wins (deeper features first)
+    at `sub` x `sub` supersampling, in row strips so the fine raster stays bounded.
+    Area fraction is the share of sample centers inside the polygon."""
+    out = np.zeros((grid.h, grid.w), np.uint8)
+    if not feats:
+        return out
+    rank = depth_rank_array(depth_table)
+    ranked = sorted(feats, key=lambda gv: -int(rank[gv[1]]))
+    mem_ds = ogr.GetDriverByName("Memory").CreateDataSource("")
+    lyr = mem_ds.CreateLayer("depare", grid.srs, ogr.wkbUnknown)
+    lyr.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
+    defn = lyr.GetLayerDefn()
+    for geom, v in ranked:
+        f = ogr.Feature(defn)
+        f.SetGeometry(geom)
+        f.SetField("v", int(v))
+        lyr.CreateFeature(f)
+    need = coverage_need(sub, frac)
+    fine_w = grid.w * sub
+    max_fine_rows = max(sub, COVERAGE_STRIP_BYTES // max(fine_w, 1))
+    step = max(1, max_fine_rows // sub)
+    for r0 in range(0, grid.h, step):
+        r1 = min(grid.h, r0 + step)
+        fh, fw = (r1 - r0) * sub, fine_w
+        ds = gdal.GetDriverByName("MEM").Create("", fw, fh, 1, gdal.GDT_Byte)
+        ds.SetGeoTransform((grid.west, grid.dlon / sub, 0,
+                            grid.north - r0 * grid.dlat, 0, -grid.dlat / sub))
+        ds.SetProjection(grid.srs.ExportToWkt())
+        lyr.ResetReading()
+        gdal.RasterizeLayer(ds, [1], lyr, options=["ATTRIBUTE=v"])
+        fine = ds.GetRasterBand(1).ReadAsArray()
+        out[r0:r1] = reduce_samples(fine, rank, sub, need)
+        del fine, ds
+    return out
+
+
+def apply_shallow_fringe(depth, covered, depth_table, protect):
+    """Store `covered` where it is a shallower depth than `depth` and `protect` is
+    false. In place. Cells with no depth stay empty, and protected cells (dredged,
+    fairway, recommended track) keep the deeper center value. Returns the count."""
+    rank = depth_rank_array(depth_table)
+    n = 0
+    for r0 in range(0, depth.shape[0], 512):
+        sl = slice(r0, min(depth.shape[0], r0 + 512))
+        use = (covered[sl] > 0) & (depth[sl] > 0) & ~protect[sl] & (rank[covered[sl]] < rank[depth[sl]])
+        n += int(use.sum())
+        depth[sl] = np.where(use, covered[sl], depth[sl])
+    return n
+
+
 TRACK_CLEAR_CELLS = 10  # 200 m
 
 
@@ -760,13 +891,35 @@ def build(cells, grid, work, depth=None, quiet=False):
         trk = [(geom, 1) for f, geom in features(gp, "RECTRC")
                if geom.GetGeometryType() in (ogr.wkbLineString, ogr.wkbMultiLineString,
                                              ogr.wkbLineString25D, ogr.wkbMultiLineString25D)]
+        kinds = np.array([e[2] if e else 0 for e in depth_table] + [0] * (256 - len(depth_table)), np.uint8)
+        inf = None
         if fw or trk:
             inf = burn(grid, fw) > 0
             if trk:
                 # Only away from charted channels: a track off a smaller-scale chart ran
                 # beside Oak Island's fairway, next to its drying patch
-                kinds = np.array([e[2] if e else 0 for e in depth_table] + [0] * (256 - len(depth_table)), np.uint8)
                 inf |= lone_track(burn(grid, trk, all_touched=True) > 0, inf, planes[DEPTH], kinds)
+        # A shallower ordinary depth area that misses the cell center still covers the
+        # cell's edge. The 0-6 ft knoll on US5MD1ND (about 39.012 N, 76.386 W) covers
+        # about 8 m of the cells to its west, which stayed 6-12 ft, so a 5 ft route
+        # clipped it. Where that shallower DEPARE covers more than about a quarter of
+        # the cell, store it. Dredged cells and the fairway/track cells above keep the
+        # deeper center value (deeper-wins), so a one-cell channel stays open.
+        depare = [(g_, v) for order, g_, v in depth_feats if order[0] == 0]
+        if depare:
+            t0 = time.time()
+            covered = depare_coverage(grid, depare, depth_table)
+            # Kind 1 and 2 are this band's dredged cells and any fairway a more detailed
+            # chart did not replace. `inf` is the fairway or track this band will mark
+            # after the fringe step. All of them keep the deeper center value.
+            protect = kinds[planes[DEPTH]] != 0
+            if inf is not None:
+                protect |= inf
+            nfringe = apply_shallow_fringe(planes[DEPTH], covered, depth_table, protect)
+            del covered, protect
+            if nfringe:
+                say(f"{nfringe} cells took a shallower depth area covering more than a quarter of the cell ({time.time() - t0:.0f}s)")
+        if inf is not None:
             lut = np.arange(256, dtype=np.uint8)
             for v in np.unique(planes[DEPTH][inf]):
                 e = depth_table[v] if v < len(depth_table) else None
