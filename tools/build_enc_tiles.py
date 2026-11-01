@@ -1,14 +1,26 @@
 #!/usr/bin/env python3
 """build_enc_tiles.py
-Offline vector tiles of NOAA ENC charts for the in-app map (Middle River proof of concept).
+Offline vector tiles of NOAA ENC charts for the in-app map.
 
   python3 tools/build_enc_tiles.py
   python3 tools/build_enc_tiles.py -b -76.48,39.27,-76.32,39.36 -o android/app/src/main/assets/middle_river.mbtiles
+  python3 tools/build_enc_tiles.py -r 04 -o Ncds_04.mbtiles
 
-Reads the active ENC cells that meet the box (GDAL applies the update files, so Notice to
-Mariners corrections are in), keeps each object from the most detailed chart that covers it
-(same rule as tools/enc_to_osm.py), and writes one MBTiles file of Mapbox Vector Tiles.
+With no -r and no -b, the box is Middle River, MD (the chart bundled in the app).
+-r reads an NCDS region from tools/areas.json the same way tools/enc_to_osm.py does:
+the part of the region rectangle that has approach and harbor charts, plus a margin
+(build_route_pack.region_bbox). GDAL applies the update files, so Notice to Mariners
+corrections are in. Each object is kept from the most detailed chart that covers it
+(same rule as tools/enc_to_osm.py). One MBTiles file of Mapbox Vector Tiles.
 Depths are whole feet, the way US charts print them (NOAA stores 6 ft as 1.8 m).
+
+A region is far larger than the Middle River box, so each usage band stops at a zoom
+that matches its chart scale (see BAND_MAXZOOM). Finer charts still go to zoom 15
+(harbor) or 16 (berthing). The app style is unchanged: MapLibre overzooms the last
+tile that holds a feature, so a sounding stored at zoom 13 still draws at the style's
+zoom 14. Water, land and the coastline are also copied into a one-tile halo around
+any finer chart, because a high-zoom tile is drawn instead of its parent and would
+otherwise be blank along that edge.
 
 Layers: depare, drgare, lndare, depcnt, coalne, fairwy, slcons, slcons_area, bridge,
 bridge_area, soundg, buoy, beacon, lights, wreck, wreck_area, rock, rock_area, obstrn,
@@ -27,6 +39,7 @@ replace the file in android/app/src/main/assets/.
 import argparse
 import importlib.util
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -59,6 +72,22 @@ MINZOOM = {
 POLY_LAYERS = {"depare", "drgare", "lndare", "slcons_area", "bridge_area", "wreck_area", "rock_area", "obstrn_area"}
 LINE_LAYERS = {"depcnt", "coalne", "fairwy", "slcons", "bridge", "obstrn_line"}
 POINT_LAYERS = {"soundg", "buoy", "beacon", "lights", "wreck", "rock", "obstrn"}
+
+# Highest zoom stored for each ENC usage band, for a whole region. Web-mercator scale
+# near 39 N is about 1:1,800,000 at z8, 1:900,000 at z9, 1:230,000 at z11, 1:57,000 at
+# z13, 1:14,000 at z15 and 1:7,000 at z16. That lines up with NOAA's reschemed scales
+# (overview 1:3,500,000, general 1:700,000, coastal 1:180,000, approach 1:45,000,
+# harbor 1:12,000, berthing 1:4,000). Legacy cells run a step larger in scale; the next
+# finer band covers those, and the rest is overzoomed. The Middle River box does not
+# use this table: every layer there is stored through zoom 16, as before.
+BAND_MAXZOOM = {1: 8, 2: 9, 3: 11, 4: 13, 5: 15, 6: 16}
+# These fill the chart. A high-zoom tile has to contain them or the water/land along
+# the edge of a finer chart disappears (the client does not also draw the parent tile).
+BASE_LAYERS = {"depare", "drgare", "lndare", "coalne"}
+# Above this, a same-depth group is written as separate polygons. UnionCascaded of a
+# whole bay's depth areas is the step that runs out of memory; depare has no outline
+# in the style, so the cell edges do not show.
+MAX_UNION = 4000
 
 SIDES = {"1": "port", "2": "starboard", "3": "pref_stbd", "4": "pref_port"}
 LIGHT_COL = {"1": "W", "2": "Bk", "3": "R", "4": "G", "5": "Bu", "6": "Y", "7": "Gy",
@@ -227,37 +256,41 @@ def hazard_label(kind, ft, cat):
 
 
 class Collector:
+    """Features grouped for the GeoPackage. zoom is None for the Middle River box
+    (one layer, zooms 8-16). A region build stores an int zoom: the band cap, so
+    coarser charts are not written into harbour tiles."""
+
     def __init__(self):
-        self.polys = {}   # layer -> props tuple -> [geom]
+        self.polys = {}   # (layer, zoom) -> props tuple -> [geom]
         self.lines = {}
-        self.points = []  # (layer, props tuple, x, y) deduped
+        self.points = []  # (layer, zoom, props, x, y)
         self.seen_pts = set()
         self.counts = {}
 
     def _bump(self, layer):
         self.counts[layer] = self.counts.get(layer, 0) + 1
 
-    def add_poly(self, layer, props, geom):
+    def add_poly(self, layer, props, geom, zoom):
         if geom.GetArea() < 1e-12:
             return
         key = tuple(sorted(props.items()))
-        self.polys.setdefault(layer, {}).setdefault(key, []).append(geom)
+        self.polys.setdefault((layer, zoom), {}).setdefault(key, []).append(geom)
         self._bump(layer)
 
-    def add_line(self, layer, props, geom):
+    def add_line(self, layer, props, geom, zoom):
         if geom.Length() < 1e-7:
             return
         key = tuple(sorted(props.items()))
-        self.lines.setdefault(layer, {}).setdefault(key, []).append(geom)
+        self.lines.setdefault((layer, zoom), {}).setdefault(key, []).append(geom)
         self._bump(layer)
 
-    def add_point(self, layer, props, geom):
+    def add_point(self, layer, props, geom, zoom):
         x, y = round(geom.GetX(), 6), round(geom.GetY(), 6)
-        key = (layer, x, y, tuple(sorted(props.items())))
+        key = (layer, zoom, x, y, tuple(sorted(props.items())))
         if key in self.seen_pts:
             return
         self.seen_pts.add(key)
-        self.points.append((layer, props, x, y))
+        self.points.append((layer, zoom, props, x, y))
         self._bump(layer)
 
 
@@ -383,7 +416,31 @@ def props_of(cls, feat, geom, eto, z=None):
     return None
 
 
-def add_object(col, cls, feat, geom, eto, z=None):
+def gpkg_layer(layer, zoom):
+    """Source layer name. Region builds suffix the zoom; the MVT target name stays `layer`."""
+    if zoom is None:
+        return layer
+    return f"{layer}_z{zoom}"
+
+
+def public_layer(name):
+    head, sep, tail = name.rpartition("_z")
+    if sep and tail.isdigit():
+        return head
+    return name
+
+
+def emit(col, layer, props, geom, zoom):
+    gt = ogr.GT_Flatten(geom.GetGeometryType())
+    if layer in POLY_LAYERS and gt == ogr.wkbPolygon:
+        col.add_poly(layer, props, geom, zoom)
+    elif layer in LINE_LAYERS and gt == ogr.wkbLineString:
+        col.add_line(layer, props, geom, zoom)
+    elif layer in POINT_LAYERS and gt == ogr.wkbPoint:
+        col.add_point(layer, props, geom, zoom)
+
+
+def add_object(col, cls, feat, geom, eto, z=None, zoom=None):
     got = props_of(cls, feat, geom, eto, z)
     if got is None:
         return
@@ -391,13 +448,7 @@ def add_object(col, cls, feat, geom, eto, z=None):
         layer, props, geom = got
     else:
         layer, props = got
-    gt = ogr.GT_Flatten(geom.GetGeometryType())
-    if layer in POLY_LAYERS and gt == ogr.wkbPolygon:
-        col.add_poly(layer, props, geom)
-    elif layer in LINE_LAYERS and gt == ogr.wkbLineString:
-        col.add_line(layer, props, geom)
-    elif layer in POINT_LAYERS and gt == ogr.wkbPoint:
-        col.add_point(layer, props, geom)
+    emit(col, layer, props, geom, zoom)
 
 
 def union_polys(geoms):
@@ -456,7 +507,87 @@ def wkb_of(layer):
     return ogr.wkbPoint
 
 
-def write_gpkg(col, path):
+def merge_group(geoms):
+    """One geometry for a same-property group. A very large group is left unmerged:
+    UnionCascaded of a whole bay runs out of memory, and depth areas have no outline."""
+    if len(geoms) == 1:
+        return geoms[0]
+    if len(geoms) > MAX_UNION:
+        log(f"{len(geoms)} polygons left unmerged")
+        multi = ogr.Geometry(ogr.wkbMultiPolygon)
+        for g in geoms:
+            gt = ogr.GT_Flatten(g.GetGeometryType())
+            if gt == ogr.wkbPolygon:
+                multi.AddGeometry(g)
+            elif gt == ogr.wkbMultiPolygon:
+                for i in range(g.GetGeometryCount()):
+                    multi.AddGeometry(g.GetGeometryRef(i))
+        return multi
+    return union_polys(geoms)
+
+
+def build_zoom_halos(cov):
+    """zoom -> coverage of the charts that reach that zoom, grown by one and a half tiles.
+
+    A tile that only clips a finer chart is drawn in place of its parent. The coarser
+    water, land and coastline have to be in that tile too, or the edge of the finer
+    chart is blank. A tile is 360/2^z degrees wide; 1.5 of those covers the boundary
+    tile with a little to spare (tiles are shorter in latitude than in longitude).
+    """
+    by_z = {}
+    for band, geom, _env in cov.cells.values():
+        by_z.setdefault(BAND_MAXZOOM.get(band, 16), []).append(geom.Clone())
+    halos = {}
+    for z, geoms in sorted(by_z.items()):
+        merged = clean(union_polys(geoms))
+        if merged is None:
+            continue
+        pad = 1.5 * 360.0 / (1 << z)
+        try:
+            halo = clean(merged.Buffer(pad))
+        except RuntimeError as ex:
+            log(f"halo at zoom {z} failed ({ex})")
+            continue
+        if halo is None:
+            continue
+        halos[z] = halo
+        log(f"halo zoom {z}: {len(geoms)} charts, {pad:.4f} deg")
+    return halos
+
+
+def chop_geom(geom, step):
+    """Split a geometry whose envelope is wider than `step` degrees.
+
+    GDAL clips each feature into every tile its envelope touches. One coastline
+    or depth area merged across a bay is clipped into tens of thousands of tiles
+    at harbour zoom. Pieces about four tiles across avoid that.
+    """
+    minx, maxx, miny, maxy = geom.GetEnvelope()
+    if maxx - minx <= step and maxy - miny <= step:
+        return [geom]
+    x0 = math.floor(minx / step) * step
+    y0 = math.floor(miny / step) * step
+    out = []
+    x = x0
+    while x < maxx - 1e-12:
+        y = y0
+        while y < maxy - 1e-12:
+            box = make_box(x, y, x + step, y + step)
+            try:
+                if geom.Intersects(box):
+                    part = clean(geom.Intersection(box))
+                else:
+                    part = None
+            except RuntimeError:
+                part = None
+            if part is not None:
+                out.extend(explode(part))
+            y += step
+        x += step
+    return out or [geom]
+
+
+def write_gpkg(col, path, halos=None, region=False):
     drv = ogr.GetDriverByName("GPKG")
     if os.path.exists(path):
         drv.DeleteDataSource(path)
@@ -467,8 +598,9 @@ def write_gpkg(col, path):
     def layer_for(name):
         if name in layers:
             return layers[name]
-        ly = ds.CreateLayer(name, srs, wkb_of(name), options=["SPATIAL_INDEX=NO"])
-        for fname, ftype in field_defs(name):
+        public = public_layer(name)
+        ly = ds.CreateLayer(name, srs, wkb_of(public), options=["SPATIAL_INDEX=NO"])
+        for fname, ftype in field_defs(public):
             ly.CreateField(ogr.FieldDefn(fname, ftype))
         layers[name] = ly
         return ly
@@ -482,19 +614,65 @@ def write_gpkg(col, path):
                 feat.SetField(k, v)
         ly.CreateFeature(feat)
 
-    ds.StartTransaction()
-    for name, groups in col.polys.items():
+    merged = {}
+    for (layer, zoom), groups in col.polys.items():
         for key, geoms in groups.items():
-            props = dict(key)
-            merged = clean(union_polys(geoms))
-            if merged is None:
+            g = clean(merge_group(geoms))
+            if g is not None:
+                merged[(layer, zoom, key)] = g
+    halo_n = 0
+    if halos:
+        extras = []
+        for (layer, zoom, key), geom in list(merged.items()):
+            if zoom is None or layer not in BASE_LAYERS:
                 continue
-            for part in explode(merged):
-                if ogr.GT_Flatten(part.GetGeometryType()) == ogr.wkbPolygon and part.GetArea() >= 1e-12:
-                    write(name, part, props)
-    for name, groups in col.lines.items():
+            for hz, halo in halos.items():
+                if hz <= zoom:
+                    continue
+                try:
+                    if not geom.Intersects(halo):
+                        continue
+                    strip = clean(geom.Intersection(halo))
+                except RuntimeError as ex:
+                    log(f"halo clip {layer} zoom {zoom} to {hz} failed ({ex})")
+                    continue
+                if strip is not None:
+                    extras.append((layer, hz, key, strip))
+        for layer, hz, key, strip in extras:
+            k = (layer, hz, key)
+            if k in merged:
+                both = clean(union_polys([merged[k], strip]))
+                if both is not None:
+                    merged[k] = both
+            else:
+                merged[k] = strip
+        halo_n = len(extras)
+        log(f"halo strips copied onto finer zooms: {halo_n}")
+
+    def pieces(geom, zoom):
+        if not region or zoom is None:
+            return [geom]
+        # Four tiles at this band's max zoom. Finer zooms overzoom these pieces.
+        return chop_geom(geom, 4.0 * 360.0 / (1 << zoom))
+
+    ds.StartTransaction()
+    for (layer, zoom, key), geom in merged.items():
+        props = dict(key)
+        name = gpkg_layer(layer, zoom)
+        for part in explode(geom):
+            for piece in pieces(part, zoom):
+                if ogr.GT_Flatten(piece.GetGeometryType()) == ogr.wkbPolygon and piece.GetArea() >= 1e-12:
+                    write(name, piece, props)
+    for (layer, zoom), groups in col.lines.items():
+        name = gpkg_layer(layer, zoom)
         for key, geoms in groups.items():
             props = dict(key)
+            if region:
+                for g in geoms:
+                    for piece in pieces(g, zoom):
+                        if ogr.GT_Flatten(piece.GetGeometryType()) == ogr.wkbLineString and piece.Length() >= 1e-7:
+                            write(name, piece, props)
+                continue
             if len(geoms) == 1:
                 write(name, geoms[0], props)
                 continue
@@ -502,10 +680,10 @@ def write_gpkg(col, path):
             for g in geoms:
                 multi.AddGeometry(g)
             write(name, multi, props)
-    for name, props, x, y in col.points:
+    for layer, zoom, props, x, y in col.points:
         pt = ogr.Geometry(ogr.wkbPoint)
         pt.AddPoint_2D(x, y)
-        write(name, pt, props)
+        write(gpkg_layer(layer, zoom), pt, props)
     ds.CommitTransaction()
     names = [layers[n].GetName() for n in layers]
     counts = {n: layers[n].GetFeatureCount() for n in layers}
@@ -513,32 +691,62 @@ def write_gpkg(col, path):
     return names, counts
 
 
-def write_mbtiles(gpkg, out, layer_names, bounds):
+def write_mbtiles(gpkg, out, layer_names, bounds, title, description, region):
+    """Returns (conf path, file max zoom). Region layers map back to the same MVT
+    names the Middle River chart uses (depare, soundg, lights, ...)."""
     w, s, e, n = bounds
-    conf = {
-        "minzoom": 8,
-        "maxzoom": 16,
-        "layers": {name: {"minzoom": MINZOOM.get(name, 8), "maxzoom": 16} for name in layer_names},
-    }
+    if region:
+        # Layer settings sit at the root of the CONF. GDAL looks up the OGR layer
+        # name there (not under a "layers" key) and writes target_name into the tile.
+        # Several source layers (depare_z13, depare_z15) become one MVT layer.
+        file_max = 8
+        conf = {}
+        for name in layer_names:
+            public = public_layer(name)
+            _head, sep, tail = name.rpartition("_z")
+            z = int(tail) if sep and tail.isdigit() else 16
+            file_max = max(file_max, z)
+            # A band whose cap is below the style's minzoom (approach soundings stop
+            # at 13, the style draws them from 14) is stored at its cap and overzoomed.
+            conf[name] = {
+                "target_name": public,
+                "minzoom": min(MINZOOM.get(public, 8), z),
+                "maxzoom": z,
+            }
+        # 4 tile units below a layer's own max zoom; that max zoom stays unsmoothed.
+        simplify = ["SIMPLIFICATION=4", "SIMPLIFICATION_MAX_ZOOM=0"]
+        center_z = 9
+    else:
+        file_max = 16
+        # The box build keeps this shape. Per-layer zooms match the dataset zooms,
+        # and the MVT layer name is already the source name.
+        conf = {
+            "minzoom": 8,
+            "maxzoom": 16,
+            "layers": {name: {"minzoom": MINZOOM.get(name, 8), "maxzoom": 16} for name in layer_names},
+        }
+        simplify = ["SIMPLIFICATION_MAX_ZOOM=0"]
+        center_z = 12
     conf_path = gpkg + ".conf.json"
     with open(conf_path, "w") as f:
         json.dump(conf, f)
     if os.path.exists(out):
         os.remove(out)
+    log(f"tiling zooms 8-{file_max}" + (" (simplified below each band's max zoom)" if region else ""))
     gdal.VectorTranslate(out, gpkg, format="MVT", datasetCreationOptions=[
         "FORMAT=MBTILES",
         "MINZOOM=8",
-        "MAXZOOM=16",
-        "NAME=Middle River ENC",
-        "DESCRIPTION=NOAA ENC charts for Middle River, MD. Depths in whole feet. Public domain.",
+        f"MAXZOOM={file_max}",
+        f"NAME={title}",
+        f"DESCRIPTION={description}",
         "COMPRESS=YES",
         "MAX_SIZE=2000000",
-        "SIMPLIFICATION_MAX_ZOOM=0",
+        *simplify,
         f"CONF={conf_path}",
         f"BOUNDS={w},{s},{e},{n}",
-        f"CENTER={(w + e) / 2},{(s + n) / 2},12",
+        f"CENTER={(w + e) / 2},{(s + n) / 2},{center_z}",
     ])
-    return conf_path
+    return conf_path, file_max
 
 
 def summarize(path):
@@ -552,49 +760,87 @@ def summarize(path):
     log(f"wrote {path} ({size / 1e6:.2f} MB), gzip tiles: {gzipped}")
     log("metadata: " + ", ".join(f"{k}={v[:80]}" for k, v in meta.items() if k != "json"))
     log("tiles per zoom: " + ", ".join(f"z{z}={n}" for z, n in zooms))
-    ds = ogr.Open(path)
-    layers = []
-    for i in range(ds.GetLayerCount()):
-        ly = ds.GetLayer(i)
-        layers.append(f"{ly.GetName()}={ly.GetFeatureCount()}")
-    ds = None
-    log("mvt layers: " + ", ".join(layers))
+    # Counting features walks every tile. Fine for the Middle River file, slow for a region.
+    if size <= 8_000_000:
+        ds = ogr.Open(path)
+        layers = []
+        for i in range(ds.GetLayerCount()):
+            ly = ds.GetLayer(i)
+            layers.append(f"{ly.GetName()}={ly.GetFeatureCount()}")
+        ds = None
+        log("mvt layers: " + ", ".join(layers))
+    else:
+        try:
+            names = [ly["id"] for ly in json.loads(meta.get("json", "{}")).get("vector_layers", [])]
+        except (ValueError, TypeError, KeyError):
+            names = []
+        log("mvt layers: " + ", ".join(names))
     return size, meta, zooms
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Build Middle River ENC vector tiles (MBTiles).")
-    ap.add_argument("-b", "--bbox", help="W,S,E,N (default: Middle River, MD)")
-    ap.add_argument("-o", "--out", default=DEFAULT_OUT)
+    ap = argparse.ArgumentParser(description="Build NOAA ENC vector tiles (MBTiles) for the in-app map.")
+    ap.add_argument("-r", "--region", help="NCDS region code from tools/areas.json, e.g. 04")
+    ap.add_argument("-b", "--bbox", help="W,S,E,N instead of a region (default with no -r: Middle River, MD)")
+    ap.add_argument("-o", "--out", help="output .mbtiles (default: Ncds_<region>.mbtiles, or the bundled Middle River file)")
     ap.add_argument("-w", "--work", default=os.path.expanduser("~/.cache/noaa-route/enc-work"))
     a = ap.parse_args()
-    if a.bbox:
-        w, s, e, n = (float(x) for x in a.bbox.split(","))
-    else:
-        w, s, e, n = DEFAULT_BBOX
-    out = os.path.abspath(a.out)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    if a.region and a.bbox:
+        raise SystemExit("Give -r or -b, not both")
     os.makedirs(a.work, exist_ok=True)
 
     eto = load_enc_to_osm()
     brp = eto.brp
     t0 = time.time()
     enc = brp.enc_catalog(a.work)
+    title = "Middle River ENC"
+    description = "NOAA ENC charts for Middle River, MD. Depths in whole feet. Public domain."
+    region_mode = False
+    if a.region:
+        areas = json.load(open(os.path.join(HERE, "areas.json")))["areas"]
+        area = next((x for x in areas if x.get("ncds") == a.region), None)
+        if area is None:
+            raise SystemExit(f"No region {a.region} in areas.json")
+        w, s, e, n = brp.region_bbox(area, enc)
+        region_mode = True
+        title = area["name"]
+        description = f"NOAA ENC charts for {area['name']}. Depths in whole feet. Public domain."
+        out = a.out or f"Ncds_{a.region}.mbtiles"
+    elif a.bbox:
+        w, s, e, n = (float(x) for x in a.bbox.split(","))
+        out = a.out or DEFAULT_OUT
+    else:
+        w, s, e, n = DEFAULT_BBOX
+        out = a.out or DEFAULT_OUT
+    out = os.path.abspath(out)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+
     metas = [c for c in enc if brp.meets(c["bbox"], w, s, e, n)]
-    log(f"box {[w, s, e, n]}: {len(metas)} cells ({', '.join(sorted(m['name'] for m in metas))})")
+    bands = {}
+    for m in metas:
+        bands[m["band"]] = bands.get(m["band"], 0) + 1
+    where = f"region {a.region}" if region_mode else "box"
+    names_txt = ""
+    if len(metas) <= 15:
+        names_txt = " (" + ", ".join(sorted(m["name"] for m in metas)) + ")"
+    log(f"{where} {[round(x, 3) for x in (w, s, e, n)]}: {len(metas)} cells, bands {dict(sorted(bands.items()))}{names_txt}")
+    if region_mode:
+        log("band max zoom: " + ", ".join(f"{b}->z{z}" for b, z in sorted(BAND_MAXZOOM.items())))
     cells = brp.fetch_cells(metas, a.work)
     cov = eto.Coverage(os.path.join(a.work, "ENCProdCat.xml"), set(cells))
     box = make_box(w, s, e, n)
     classes = ["DEPARE", "DRGARE", "LNDARE", "DEPCNT", "COALNE", "FAIRWY", "SLCONS", "BRIDGE",
                "SOUNDG", "BOYLAT", "BCNLAT", "LIGHTS", "WRECKS", "UWTROC", "OBSTRN"]
     col = Collector()
-    for name in sorted(cells, key=lambda nm: (-int(nm[2]), nm)):
+    ordered = sorted(cells, key=lambda nm: (-int(nm[2]), nm))
+    for i, name in enumerate(ordered, 1):
         band = int(name[2])
         src = ogr.Open(cells[name])
         if src is None:
             raise SystemExit(f"{name}: GDAL could not open the cell")
         t1 = time.time()
         before = sum(col.counts.values())
+        zoom = BAND_MAXZOOM.get(band, 16) if region_mode else None
         for cls in classes:
             layer = src.GetLayerByName(cls)
             if layer is None:
@@ -620,21 +866,46 @@ def main():
                     if piece is None:
                         continue
                     for part in explode(piece):
-                        add_object(col, cls, feat, part, eto, z)
+                        add_object(col, cls, feat, part, eto, z, zoom)
         src = None
-        log(f"{name} band {band}: {sum(col.counts.values()) - before} objects in {time.time() - t1:.1f}s")
+        took = time.time() - t1
+        if len(ordered) <= 30 or i % 25 == 0 or i == len(ordered) or took >= 5:
+            log(f"{name} band {band}: {sum(col.counts.values()) - before} objects in {took:.1f}s ({i}/{len(ordered)})")
 
     log("kept: " + ", ".join(f"{k}={v}" for k, v in sorted(col.counts.items())))
     for required in ("depare", "lndare", "soundg"):
         if col.counts.get(required, 0) == 0:
-            raise SystemExit(f"no {required} features inside the box; the chart would be empty")
+            raise SystemExit(f"no {required} features inside the area; the chart would be empty")
 
-    gpkg = os.path.join(a.work, "middle_river.gpkg")
-    names, counts = write_gpkg(col, gpkg)
-    log("gpkg: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    write_mbtiles(gpkg, out, names, (w, s, e, n))
-    size, _, _ = summarize(out)
-    log(f"done in {time.time() - t0:.0f}s, {size} bytes")
+    halos = None
+    if region_mode:
+        try:
+            halos = build_zoom_halos(cov)
+        except Exception as ex:
+            log(f"halos skipped ({ex})")
+            halos = None
+    stem = f"Ncds_{a.region}" if region_mode else "middle_river"
+    # Next to the output, not in the cell cache: a half-written GeoPackage must not
+    # be saved with the chart cells (vector-maps.yml caches that directory).
+    gpkg = os.path.join(os.path.dirname(out) or ".", stem + ".gpkg")
+    if not out.endswith(".mbtiles"):
+        raise SystemExit(f"{out} must end in .mbtiles")
+    # GDAL's MVT driver refuses to write MBTiles unless the name ends in .mbtiles.
+    part = out[:-len(".mbtiles")] + ".partial.mbtiles"
+    try:
+        names, counts = write_gpkg(col, gpkg, halos, region_mode)
+        log("gpkg: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+        write_mbtiles(gpkg, part, names, (w, s, e, n), title, description, region_mode)
+        size, _, _ = summarize(part)
+        os.replace(part, out)
+        log(f"done in {time.time() - t0:.0f}s, {size} bytes")
+    finally:
+        for p in (gpkg, gpkg + ".conf.json", part, part + ".temp.db", out + ".temp.db"):
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":

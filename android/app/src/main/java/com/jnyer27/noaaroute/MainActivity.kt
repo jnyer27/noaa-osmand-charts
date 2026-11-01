@@ -66,6 +66,7 @@ class MainActivity : Activity() {
     private val store by lazy { PackStore(this) }
     private val maps by lazy { ChartMaps(this) }
     private val vmaps by lazy { VectorMaps(this) }
+    private val chartTiles by lazy { ChartTileStore(this) }
     private var vcatalog: List<VectorMaps.Region> = emptyList()
     private var charts: ChartSet? = null
     private var chartsSig = ""
@@ -147,7 +148,7 @@ class MainActivity : Activity() {
         col.addView(packButton)
         col.addView(button("View map") { showChart() })
         col.addView(TextView(this).apply {
-            text = "Middle River chart: depth contours, soundings and marks for your safe operating depth. No route needed. A planned route is drawn on it from View on map, under the report."
+            text = "View map draws NOAA's chart for your safe operating depth. A region's chart can be downloaded from that screen, or from the region in Regions, when the catalog publishes one. Until a downloaded chart covers the area on screen, the bundled Middle River chart is shown. A planned route is drawn from View on map, under the report. On the chart, Route data draws what the planner sees from a region you have downloaded, on whichever chart is showing."
             textSize = 12f
         })
         noticeText = TextView(this)
@@ -267,7 +268,7 @@ class MainActivity : Activity() {
         // The background job may have updated or swapped packs
         if (store.signature() != chartsSig) { openCharts(); checkTrip() }
         // Chart map downloads may have finished, or a map was deleted in Files
-        worker.execute { maps.reconcile(); vmaps.reconcile(); ui.post { regionsChanged?.invoke() } }
+        worker.execute { maps.reconcile(); vmaps.reconcile(); chartTiles.reconcile(); ui.post { regionsChanged?.invoke() } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -709,6 +710,17 @@ class MainActivity : Activity() {
                     setOnClickListener { c?.ncds?.let { regionCard(it) } ?: areaAction(id) }
                 })
             }
+            // In-app charts, one per region the vector catalog publishes tiles for
+            rows.addView(label("Charts for this app"))
+            val appCharts = chartTiles.catalogSets().sortedBy { it.ncds }
+            if (appCharts.isEmpty()) rows.addView(TextView(this).apply {
+                text = "Charts for View map are published with the vector charts. None are listed yet, or the list has not been fetched. Until one is downloaded, View map uses the bundled Middle River chart."
+            })
+            for (set in appCharts) rows.addView(TextView(this).apply {
+                text = "${set.name}\n" + appChartStatus(set)
+                setPadding(0, dp(10), 0, dp(10))
+                setOnClickListener { regionCard(set.ncds) }
+            })
             // Chart maps for OsmAnd
             rows.addView(label("Chart maps for OsmAnd"))
             val entries = maps.all().values.sortedBy { it.key }
@@ -746,8 +758,12 @@ class MainActivity : Activity() {
                 if (!d.isShowing) return
                 val all = maps.all().values
                 val vec = vmaps.all().values
-                val now = all.joinToString { "${it.key}:${it.state}" } + vec.joinToString { "${it.ncds}:${it.state}" }
-                if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING } || vec.any { it.state == VectorMaps.State.DOWNLOADING }) fill()
+                val app = chartTiles.all().values
+                val now = all.joinToString { "${it.key}:${it.state}" } + vec.joinToString { "${it.ncds}:${it.state}" } +
+                    app.joinToString { "${it.ncds}:${it.state}:${it.readySha}" }
+                if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING } ||
+                    vec.any { it.state == VectorMaps.State.DOWNLOADING } ||
+                    app.any { it.state == ChartTileStore.State.DOWNLOADING || it.state == ChartTileStore.State.SAVING || it.state == ChartTileStore.State.DOWNLOADED }) fill()
                 last = now
                 ui.postDelayed(this, 2000)
             }
@@ -794,6 +810,45 @@ class MainActivity : Activity() {
         ChartMaps.State.READY -> "ready: Download/${ChartMaps.SUBDIR}/${e.file} (%.0f MB)".format(e.size / 1e6) +
             if (e.mbtilesOnly) " (.mbtiles, not converted)" else ""
         ChartMaps.State.FAILED -> "failed: ${e.error}"
+    }
+
+    /** In-app chart status. The catalog entry is what is published now. */
+    private fun appChartStatus(set: ChartTiles.TileSet): String {
+        val e = chartTiles.get(set.ncds)
+        return when (e?.state) {
+            null -> "not downloaded, about %.0f MB".format(set.size / 1e6)
+            ChartTileStore.State.DOWNLOADING -> chartTiles.progress(set.ncds)?.let { (got, total) ->
+                "downloading: %.0f of %.0f MB (waits for Wi-Fi unless mobile data was allowed)".format(got / 1e6, total / 1e6)
+            } ?: "download queued (waits for Wi-Fi unless mobile data was allowed)"
+            ChartTileStore.State.DOWNLOADED, ChartTileStore.State.SAVING -> "checking the download..."
+            ChartTileStore.State.READY -> (if (chartTiles.needsUpdate(e, set)) "UPDATE available" else "ready for View map") +
+                " (%.0f MB)".format(set.size / 1e6) + (e.error?.let { "\n$it" } ?: "")
+            ChartTileStore.State.FAILED -> "failed: ${e.error}"
+        }
+    }
+
+    /** Check space, ask Wi-Fi or mobile data, then download one region's in-app chart. */
+    private fun startAppChart(set: ChartTiles.TileSet) {
+        val need = chartTiles.spaceNeeded(set)
+        val free = chartTiles.freeBytes()
+        if (free < need) {
+            AlertDialog.Builder(this).setTitle("Not enough space")
+                .setMessage("${set.shortName}'s chart is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(set.size / 1e6, need / 1e6, free / 1e6))
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+        fun go(mobile: Boolean) {
+            chartTiles.start(set, mobile)
+            status.text = "${set.shortName}'s chart is downloading. View map uses it when the area on screen is inside it."
+            regionsChanged?.invoke()
+        }
+        AlertDialog.Builder(this).setTitle("${set.shortName} chart, %.0f MB".format(set.size / 1e6))
+            .setMessage("NOAA's chart for View map. Android downloads it in the background. It stays in the app and works offline. It is not an OsmAnd map.")
+            .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
+            .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
+            .setNegativeButton("Cancel", null).show()
     }
 
     /** The published vector chart catalog (cached first, then fetched), then redraw. */
@@ -849,6 +904,26 @@ class MainActivity : Activity() {
             openCharts()
             checkTrip()
         })
+
+        val appChart = chartTiles.catalogSets().firstOrNull { it.ncds == code }
+        if (appChart != null) {
+            box.addView(label("Chart for this app"))
+            val te = chartTiles.get(code)
+            box.addView(TextView(this).apply { text = appChartStatus(appChart) + "\nUsed by View map. Not an OsmAnd map." })
+            when (te?.state) {
+                ChartTileStore.State.DOWNLOADING, ChartTileStore.State.DOWNLOADED, ChartTileStore.State.SAVING ->
+                    box.addView(act("Cancel download") { chartTiles.cancel(code); regionsChanged?.invoke() })
+                ChartTileStore.State.FAILED -> {
+                    box.addView(act("Try again") { startAppChart(appChart) })
+                    box.addView(act("Remove") { chartTiles.delete(code); regionsChanged?.invoke() })
+                }
+                ChartTileStore.State.READY -> {
+                    if (chartTiles.needsUpdate(te, appChart)) box.addView(act("Update chart") { startAppChart(appChart) })
+                    box.addView(act("Delete chart") { chartTiles.delete(code); regionsChanged?.invoke() })
+                }
+                null -> box.addView(act("Download chart") { startAppChart(appChart) })
+            }
+        }
 
         box.addView(label("Chart map for OsmAnd"))
         val e = maps.get(code)
@@ -1194,21 +1269,28 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------ planning
 
+    /** Air draft from the form, or null when the field is empty. The planner treats empty the same way. */
+    private fun formAir(): Double? = air.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 300 }
+
     /** The Middle River chart alone, shaded for the safe depth on the form (3 ft if that field is empty). */
     private fun showChart() {
         val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
-        startActivity(Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d))
+        val i = Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d)
+        formAir()?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
+        startActivity(i)
     }
 
-    /** The chart screen for this route. The Middle River tiles are bundled; other waters draw the line only. */
+    /** The chart screen for this route. A downloaded catalog chart that covers it, otherwise Middle River. */
     private fun showOnMap() {
         val r = route ?: return
         val f = File(cacheDir, "map-route.json")
         f.writeText(ChartTiles.routeGeoJson(r))
-        startActivity(Intent(this, ChartMapActivity::class.java)
+        val i = Intent(this, ChartMapActivity::class.java)
             .putExtra(ChartMapActivity.EXTRA_ROUTE, f.absolutePath)
             .putExtra(ChartMapActivity.EXTRA_DEPTH, r.depthFt)
-            .putExtra(ChartMapActivity.EXTRA_NAME, r.name))
+            .putExtra(ChartMapActivity.EXTRA_NAME, r.name)
+        r.airFt?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
+        startActivity(i)
     }
 
     private fun plan() {

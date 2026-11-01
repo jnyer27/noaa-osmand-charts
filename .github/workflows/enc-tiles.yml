@@ -1,22 +1,39 @@
 name: ENC vector tiles
 
-# Rebuilds the Middle River chart the app bundles (tools/build_enc_tiles.py).
-# The APK build does not run this: it uses the mbtiles already in android/app/src/main/assets.
-# Run it when the chart should pick up newer Notice to Mariners, then commit the new file.
+# Rebuilds chart tiles (tools/build_enc_tiles.py). With no region, that is the Middle River
+# chart the app bundles. The APK build does not run this: it uses the mbtiles already in
+# android/app/src/main/assets. Run it when that chart should pick up newer Notice to Mariners,
+# then commit the new file. A region code builds Ncds_<region>.mbtiles instead (the weekly
+# vector-maps workflow is what publishes region tiles).
 on:
   workflow_dispatch:
+    inputs:
+      region:
+        description: 'NCDS region code, e.g. 04. Empty builds the bundled Middle River chart.'
+        default: ""
 
 jobs:
   tiles:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - name: Setup
         run: tools/cloud-setup.sh
-      - name: Build Middle River tiles
-        run: python3 tools/build_enc_tiles.py
+      - name: Build tiles
+        env:
+          REGION: ${{ inputs.region }}
+        run: |
+          if [ -n "$REGION" ]; then
+            case "$REGION" in
+              [0-9][0-9]|[0-9][0-9][a-z]) ;;
+              *) echo "region must look like 04 or 02a" >&2; exit 1 ;;
+            esac
+            python3 tools/build_enc_tiles.py -r "$REGION" -o "Ncds_${REGION}.mbtiles"
+          else
+            python3 tools/build_enc_tiles.py
+          fi
       - uses: actions/upload-artifact@v7
         with:
-          name: middle-river-mbtiles
-          path: android/app/src/main/assets/middle_river.mbtiles
+          name: enc-mbtiles
+          path: ${{ inputs.region != '' && format('Ncds_{0}.mbtiles', inputs.region) || 'android/app/src/main/assets/middle_river.mbtiles' }}
