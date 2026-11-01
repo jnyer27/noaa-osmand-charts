@@ -107,6 +107,17 @@ object ChartTiles {
     fun depthText(ft: Double): String =
         if (ft.isFinite() && ft % 1.0 == 0.0) ft.toInt().toString() else String.format(Locale.US, "%.2f", ft)
 
+    /**
+     * The depth sentence of the chart legend. Strong blue is a depth area whose
+     * deep limit is under the safe depth, lighter blue is one whose range straddles
+     * it, pale blue is at or over it.
+     */
+    fun depthLegend(depthFt: Double): String {
+        val depth = depthText(depthFt)
+        return "Safe operating depth $depth ft: strong blue is charted entirely under it, " +
+            "lighter blue is a range that straddles it, pale blue is at or over it, olive dries. "
+    }
+
     /** One GeoJSON feature per leg (flagged 1 when [Gpx.flagged]) plus a point at each route position. */
     fun routeGeoJson(route: Route): String {
         val sb = StringBuilder()

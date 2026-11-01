@@ -153,10 +153,11 @@ object RouteOverlay {
         val pier = fl and Pack.F_STRUCT != 0 || hzv == Pack.HZ_PIER
         val snag = hzv == 1 && fl and Pack.F_CABLE == 0 && cc == Pack.SNAG_MARK
         val gate = fl and Pack.F_CABLE == 0 && cc == Pack.GATE_MARK
-        // Obstructions to the safe depth plus one foot, soundings under the safe depth.
-        // Same comparisons as Planner.buildGrid (ROUNDING_M already applied to soundings).
+        // Obstructions to the safe depth plus one foot. A sounding whose chart label
+        // (whole feet, as the tiles print them) is at or under the safe depth.
+        // Depth areas still use Planner.classify and its 5 cm slack.
         val hazardHit = hzv != 0 && hzv != Pack.HZ_PIER && !snag && (hzv - 1) / 10.0 < depthM + Pack.FT
-        val soundHit = sv != 0 && (sv - 1) / 10.0 < depthM - Planner.ROUNDING_M
+        val soundHit = sv != 0 && Planner.soundingShallow((sv - 1) / 10.0, Planner.depthFeet(depthM))
         return when {
             lowBridge -> Kind.LOW_BRIDGE
             lowCable -> Kind.LOW_CABLE

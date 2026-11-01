@@ -388,6 +388,71 @@ class PlannerTest {
     }
 
     @Test
+    fun oneMarginalCellIsReported() {
+        // A single column of 0-1.8 m across otherwise deep water. The old gate
+        // dropped a crossing of one grid cell, so the leg carried no shallow note.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 0 until size) planes[Pack.P_DEPTH][r * size + 256] = 2
+        Pack(writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")).use { pack ->
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(200, 200), cellCenter(200, 300)), 3.0, null)
+            assertTrue("shoal %.0f m".format(r.legs.sumOf { it.shoalM }), r.legs.any { it.shoalM > 0 })
+        }
+    }
+
+    @Test
+    fun smoothedLegDoesNotCrossMarginalWaterThePathAvoided() {
+        // Deep water with a 0-1.8 m block the straight line would cut. Going through
+        // costs four times as much, so the path goes around. The chord must not
+        // come back across the block.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 180..320) for (c in 240..270) planes[Pack.P_DEPTH][r * size + c] = 2
+        Pack(writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")).use { pack ->
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(250, 180), cellCenter(250, 340)), 3.0, null)
+            for ((p, q) in r.points.zipWithNext()) for (k in 0..80) {
+                val t = k / 80.0
+                val lat = p.lat + (q.lat - p.lat) * t
+                val lon = p.lon + (q.lon - p.lon) * t
+                val row = (north - lat) / dlat
+                val col = (lon - west) / dlon
+                val inside = row in 185.0..315.0 && col in 245.0..265.0
+                assertTrue("leg through the shoal at row %.0f col %.0f".format(row, col), !inside)
+            }
+        }
+    }
+
+    @Test
+    fun aSoundingPrintedAtTheSafeDepthIsGivenABuffer() {
+        // 1.5 m prints as 5 ft. At a 5 ft safe depth it is a hazard. At 4 ft it is not.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        planes[Pack.P_SOUND][250 * size + 256] = 16 // 1 + round(1.5 m * 10)
+        val spot = cellCenter(250, 256)
+        Pack(writePack(planes, "[]")).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val ends = listOf(cellCenter(250, 200), cellCenter(250, 312))
+            fun nearest(route: Route): Double {
+                var best = Double.MAX_VALUE
+                for ((p, q) in route.points.zipWithNext()) for (k in 0..100) {
+                    val t = k / 100.0
+                    best = minOf(best, Planner.distanceM(spot, LatLon(p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)))
+                }
+                return best
+            }
+            val at5 = planner.plan("t", ends, 5.0, null)
+            val at4 = planner.plan("t", ends, 4.0, null)
+            val d5 = nearest(at5)
+            val d4 = nearest(at4)
+            // The cell is a wall and the 60 m buffer around it is costly, so the 5 ft
+            // route stays outside the buffer. At 4 ft the same sounding prints as 5,
+            // which is over the safe depth, and the route may run through the cell.
+            assertTrue("5 ft route is ${"%.0f".format(d5)} m from the sounding", d5 >= 60.0)
+            assertTrue("4 ft route is ${"%.0f".format(d4)} m from the sounding", d4 <= 5.0)
+        }
+    }
+
+    @Test
     fun hazardNotes() {
         // The range is the 20 m cell around the distance, rounded out to 5 m
         assertEquals("passes 25-45 m from a charted 3.2 ft sounding: check",

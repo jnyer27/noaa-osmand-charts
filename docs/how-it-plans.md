@@ -12,12 +12,12 @@ The app turns NOAA's charts into a grid of 20 m cells and finds the cheapest pat
 | Charted | What the planner does |
 |---|---|
 | Depth area at least your safe depth | Used freely |
-| Depth area that spans your safe depth (NOAA's usual 0-6 ft band) | Used only when needed, and flagged with the length in it and the shallowest sounding nearby. Soundings shallower than your depth are treated as hazards. |
+| Depth area that spans your safe depth (NOAA's usual 0-6 ft band) | Used only when needed, and flagged with the length in it and the shallowest sounding nearby. A sounding the chart labels at or under your depth is a hazard. |
 | Land, drying, unsurveyed or uncharted water | Never used |
 
 ## Hazards
 
-Rocks, wrecks and obstructions shallower than your depth plus 1 ft (or of unknown depth), and soundings shallower than your depth, get a 60 m safety buffer. Over water charted deep enough (such as a dredged channel), only the hazard itself is a wall and the buffer is crossed only when there is no other way, with a "check" note. In water that may be shallower than your depth, the whole buffer is a wall. Single charted piles are not avoided (a 20 m cell would close narrow channels), so keep a lookout.
+Rocks, wrecks and obstructions shallower than your depth plus 1 ft (or of unknown depth), and soundings the chart labels at or under your depth, get a 60 m safety buffer. Over water charted deep enough (such as a dredged channel), only the hazard itself is a wall and the buffer is crossed only when there is no other way, with a "check" note. In water that may be shallower than your depth, the whole buffer is a wall. Single charted piles are not avoided (a 20 m cell would close narrow channels), so keep a lookout.
 
 ## Channels
 

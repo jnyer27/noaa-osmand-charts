@@ -53,6 +53,9 @@ jobs:
           NOAAROUTE_KEYSTORE_PASSWORD: ${{ secrets.NOAAROUTE_KEYSTORE_PASSWORD }}
           NOAAROUTE_KEY_ALIAS: ${{ secrets.NOAAROUTE_KEY_ALIAS }}
           NOAAROUTE_KEY_PASSWORD: ${{ secrets.NOAAROUTE_KEY_PASSWORD }}
+          # Region chart tiles are published on the main vector-maps release. A branch
+          # APK would otherwise download vector-maps-beta and miss them.
+          NOAA_CATALOG: main
         run: |
           gradle --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/noaa-route.apk"

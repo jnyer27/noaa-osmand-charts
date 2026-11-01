@@ -126,4 +126,14 @@ class ChartTilesTest {
             doubleArrayOf(-76.5, 39.2, -76.3, 39.4), 8, 15)
         assertEquals("bb", ChartTiles.pick(listOf(wide, tight), listOf(LatLon(39.32, -76.40)))!!.ncds)
     }
+
+    @Test
+    fun depthLegendNamesTheThreeFills() {
+        val text = ChartTiles.depthLegend(5.0)
+        assertTrue(text, text.contains("Safe operating depth 5 ft"))
+        assertTrue(text, text.contains("strong blue is charted entirely under it"))
+        assertTrue(text, text.contains("lighter blue is a range that straddles it"))
+        assertTrue(text, text.contains("pale blue is at or over it"))
+        assertFalse(text, text.contains("\u2014"))
+    }
 }
