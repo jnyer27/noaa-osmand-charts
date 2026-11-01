@@ -174,6 +174,18 @@ class ChartTileStore(private val ctx: Context) {
         }
     }
 
+    /** Remove a region's chart. View map falls back to the bundled chart there. */
+    fun delete(ncds: String) {
+        val e = get(ncds) ?: return
+        if (e.download >= 0) dm.remove(e.download)
+        partial(e.file).delete()
+        File(dir, e.file).delete()
+        put(null, ncds)
+    }
+
+    fun needsUpdate(e: Entry?, remote: ChartTiles.TileSet) =
+        e?.state == State.READY && e.readySha != null && e.readySha != remote.sha256
+
     fun cancel(ncds: String) {
         val e = get(ncds) ?: return
         if (e.download >= 0) dm.remove(e.download)

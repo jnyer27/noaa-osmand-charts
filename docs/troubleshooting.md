@@ -8,7 +8,7 @@ nav_order: 10
 | Symptom | Fix |
 |---|---|
 | "Download a chart region first (Regions)." | Tap **Regions** and download the region for your trip. |
-| **Route data** says no route pack is downloaded for this view | Download the region that covers the water on screen (Middle River is in region 04) under **Regions**, then turn **Route data** on again. The layer only draws where a route pack is already on the phone. It draws on the Region 04 chart and on the bundled Middle River chart. |
+| **Route data** says no route pack is downloaded for this view | Download the region that covers the water on screen under **Regions**, then turn **Route data** on again. The layer only draws where a route pack is already on the phone. It draws on a downloaded region chart and on the bundled Middle River chart. |
 | A banner says the trip needs another region | Tap its **Download** button, or download it from the Regions screen. |
 | "Start must be LAT, LON" | Type decimal degrees with a comma (`39.25, -76.48`) or hemispheres (`39.25 N, 76.48 W`), or use **Places** / **Here**. |
 | "No location fix" | Turn on Location, wait for a GPS fix outdoors, or type the position. |

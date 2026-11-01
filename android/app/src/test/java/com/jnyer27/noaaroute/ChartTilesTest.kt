@@ -94,8 +94,9 @@ class ChartTilesTest {
         val annapolis = LatLon(38.97, -76.48)
         val norfolk = LatLon(36.85, -76.29)
         assertEquals("04", ChartTiles.pick(sets, listOf(marina, annapolis))!!.ncds)
-        assertEquals("04", ChartTiles.pick(sets, emptyList())!!.ncds) // View map opens on Middle River
+        assertEquals("04", ChartTiles.pick(sets, ChartTiles.focus(emptyList(), null))!!.ncds)
         assertNull(ChartTiles.pick(sets, listOf(norfolk)))
+        assertNull(ChartTiles.pick(sets, emptyList()))
         // Most of the view wins when two charts both touch the trip.
         val trip = listOf(marina, LatLon(40.5, -74.0), LatLon(40.6, -74.0))
         assertEquals("03", ChartTiles.pick(sets, trip)!!.ncds)
@@ -105,9 +106,24 @@ class ChartTilesTest {
     fun offerIsTheCatalogChartThatIsNotDownloadedYet() {
         val sets = ChartTiles.tileSets(catalog)
         val r04 = sets.first { it.ncds == "04" }
-        assertEquals("04", ChartTiles.offer(sets, emptyList(), emptyList())!!.ncds)
-        assertNull(ChartTiles.offer(sets, listOf(r04), emptyList()))
+        val home = ChartTiles.focus(emptyList(), null)
+        assertEquals("04", ChartTiles.offer(sets, emptyList(), home)!!.ncds)
+        assertNull(ChartTiles.offer(sets, listOf(r04), home))
         assertEquals("04", ChartTiles.offer(sets, emptyList(), listOf(LatLon(39.32, -76.40)))!!.ncds)
+        assertEquals("03", ChartTiles.offer(sets, listOf(r04), listOf(LatLon(40.5, -74.0)))!!.ncds)
         assertNull(ChartTiles.offer(sets, emptyList(), listOf(LatLon(36.85, -76.29))))
+    }
+
+    @Test
+    fun theCameraPicksTheChartAndATighterBoundsWins() {
+        val route = listOf(LatLon(39.32, -76.40))
+        val elsewhere = LatLon(40.7, -74.0)
+        assertEquals(elsewhere, ChartTiles.focus(route, elsewhere).single())
+        assertEquals(route, ChartTiles.focus(route, null))
+        val wide = ChartTiles.TileSet("aa", "Region aa: wide", "a.mbtiles", 1, "a",
+            doubleArrayOf(-78.0, 38.0, -74.0, 40.0), 8, 15)
+        val tight = ChartTiles.TileSet("bb", "Region bb: tight", "b.mbtiles", 1, "b",
+            doubleArrayOf(-76.5, 39.2, -76.3, 39.4), 8, 15)
+        assertEquals("bb", ChartTiles.pick(listOf(wide, tight), listOf(LatLon(39.32, -76.40)))!!.ncds)
     }
 }

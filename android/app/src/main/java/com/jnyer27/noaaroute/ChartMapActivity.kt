@@ -46,10 +46,12 @@ import java.util.concurrent.RejectedExecutionException
 /**
  * Offline NOAA ENC chart, with the planned route drawn on it.
  * MapLibre Native (BSD-2-Clause) renders an MBTiles file from tools/build_enc_tiles.py.
- * When this view is inside a downloaded region chart (Region 04 today), that file is the
- * source. Otherwise the bundled Middle River chart is shown, and the screen offers the
- * region download. There is no online base map: the picture is NOAA ENC only, so the
- * license is NOAA's public domain data plus MapLibre's own notice (the logo stays on the map).
+ * A downloaded chart from the vector catalog is the source when its bounds cover the
+ * route, or the middle of the map once the camera has settled. Every region with a
+ * tiles entry is eligible. Otherwise the bundled Middle River chart is shown, and the
+ * screen offers the catalog chart for this view. There is no online base map: the picture is
+ * NOAA ENC only, so the license is NOAA's public domain data plus MapLibre's own notice
+ * (the logo stays on the map).
  * Route data, off until it is turned on, draws the planner's grid from downloaded route packs
  * on top of whichever chart is showing, and under the route line.
  */
@@ -79,6 +81,8 @@ class ChartMapActivity : Activity() {
     private var shownKey: String? = null
     private var loadError = false
     private var chartNote = ""
+    /** The first chart frames the route or Middle River. Later switches keep the camera. */
+    private var framed = false
     private var overlayOn = false
     private var generation = 0
     private var openPacks: List<Pack> = emptyList()
@@ -181,10 +185,22 @@ class ChartMapActivity : Activity() {
         }
     }
 
-    /** Choose the region chart or the bundled Middle River file, and the download button. */
+    /** Center of the map once it has fitted a real area, or null while it is still the world. */
+    private fun viewCenter(): LatLon? {
+        val loaded = map ?: return null
+        val b = try { loaded.projection.visibleRegion.latLngBounds } catch (_: Exception) { return null }
+        val west = b.longitudeWest
+        val east = b.longitudeEast
+        val south = b.latitudeSouth
+        val north = b.latitudeNorth
+        if (!(east > west && north > south) || east - west > 40.0 || north - south > 40.0) return null
+        return LatLon((south + north) / 2, (west + east) / 2)
+    }
+
+    /** Choose a catalog chart for the route or the map, or the bundled Middle River file. */
     private fun present() {
         val loaded = map ?: return
-        val pts = routePoints()
+        val pts = ChartTiles.focus(routePoints(), viewCenter())
         val ready = tiles.readySets()
         val catalog = tiles.catalogSets()
         val chosen = ChartTiles.pick(ready, pts)
@@ -223,10 +239,13 @@ class ChartMapActivity : Activity() {
             entry?.error != null -> " ${entry.error}."
             else -> ""
         }
+        val fallback = if (chosen == null && offer != null && status.isEmpty())
+            " This view is in ${offer.shortName}. The Middle River chart is shown until that chart is downloaded."
+        else ""
+        chartNote = status + fallback
         val file = chosen?.let { tiles.file(it) }?.takeIf { it.isFile }
         if (chosen != null && file != null) {
             val key = chosen.ncds + ":" + chosen.sha256
-            chartNote = status
             if (shownKey != key) {
                 loadError = false
                 openFile(loaded, file, chosen.bounds, chosen.shortName, region = true)
@@ -235,7 +254,6 @@ class ChartMapActivity : Activity() {
             }
             shownKey = key
         } else {
-            chartNote = status
             val key = "bundled"
             if (shownKey != key) {
                 loadError = false
@@ -284,7 +302,10 @@ class ChartMapActivity : Activity() {
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
-            position(loaded, w, s, e, n)
+            if (!framed) {
+                position(loaded, w, s, e, n)
+                framed = true
+            }
             if (overlayOn) refreshOverlay()
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 listen()

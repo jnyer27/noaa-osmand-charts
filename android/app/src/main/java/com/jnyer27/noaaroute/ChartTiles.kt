@@ -25,7 +25,10 @@ object ChartTiles {
     const val EAST = -76.32
     const val NORTH = 39.36
 
-    /** Where View map opens when there is no route: Middle River, inside region 04. */
+    /**
+     * Where View map opens when there is no route and the camera is not ready yet:
+     * the bundled Middle River chart. Whichever catalog chart contains this point is offered.
+     */
     val HOME = LatLon((SOUTH + NORTH) / 2, (WEST + EAST) / 2)
 
     /**
@@ -39,6 +42,8 @@ object ChartTiles {
     ) {
         fun contains(p: LatLon) = p.lon in bounds[0]..bounds[2] && p.lat in bounds[1]..bounds[3]
         fun countInside(points: List<LatLon>) = points.count { contains(it) }
+        /** Area of the catalog bounds, so a tighter chart wins when two cover the same point. */
+        fun span() = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
         /** "Region 04" from "Region 04: Upper Chesapeake and Delaware Bay". */
         val shortName get() = name.substringBefore(':').ifBlank { "Region $ncds" }
         fun url(base: String) = base + file
@@ -71,15 +76,26 @@ object ChartTiles {
     }
 
     /**
-     * Which downloaded chart to draw. The set that contains the most of [points] wins.
-     * No points means View map with no route, which opens on [HOME] (Middle River).
-     * One set for now. A later screen can turn every set with a count above zero into
-     * its own MapLibre source instead of keeping only the winner.
+     * Points that choose a chart. A settled camera uses its center, so panning selects
+     * the region on screen. Before the camera is ready, the route's points are used,
+     * and View map with no route uses [HOME].
+     */
+    fun focus(route: List<LatLon>, view: LatLon?): List<LatLon> = when {
+        view != null -> listOf(view)
+        route.isNotEmpty() -> route
+        else -> listOf(HOME)
+    }
+
+    /**
+     * Which chart covers [points]. The one that contains the most of them wins.
+     * A tie goes to the smaller bounds, then the region code, so the result does not
+     * depend on catalog order. One chart is drawn. Every other catalog chart that
+     * also covers the view can be downloaded from Regions.
      */
     fun pick(sets: List<TileSet>, points: List<LatLon>): TileSet? {
-        val view = if (points.isNotEmpty()) points else listOf(HOME)
-        return sets.maxWithOrNull(compareBy<TileSet> { it.countInside(view) }.thenBy { it.ncds })
-            ?.takeIf { it.countInside(view) > 0 }
+        if (points.isEmpty()) return null
+        return sets.maxWithOrNull(compareBy<TileSet> { it.countInside(points) }.thenBy { -it.span() }.thenBy { it.ncds })
+            ?.takeIf { it.countInside(points) > 0 }
     }
 
     /** A catalog chart that covers this view and is not downloaded yet. */

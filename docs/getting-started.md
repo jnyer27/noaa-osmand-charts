@@ -37,7 +37,7 @@ The app shows "Planned in 0.8 s. Saved to Download/noaa-charts/routes/..." and t
 
 Tap **Open in OsmAnd**. OsmAnd shows the route; start navigation or just follow the line. If OsmAnd does not open it, tap **Show routes folder in Files** and tap the `.gpx` file there. See [Using routes in OsmAnd](osmand.html).
 
-**View map**, under **Regions**, opens the chart with no route on it. **View on map**, next to **Open in OsmAnd**, draws the route you just planned. From that screen you can download the Region 04 chart (upper Chesapeake and Delaware Bay, about 32 MB). Until you do, and for anywhere outside that region, the bundled Middle River chart is shown. **Route data** on that screen, off until you turn it on, draws what the planner sees from a region you have downloaded, on top of whichever chart is showing. It works offline and it does not replace OsmAnd. See [View on map](planning.html#view-on-map).
+**View map**, under **Regions**, opens the chart with no route on it. **View on map**, next to **Open in OsmAnd**, draws the route you just planned. From that screen, or from a region's card, you can download that region's chart when the catalog publishes one (today, Region 04, the upper Chesapeake and Delaware Bay, about 32 MB). Until a downloaded chart covers the area on screen, the bundled Middle River chart is shown. **Route data** on that screen, off until you turn it on, draws what the planner sees from a region you have downloaded, on top of whichever chart is showing. It works offline and it does not replace OsmAnd. See [View on map](planning.html#view-on-map).
 
 ## 4. Share places from other map apps
 
