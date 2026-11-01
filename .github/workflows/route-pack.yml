@@ -14,7 +14,17 @@ name: Route pack
 #              routes, then publish: for changes to tests in areas.json, not packs
 #   promote    on main: copy the tested route-pack-beta packs to route-pack instead of
 #              building them again; refused unless the commit that built them is in main
+# A push of this workflow or the pack builder does not build every region. A commit
+# message "[pack 04]" or "[pack ncds_04 05]" builds those areas only (manual runs can
+# pass the same codes in `regions`). The other packs are taken from the route-pack
+# release so the reference routes still run, and the branch publishes the whole set
+# to route-pack-beta.
 on:
+  push:
+    paths:
+      - "tools/build_route_pack.py"
+      - "tools/test_depth_coverage.py"
+      - ".github/workflows/route-pack.yml"
   schedule:
     - cron: "0 12 * * 6"
   workflow_dispatch:
@@ -26,6 +36,10 @@ on:
       run_id:
         description: "test-only: the run whose packs to reuse"
         required: false
+      regions:
+        description: 'Areas to build, e.g. "04" or "ncds_04 05". Empty builds every area.'
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -37,10 +51,51 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       ids: ${{ steps.ids.outputs.ids }}
+      partial: ${{ steps.ids.outputs.partial }}
     steps:
       - uses: actions/checkout@v7
       - id: ids
-        run: echo "ids=$(python3 -c 'import json; print(json.dumps([a["id"] for a in json.load(open("tools/areas.json"))["areas"]]))')" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT: ${{ github.event_name }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          REGIONS: ${{ inputs.regions }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          areas = json.load(open("tools/areas.json"))["areas"]
+          all_ids = [a["id"] for a in areas]
+          by_ncds = {a["ncds"]: a["id"] for a in areas if a.get("ncds")}
+          ev = os.environ.get("EVENT") or ""
+          want = []
+          if ev == "push":
+              m = re.search(r"\[pack ([0-9a-z ]+)\]", os.environ.get("MESSAGE") or "")
+              if not m:
+                  print("ids=[]")
+                  print("partial=false")
+                  raise SystemExit(0)
+              want = m.group(1).split()
+          else:
+              want = (os.environ.get("REGIONS") or "").split()
+          if not want:
+              print("ids=" + json.dumps(all_ids))
+              print("partial=false")
+              raise SystemExit(0)
+          picked = []
+          for w in want:
+              key = w.lower()
+              if key in all_ids:
+                  area = key
+              elif key in by_ncds:
+                  area = by_ncds[key]
+              elif "ncds_" + key in all_ids:
+                  area = "ncds_" + key
+              else:
+                  raise SystemExit(f"Unknown area or region {w}")
+              if area not in picked:
+                  picked.append(area)
+          print("ids=" + json.dumps(picked))
+          print("partial=" + ("true" if picked != all_ids else "false"))
+          PY
 
   build:
     needs: areas
@@ -58,6 +113,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-numpy python3-scipy
 
+      - name: Depth coverage tests
+        run: python3 -m unittest tools/test_depth_coverage.py
+
       - name: Build ${{ matrix.id }}
         run: |
           python3 tools/build_route_pack.py -a ${{ matrix.id }} -o packs
@@ -70,7 +128,7 @@ jobs:
           retention-days: 3
 
   test-and-publish:
-    needs: build
+    needs: [areas, build]
     # Runs after a build, or on its own in test-only mode (build is then skipped)
     if: always() && (needs.build.result == 'success' || (inputs.mode == 'test-only' && needs.build.result == 'skipped'))
     runs-on: ubuntu-24.04
@@ -91,9 +149,11 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Merge catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'EOF'
-          import glob, json, os
+          import glob, json, os, subprocess
           ids = [a["id"] for a in json.load(open("tools/areas.json"))["areas"]]
           entries = {}
           for f in glob.glob("packs/catalog-*.json"):
@@ -102,7 +162,20 @@ jobs:
               os.remove(f)
           missing = [i for i in ids if i not in entries]
           if missing:
-              raise SystemExit(f"No pack built for {missing}")
+              # A [pack 04] build (or a manual regions list) only produced some packs.
+              # The rest come from the published route-pack release, so reference routes
+              # still run and route-pack-beta stays a complete set.
+              os.makedirs("packs-base", exist_ok=True)
+              subprocess.check_call(["gh", "release", "download", "route-pack", "-D", "packs-base",
+                                      "-p", "catalog.json"] + [a for i in missing for a in ("-p", i + ".bin")])
+              base = {a["id"]: a for a in json.load(open("packs-base/catalog.json"))["areas"]}
+              absent = [i for i in missing if i not in base or not os.path.isfile(f"packs-base/{i}.bin")]
+              if absent:
+                  raise SystemExit(f"No pack built for {absent}, and route-pack has no copy")
+              for i in missing:
+                  entries[i] = base[i]
+                  os.replace(f"packs-base/{i}.bin", f"packs/{i}.bin")
+              print(f"Filled {len(missing)} packs from the route-pack release")
           json.dump({"version": 2, "areas": [entries[i] for i in ids]}, open("packs/catalog.json", "w"), indent=1)
           print(f"Catalog with {len(ids)} areas")
           EOF

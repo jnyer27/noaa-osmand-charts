@@ -15,6 +15,11 @@ Planning:
 Chart display:
 - **The chart legend names the three blues.** Strong blue is charted entirely under your safe depth, lighter blue is a range that straddles it, and pale blue is at or over it. Olive still dries.
 
+## 2026-11-01: route packs (not released yet)
+
+Routing and safety:
+- **Shallow edges of depth areas are stored.** Depth was recorded at the center of each 20 m cell, and where two areas overlapped the deeper one won the cell. A route at a 5 ft safe depth clipped the west edge of a 0-6 ft knoll (chart US5MD1ND, about 39.012 N, 76.386 W): the knoll covers about 8 m of the next cells, which stayed 6-12 ft. Where a shallower ordinary depth area covers more than about a quarter of a cell, the pack now stores that shallower range. Dredged areas and charted fairways still keep the deeper depth at the cell center, so a channel one cell wide stays open. The pack format is unchanged, so the current app reads the new packs.
+
 ## 2026-11-01: Region 04 chart on View map (not released yet)
 
 Chart display:
