@@ -24,7 +24,7 @@ Once your chart region is downloaded, planning works fully offline, usually in a
 |---|---|
 | [Install](install.html) | Getting the app on your phone, and updates |
 | [Getting started](getting-started.html) | First launch, your chart region, your first route |
-| [Planning a route](planning.html) | Every field on the main screen: start, destination, via points, depth, air draft, Stay inside, Move ends to navigable water, places, and the Middle River chart |
+| [Planning a route](planning.html) | Every field on the main screen: start, destination, via points, depth, air draft, Stay inside, Move ends to navigable water, places, and the in-app chart (Region 04, or Middle River until that chart is downloaded) |
 | [Reading the route report](report.html) | Courses, distances and what each "check" note means |
 | [Using routes in OsmAnd](osmand.html) | Following a route, sharing points from OsmAnd, chart maps and vector charts |
 | [Chart regions and updates](regions.html) | The Regions screen, weekly updates, trips across regions |

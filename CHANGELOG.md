@@ -4,6 +4,12 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-01: Region 04 chart on View map (not released yet)
+
+Chart display:
+- **Download Region 04 chart.** **View map** and **View on map** can download NOAA's chart of the upper Chesapeake and Delaware Bay (about 32 MB) from the same weekly build as the OsmAnd vector charts. The button shows the progress, the file is checked, and a later build can be downloaded again with **Update Region 04 chart**. After that the chart works offline. It stays in the app. It is not saved under Download/noaa-charts and it is not an OsmAnd map. The picture runs from zoom 8 to zoom 15. Pinching in further enlarges it.
+- Without that download, and for a route outside Region 04, the screen still uses the bundled Middle River chart. Only Region 04 is offered so far.
+
 ## 2026-10-30: in-app chart, proof of concept (not released yet)
 
 Chart display:

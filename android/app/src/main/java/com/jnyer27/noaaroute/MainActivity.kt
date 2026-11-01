@@ -147,7 +147,7 @@ class MainActivity : Activity() {
         col.addView(packButton)
         col.addView(button("View map") { showChart() })
         col.addView(TextView(this).apply {
-            text = "Middle River chart: depth contours, soundings and marks for your safe operating depth. No route needed. A planned route is drawn on it from View on map, under the report."
+            text = "View map draws NOAA's chart for your safe operating depth. Region 04 (upper Chesapeake and Delaware Bay) can be downloaded from that screen, about 32 MB, and then works offline. Without it, the bundled Middle River chart is shown. A planned route is drawn from View on map, under the report."
             textSize = 12f
         })
         noticeText = TextView(this)
@@ -267,7 +267,7 @@ class MainActivity : Activity() {
         // The background job may have updated or swapped packs
         if (store.signature() != chartsSig) { openCharts(); checkTrip() }
         // Chart map downloads may have finished, or a map was deleted in Files
-        worker.execute { maps.reconcile(); vmaps.reconcile(); ui.post { regionsChanged?.invoke() } }
+        worker.execute { maps.reconcile(); vmaps.reconcile(); ChartTileStore(this).reconcile(); ui.post { regionsChanged?.invoke() } }
     }
 
     override fun onNewIntent(intent: Intent) {

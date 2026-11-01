@@ -4,9 +4,14 @@ import java.util.Locale
 import kotlin.math.min
 
 /**
- * Nautical style and route overlay for the Middle River chart screen.
- * Plain Kotlin: the map activity only supplies the tile file and the user's safe depth.
+ * Nautical style and route overlay for the in-app chart.
+ * Plain Kotlin: the map activity supplies the tile file and the user's safe depth.
  * Depth colors follow that depth, so the same tiles serve a 3 ft boat and an 8 ft one.
+ *
+ * A region chart (Ncds_04.mbtiles and, later, the other regions) is one MapLibre
+ * source, same layers as the bundled Middle River file. [pick] chooses which
+ * downloaded set to draw. Several sets can be returned as separate sources once
+ * more than one region is on screen; today the choice is a single set.
  */
 object ChartTiles {
     const val ASSET = "middle_river.mbtiles"
@@ -19,6 +24,69 @@ object ChartTiles {
     const val SOUTH = 39.27
     const val EAST = -76.32
     const val NORTH = 39.36
+
+    /** Where View map opens when there is no route: Middle River, inside region 04. */
+    val HOME = LatLon((SOUTH + NORTH) / 2, (WEST + EAST) / 2)
+
+    /**
+     * One region's in-app chart, from the vector catalog's `tiles` object.
+     * The download URL is the vector release base plus [file] (the same place as the OsmAnd maps).
+     * [bounds] is west, south, east, north.
+     */
+    class TileSet(
+        val ncds: String, val name: String, val file: String, val size: Long, val sha256: String,
+        val bounds: DoubleArray, val minZoom: Int, val maxZoom: Int,
+    ) {
+        fun contains(p: LatLon) = p.lon in bounds[0]..bounds[2] && p.lat in bounds[1]..bounds[3]
+        fun countInside(points: List<LatLon>) = points.count { contains(it) }
+        /** "Region 04" from "Region 04: Upper Chesapeake and Delaware Bay". */
+        val shortName get() = name.substringBefore(':').ifBlank { "Region $ncds" }
+        fun url(base: String) = base + file
+    }
+
+    /** Region charts listed in a vector-maps catalog. Regions with no `tiles` object are skipped. */
+    fun tileSets(catalogJson: String): List<TileSet> {
+        val root = MiniJson.parse(catalogJson) as? Map<*, *> ?: return emptyList()
+        val regions = root["regions"] as? List<*> ?: return emptyList()
+        val out = ArrayList<TileSet>()
+        for (raw in regions) {
+            val reg = raw as? Map<*, *> ?: continue
+            val tiles = reg["tiles"] as? Map<*, *> ?: continue
+            val file = tiles["file"] as? String ?: continue
+            val sha = tiles["sha256"] as? String ?: continue
+            if (sha.isEmpty()) continue
+            val size = (tiles["size"] as? Number)?.toLong() ?: continue
+            val box = tiles["bounds"] as? List<*> ?: continue
+            if (box.size != 4 || box.any { it !is Number }) continue
+            val ncds = reg["ncds"] as? String ?: continue
+            val name = reg["name"] as? String ?: "Region $ncds"
+            out.add(TileSet(
+                ncds, name, file, size, sha,
+                DoubleArray(4) { (box[it] as Number).toDouble() },
+                (tiles["minzoom"] as? Number)?.toInt() ?: 8,
+                (tiles["maxzoom"] as? Number)?.toInt() ?: 15,
+            ))
+        }
+        return out
+    }
+
+    /**
+     * Which downloaded chart to draw. The set that contains the most of [points] wins.
+     * No points means View map with no route, which opens on [HOME] (Middle River).
+     * One set for now. A later screen can turn every set with a count above zero into
+     * its own MapLibre source instead of keeping only the winner.
+     */
+    fun pick(sets: List<TileSet>, points: List<LatLon>): TileSet? {
+        val view = if (points.isNotEmpty()) points else listOf(HOME)
+        return sets.maxWithOrNull(compareBy<TileSet> { it.countInside(view) }.thenBy { it.ncds })
+            ?.takeIf { it.countInside(view) > 0 }
+    }
+
+    /** A catalog chart that covers this view and is not downloaded yet. */
+    fun offer(catalog: List<TileSet>, downloaded: List<TileSet>, points: List<LatLon>): TileSet? {
+        val have = downloaded.map { it.ncds }.toSet()
+        return pick(catalog.filter { it.ncds !in have }, points)
+    }
 
     fun depthText(ft: Double): String =
         if (ft.isFinite() && ft % 1.0 == 0.0) ft.toInt().toString() else String.format(Locale.US, "%.2f", ft)
