@@ -88,7 +88,10 @@ class ChartTileStore(private val ctx: Context) {
         else e.tileSet()
     }
 
-    fun busy(ncds: String?) = get(ncds ?: return false)?.state in BUSY
+    fun busy(ncds: String?): Boolean {
+        if (ncds == null) return false
+        return get(ncds)?.state in BUSY
+    }
 
     @Synchronized
     private fun put(e: Entry?, key: String = e!!.ncds) {
