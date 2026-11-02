@@ -154,8 +154,8 @@ object RouteOverlay {
         val snag = hzv == 1 && fl and Pack.F_CABLE == 0 && cc == Pack.SNAG_MARK
         val gate = fl and Pack.F_CABLE == 0 && cc == Pack.GATE_MARK
         // Obstructions to the safe depth plus one foot. A sounding whose chart label
-        // (whole feet, as the tiles print them) is at or under the safe depth.
-        // Depth areas still use Planner.classify and its 5 cm slack.
+        // (whole feet, as the tiles print them) is under the safe depth. A label
+        // equal to it is not a hazard. Depth areas still use Planner.classify and its 5 cm slack.
         val hazardHit = hzv != 0 && hzv != Pack.HZ_PIER && !snag && (hzv - 1) / 10.0 < depthM + Pack.FT
         val soundHit = sv != 0 && Planner.soundingShallow((sv - 1) / 10.0, Planner.depthFeet(depthM))
         return when {

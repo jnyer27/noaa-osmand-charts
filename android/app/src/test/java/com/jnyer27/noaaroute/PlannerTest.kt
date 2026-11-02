@@ -423,33 +423,34 @@ class PlannerTest {
     }
 
     @Test
-    fun aSoundingPrintedAtTheSafeDepthIsGivenABuffer() {
-        // 1.5 m prints as 5 ft. At a 5 ft safe depth it is a hazard. At 4 ft it is not.
-        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
-        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
-        planes[Pack.P_SOUND][250 * size + 256] = 16 // 1 + round(1.5 m * 10)
-        val spot = cellCenter(250, 256)
-        Pack(writePack(planes, "[]")).use { pack ->
-            val planner = Planner(ChartSet(listOf(pack)))
-            val ends = listOf(cellCenter(250, 200), cellCenter(250, 312))
-            fun nearest(route: Route): Double {
-                var best = Double.MAX_VALUE
-                for ((p, q) in route.points.zipWithNext()) for (k in 0..100) {
-                    val t = k / 100.0
-                    best = minOf(best, Planner.distanceM(spot, LatLon(p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)))
-                }
-                return best
+    fun aSoundingPrintedAtTheSafeDepthIsNotAHazard() {
+        // 1.5 m prints as 5 ft. At 5 ft the route may run through the cell. The same
+        // cell with 1.2 m (prints as 4) is a wall at 5 ft and open at 4 ft.
+        val ends = listOf(cellCenter(250, 200), cellCenter(250, 312))
+        fun nearest(route: Route, spot: LatLon): Double {
+            var best = Double.MAX_VALUE
+            for ((p, q) in route.points.zipWithNext()) for (k in 0..100) {
+                val t = k / 100.0
+                best = minOf(best, Planner.distanceM(spot, LatLon(p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)))
             }
-            val at5 = planner.plan("t", ends, 5.0, null)
-            val at4 = planner.plan("t", ends, 4.0, null)
-            val d5 = nearest(at5)
-            val d4 = nearest(at4)
-            // The cell is a wall and the 60 m buffer around it is costly, so the 5 ft
-            // route stays outside the buffer. At 4 ft the same sounding prints as 5,
-            // which is over the safe depth, and the route may run through the cell.
-            assertTrue("5 ft route is ${"%.0f".format(d5)} m from the sounding", d5 >= 60.0)
-            assertTrue("4 ft route is ${"%.0f".format(d4)} m from the sounding", d4 <= 5.0)
+            return best
         }
+        fun route(dm: Int, depthFt: Double): Double {
+            val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+            for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+            val spot = cellCenter(250, 256)
+            planes[Pack.P_SOUND][250 * size + 256] = (1 + dm).toByte()
+            Pack(writePack(planes, "[]")).use { pack ->
+                val planned = Planner(ChartSet(listOf(pack))).plan("t", ends, depthFt, null)
+                return nearest(planned, spot)
+            }
+        }
+        val equal = route(15, 5.0) // 1.5 m, chart label 5
+        val under = route(12, 5.0) // 1.2 m, chart label 4
+        val underAt4 = route(12, 4.0)
+        assertTrue("5 ft route through a printed 5 is ${"%.0f".format(equal)} m away", equal <= 5.0)
+        assertTrue("5 ft route is ${"%.0f".format(under)} m from a printed 4", under >= 60.0)
+        assertTrue("4 ft route through a printed 4 is ${"%.0f".format(underAt4)} m away", underAt4 <= 5.0)
     }
 
     @Test

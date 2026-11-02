@@ -63,11 +63,18 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         fun depthFeet(depthM: Double) = Math.rint(depthM / Pack.FT * 100.0) / 100.0
 
         /**
-         * A sounding the chart would label at or under the safe depth. Depth areas
-         * keep [ROUNDING_M]; this is only the printed sounding, which is what the
-         * chart puts on the water (a stored 1.5 m prints as 5).
+         * A sounding the chart would label strictly under the safe depth, in whole
+         * feet. A label equal to the safe depth is not a hazard: 1.5 m prints as 5,
+         * and 1.4 m prints as 5 too, so neither gets the buffer at 5 ft. A label of
+         * 4 does. The comparison is those whole feet, not meters minus [ROUNDING_M].
+         * That 5 cm slack is less than half a foot, so it never separated one chart
+         * label from the next, and it did treat some 5 ft labels (1.4 m is 4.6 ft)
+         * as hazards. [depthFt] is the safe depth in feet ([depthFeet] makes
+         * 5 * 0.3048 come back as 5.00). The 1e-6 ft only stops a value a hair over
+         * 5.00 from counting a printed 5 as shallower; a label one foot under is
+         * still a hazard. Depth areas keep [ROUNDING_M].
          */
-        fun soundingShallow(meters: Double, depthFt: Double) = printedFeet(meters) <= depthFt + 1e-9
+        fun soundingShallow(meters: Double, depthFt: Double) = printedFeet(meters) < depthFt - 1e-6
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val MOVE_ENDS_M = 0.5 * NM // ...and with Move ends to navigable water, from any pocket or along the water
