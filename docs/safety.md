@@ -13,7 +13,7 @@ nav_order: 9
 - **Tide and water level.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Wind and low tides can take water below chart datum.
 - **The real bottom.** Soundings are sparse, and shoals move, especially in inlets and the ICW. Charts lag behind the water, even with Notices to Mariners.
 - **Small things.** Single piles, crab pots, floating debris and uncharted obstructions are not on the grid.
-- **Exact lines.** The grid is 20 m. A route line may run along one side of a narrow opening or channel; line up on the marks by eye.
+- **Exact lines.** The grid is 20 m. A narrow dredged channel is drawn toward its middle, but a line through a bridge opening can still sit to one side. Line up on the marks by eye.
 - **Bridge schedules and real clearances.** Opening bridges have schedules; fixed clearances change with the water level. Read the clearance boards.
 - **Rules of the road, traffic, weather.**
 
