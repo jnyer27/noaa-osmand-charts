@@ -104,6 +104,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // 20 nm outside to the Cape Fear River instead of down the ICW.
         private const val DREDGED_PROX = 0.25f
         private const val DREDGED_SOFT_COST = 1.5f
+        /**
+         * Dredged areas and fairways no wider than this are narrow channels: the
+         * route is pulled to the middle, and a straightened leg must stay off the
+         * edge. Wider ones keep a flat cost. There is no narrow flag in the pack.
+         * The builder's narrow strip is a different rule (an ordinary depth area
+         * at most two cells wide keeps its deeper center) and does not mark
+         * dredged areas. 120 m is six 20 m cells. The dredged cut the Ego Alley
+         * route follows south of Middle River (about 39.23 N, 76.396 W) is two
+         * or three cells wide, about 60 to 80 m, so it counts. A middle more
+         * than 60 m from every edge is a wide area and is left alone.
+         */
+        private const val NARROW_CHANNEL_M = 120.0
+        /** Extra cost at the edge of a narrow channel, as a fraction of the way out from the middle. The middle is unchanged. */
+        private const val CENTER_EDGE_COST = 1f
+        /** A chord in a narrow channel stays this share of the local width off the edge, and never has to stay more than [CENTER_KEEP_M]. */
+        private const val CENTER_KEEP_FRAC = 0.25
+        private const val CENTER_KEEP_M = 30.0
         // Shore proximity: cost rises within about SHORE_M of danger, at least K_MIN cells
         private const val SHORE_M = 100.0
         private const val K_MIN = 5
@@ -214,10 +231,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     // ------------------------------------------------------------ grid
 
-    /** [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags). */
+    /**
+     * [pier]: costly cells a leg may not cut across (piers, seawalls, passable snags).
+     * [narrowDist] and [narrowHalf]: cell steps from the edge of a narrow channel, and
+     * the local half-width in the same steps. Both are 0 outside a narrow channel.
+     */
     private class Grid(val nav: ByteArray, val ok: BooleanArray, val cost: FloatArray, val prox: ByteArray,
                        val planes: Array<ByteArray>, val nopass: BooleanArray, val rad: Int, val k: Int,
-                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray) {
+                       val pier: BooleanArray, val snag: BooleanArray, val soft: BooleanArray, val gate: BooleanArray,
+                       val narrowDist: ByteArray, val narrowHalf: ByteArray) {
         /**
          * A dredged channel cell deep enough. A step between two of them may cut a blocked
          * corner: the ICW's Coinjock cut is charted as a 1-cell dredged staircase along the
@@ -225,6 +247,101 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
          * shore) made the cut cost more than 12 nm of open Currituck Sound.
          */
         fun channel(i: Int) = nav[i].toInt() == SAFE && planes[Pack.P_DEPTH][i].toInt() and DREDGED != 0
+    }
+
+    /**
+     * Cell steps from the edge of a narrow dredged channel or fairway, and the
+     * local half-width in the same steps. Both arrays are 0 outside one.
+     *
+     * The channel is usable water charted at least the safe depth inside a
+     * dredged area or fairway. Steps are 4-connected from a cell that touches
+     * anything else. The window border is not an edge, so a channel running
+     * off the grid is not pushed off a side the grid has not seen. A cell
+     * center is (steps - 0.5) cells from the edge.
+     *
+     * Wide where the middle is more than [NARROW_CHANNEL_M] / 2 from every
+     * edge. That middle, and the cells out to the edge around it, stay 0, so
+     * a wide basin keeps a flat cost. A narrow cut that opens into the basin
+     * stays narrow past the mouth. Half-width spreads only downhill, from the
+     * middle of a cross-section to its own edge cells, not along the channel
+     * into a thinner pinch.
+     */
+    private fun narrowChannel(a: Area, nav: ByteArray, ok: BooleanArray, dredged: BooleanArray): Pair<ByteArray, ByteArray> {
+        val n = a.n
+        val w = a.w
+        val h = a.h
+        val distOut = ByteArray(n)
+        val halfOut = ByteArray(n)
+        // (steps - 0.5) * res > NARROW/2 is the middle of something wider than NARROW.
+        val cap = floor(NARROW_CHANNEL_M / (2.0 * a.res) + 0.5).toInt()
+        if (cap < 1) return distOut to halfOut
+        val chan = BooleanArray(n) { i -> ok[i] && dredged[i] && nav[i].toInt() == SAFE }
+        val dist = IntArray(n) { -1 }
+        var frontier = IntArray(n)
+        var next = IntArray(n)
+        var fn = 0
+        for (i in 0 until n) if (chan[i]) {
+            val r = i / w
+            val c = i % w
+            val edge = (r > 0 && !chan[i - w]) || (r < h - 1 && !chan[i + w]) ||
+                (c > 0 && !chan[i - 1]) || (c < w - 1 && !chan[i + 1])
+            if (edge) { dist[i] = 1; frontier[fn++] = i }
+        }
+        var step = 1
+        while (fn > 0 && step <= cap) {
+            step++
+            var nn = 0
+            for (f in 0 until fn) {
+                val i = frontier[f]
+                val r = i / w
+                val c = i % w
+                val nd = dist[i] + 1
+                if (r > 0) { val j = i - w; if (chan[j] && dist[j] < 0) { dist[j] = nd; next[nn++] = j } }
+                if (r < h - 1) { val j = i + w; if (chan[j] && dist[j] < 0) { dist[j] = nd; next[nn++] = j } }
+                if (c > 0) { val j = i - 1; if (chan[j] && dist[j] < 0) { dist[j] = nd; next[nn++] = j } }
+                if (c < w - 1) { val j = i + 1; if (chan[j] && dist[j] < 0) { dist[j] = nd; next[nn++] = j } }
+            }
+            val t = frontier; frontier = next; next = t
+            fn = nn
+        }
+        val wide = BooleanArray(n)
+        fn = 0
+        for (i in 0 until n) if (chan[i] && (dist[i] < 0 || dist[i] > cap)) { wide[i] = true; frontier[fn++] = i }
+        repeat(cap) {
+            var nn = 0
+            for (f in 0 until fn) {
+                val i = frontier[f]
+                val r = i / w
+                val c = i % w
+                if (r > 0) { val j = i - w; if (chan[j] && !wide[j]) { wide[j] = true; next[nn++] = j } }
+                if (r < h - 1) { val j = i + w; if (chan[j] && !wide[j]) { wide[j] = true; next[nn++] = j } }
+                if (c > 0) { val j = i - 1; if (chan[j] && !wide[j]) { wide[j] = true; next[nn++] = j } }
+                if (c < w - 1) { val j = i + 1; if (chan[j] && !wide[j]) { wide[j] = true; next[nn++] = j } }
+            }
+            val t = frontier; frontier = next; next = t
+            fn = nn
+        }
+        val buckets = Array(cap + 1) { ArrayList<Int>() }
+        val half = IntArray(n)
+        for (i in 0 until n) if (chan[i] && !wide[i] && dist[i] in 1..cap) {
+            half[i] = dist[i]
+            buckets[dist[i]].add(i)
+        }
+        for (s in cap downTo 1) for (i in buckets[s]) {
+            val hgt = half[i]
+            val r = i / w
+            val c = i % w
+            fun give(j: Int) { if (half[j] != 0 && dist[j] < s && half[j] < hgt) half[j] = hgt }
+            if (r > 0) give(i - w)
+            if (r < h - 1) give(i + w)
+            if (c > 0) give(i - 1)
+            if (c < w - 1) give(i + 1)
+        }
+        for (i in 0 until n) if (half[i] > 0) {
+            distOut[i] = dist[i].toByte()
+            halfOut[i] = half[i].toByte()
+        }
+        return distOut to halfOut
     }
 
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
@@ -423,6 +540,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val t = frontier; frontier = next; next = t
             fn = nn
         }
+        val (narrowDist, narrowHalf) = narrowChannel(a, nav, ok, dredged)
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
@@ -470,9 +588,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 gate[i] -> c *= GATE_COST
             }
             if (soft[i]) c *= if (inChannel) DREDGED_SOFT_COST else SOFT_COST
+            // Narrow channel only: the middle keeps today's cost (the ICW stays
+            // cheaper than going outside) and the edge costs more, so a bend is
+            // not taken on the short side. Wide dredged areas stay flat.
+            val nd = narrowDist[i].toInt() and 0xff
+            val nh = narrowHalf[i].toInt() and 0xff
+            if (nd > 0 && nh > nd) c *= 1f + CENTER_EDGE_COST * (1f - nd.toFloat() / nh.toFloat())
             cost[i] = c
         }
-        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft, gate)
+        return Grid(nav, ok, cost, prox, planes, nopass, rad, k, pier, snag, soft, gate, narrowDist, narrowHalf)
     }
 
     // ------------------------------------------------------------ search
@@ -871,6 +995,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (g.prox[i] > lim) return false
                 if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
+            if (!keepsCenter(a, g, path, p, q)) return false
             return pierSteps(a, cells) { g.pier[it] } <= npier
         }
         // pier crossings of the planned path up to each point
@@ -946,8 +1071,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * used, and 0-6 ft water touching that safe water (the channel's corner, or
      * the shoal side of the edge the path is on). It may not cut across a shoal
      * the path went around, through a hazard buffer the path did not use, or
-     * through water charted entirely under the safe depth. Land, hazards, piers,
-     * open ocean and a low bridge stay forbidden.
+     * through water charted entirely under the safe depth. In a narrow channel
+     * the line also stays off the edge (see [keepsCenter]). Land, hazards,
+     * piers, open ocean and a low bridge stay forbidden.
      */
     private fun straighten(a: Area, g: Grid, path: IntArray, keep: List<Int>, pc: IntArray): List<Int> {
         val w = a.w
@@ -983,6 +1109,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val used = HashSet<Int>(i1 - i0 + 1)
                 for (k in i0..i1) used.add(path[k])
                 if (!cells.all { graze(it, used) } || !corners.all { graze(it, used) }) continue
+                if (!keepsCenter(a, g, path, i0, i1)) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
             }
@@ -1981,7 +2108,79 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 nav[i] = BLOCKED.toByte()
             }
         }
-        return Grid(nav, ok, cost, g.prox, g.planes, g.nopass, g.rad, g.k, g.pier, g.snag, g.soft, g.gate)
+        return Grid(nav, ok, cost, g.prox, g.planes, g.nopass, g.rad, g.k, g.pier, g.snag, g.soft, g.gate,
+            g.narrowDist, g.narrowHalf)
+    }
+
+    /**
+     * A chord through a narrow channel must not move closer to the edge than
+     * the planned path beside it. The keep-out is a quarter of the local width,
+     * and never more than [CENTER_KEEP_M]. A one-cell channel is its own middle,
+     * so that chord still straightens. Wide channels and open water are not checked.
+     */
+    private fun keepsCenter(a: Area, g: Grid, path: IntArray, i0: Int, i1: Int): Boolean {
+        val w = a.w
+        val h = a.h
+        val res = a.res
+        val p = path[i0]
+        val q = path[i1]
+        val r0 = p / w
+        val c0 = p % w
+        val r1 = q / w
+        val c1 = q % w
+        // Path cells that have a real middle beside them (2 or more steps from the
+        // edge). A one-cell canal is all 1s: nothing to protect, and the chord
+        // straightens as before. Ties keep the more central cell, so a pinch does
+        // not excuse the cells beside the middle.
+        val sr = ArrayList<Int>()
+        val sc = ArrayList<Int>()
+        val sd = ArrayList<Int>()
+        for (k in i0..i1) {
+            val cell = path[k]
+            val d = g.narrowDist[cell].toInt() and 0xff
+            if (d >= 2) {
+                sr.add(cell / w)
+                sc.add(cell % w)
+                sd.add(d)
+            }
+        }
+        if (sr.isEmpty()) return true
+        val n = max(abs(r1 - r0), abs(c1 - c0)) * 4 + 1
+        var checked = 0
+        var close = 0
+        for (k in 0..n) {
+            val t = k.toDouble() / n
+            val rf = r0 + (r1 - r0) * t
+            val cf = c0 + (c1 - c0) * t
+            val r = rf.roundToInt()
+            val c = cf.roundToInt()
+            if (r !in 0 until h || c !in 0 until w) continue
+            val i = r * w + c
+            val dist = g.narrowDist[i].toInt() and 0xff
+            val half = g.narrowHalf[i].toInt() and 0xff
+            if (dist == 0 || half == 0) continue
+            checked++
+            var bestHop = 99
+            var limit = 255
+            for (s in sr.indices) {
+                val hopHere = max(abs(sr[s] - r), abs(sc[s] - c))
+                if (hopHere > 2 || hopHere > bestHop) continue
+                if (hopHere < bestHop || sd[s] > limit) {
+                    bestHop = hopHere
+                    limit = sd[s]
+                }
+            }
+            if (limit == 255 || dist >= limit) continue
+            // Closer to the edge than the path beside it. A one-cell channel never
+            // gets here. Count it when the cell center is inside the keep-out,
+            // min(a quarter of the local width, 30 m).
+            val haveM = (dist - 0.5) * res
+            val widthM = 2.0 * (half - 0.5) * res
+            val needM = min(CENTER_KEEP_FRAC * widthM, CENTER_KEEP_M)
+            if (haveM + 1e-6 < needM) close++
+        }
+        // A corner sample may dip toward the edge. Half the chord doing it means the line moved there.
+        return close * 2 <= max(checked, 1)
     }
 
     /** Cells of charted security zones (reported, never blocked by the planner itself). */

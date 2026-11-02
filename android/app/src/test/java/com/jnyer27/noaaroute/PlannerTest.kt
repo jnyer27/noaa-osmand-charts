@@ -519,6 +519,55 @@ class PlannerTest {
         }
     }
 
+    @Test
+    fun narrowDredgedChannelStaysNearItsCenter() {
+        // 0-6 ft water with a dredged channel 5 cells (100 m) wide, bent in an L.
+        // Under the 120 m narrow limit. The inside of the bend is shorter, so a
+        // flat cost rides that edge. The route has to stay in the channel: outside
+        // is the 0-6 ft band.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 2
+        for (r in 100..250) for (c in 200..204) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 246..250) for (c in 200..400) planes[Pack.P_DEPTH][r * size + c] = 1
+        val table = "[null,[3.6,9.0,1],[0.0,1.8,0]]"
+        Pack(writePack(planes, "[]", depthTable = table)).use { pack ->
+            val route = Planner(ChartSet(listOf(pack))).plan(
+                "t", listOf(cellCenter(120, 202), cellCenter(248, 380)), 3.0, null)
+            for ((p, q) in route.points.zipWithNext()) for (k in 0..40) {
+                val t = k / 40.0
+                val row = (north - (p.lat + (q.lat - p.lat) * t)) / dlat
+                val col = (p.lon + (q.lon - p.lon) * t - west) / dlon
+                val ri = kotlin.math.floor(row).toInt()
+                val ci = kotlin.math.floor(col).toInt()
+                // Away from the bend: the corner itself may clip the inside edge.
+                if (ri in 140..200) assertTrue("vertical leg in col $ci (edge is 200 or 204)", ci in 201..203)
+                if (ci in 320..380) assertTrue("horizontal leg in row $ri (edge is 246 or 250)", ri in 247..249)
+            }
+        }
+    }
+
+    @Test
+    fun wideDredgedAreaIsNotPulledToItsMiddle() {
+        // 24 cells (480 m) of dredged water in deep water. Wider than 120 m, so the
+        // cost stays flat and a route that starts and ends on the south edge stays there.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (i in 0 until size * size) planes[Pack.P_DEPTH][i] = 1
+        for (r in 200..223) for (c in 80..420) planes[Pack.P_DEPTH][r * size + c] = 2
+        val table = "[null,[3.6,18.0,0],[3.6,18.0,1]]"
+        Pack(writePack(planes, "[]", depthTable = table)).use { pack ->
+            val route = Planner(ChartSet(listOf(pack))).plan(
+                "t", listOf(cellCenter(222, 100), cellCenter(222, 400)), 3.0, null)
+            for ((p, q) in route.points.zipWithNext()) for (k in 0..40) {
+                val t = k / 40.0
+                val row = (north - (p.lat + (q.lat - p.lat) * t)) / dlat
+                val col = (p.lon + (q.lon - p.lon) * t - west) / dlon
+                val ri = kotlin.math.floor(row).toInt()
+                val ci = kotlin.math.floor(col).toInt()
+                if (ci in 150..350) assertTrue("wide channel leg drifted to row $ri", ri >= 220)
+            }
+        }
+    }
+
     private fun assertStaysOutOfShallowBlock(route: Route) {
         for ((p, q) in route.points.zipWithNext()) for (k in 0..40) {
             val t = k / 40.0

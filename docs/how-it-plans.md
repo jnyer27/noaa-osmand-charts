@@ -23,7 +23,7 @@ Rocks, wrecks and obstructions shallower than your depth plus 1 ft (or of unknow
 
 ## Channels
 
-Dredged channels and charted fairways deep enough for you are preferred, so long trips take the ICW or the C&D Canal instead of going outside. Where the ICW is charted only as a fairway or a recommended track (along Oak Island, in Bogue Sound), those count as the channel too. Being near the edge of a maintained channel is normal, so the keep-off-the-shore cost there is much lower.
+Dredged channels and charted fairways deep enough for you are preferred, so long trips take the ICW or the C&D Canal instead of going outside. Where the ICW is charted only as a fairway or a recommended track (along Oak Island, in Bogue Sound), those count as the channel too. Being near the edge of a maintained channel is normal for the keep-off-the-shore cost, which is much lower there. A narrow channel, no wider than about 120 m, also costs more at its edge than in its middle, so the route follows the middle instead of the short side of a bend. A straightened leg in that channel stays at least a quarter of the width off the edge, and no more than 30 m is required. A wider dredged area or fairway is unchanged.
 
 ## Channel markers
 

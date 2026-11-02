@@ -4,6 +4,12 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: narrow channels keep to the middle (not released yet)
+
+Planning:
+- **A narrow dredged channel or fairway is followed down the middle.** The cost was flat across a dredged area, so the route took whichever edge made a bend shortest, and straightening then joined those edge points. In a channel no wider than about 120 m the cost now rises toward the edge. The middle keeps the old cost, so a long trip still prefers the ICW over going outside. A straightened leg in that channel has to stay at least a quarter of the local width off the edge, and no more than 30 m is required. A one-cell channel is already its own middle, so those legs still straighten. Wider dredged areas, wide fairways and open water are unchanged. The pack has no narrow flag, and the builder's narrow-strip rule (an ordinary depth area at most two cells wide) does not mark dredged areas, so the width is measured on the grid when the route is planned. No pack rebuild.
+- The dredged cut south of Middle River (about 39.23 N, 76.396 W, on the way from Maryland Marina to Ego Alley) is two or three 20 m cells wide, about 60 to 80 m, so it counts as narrow. Where that cut is wide enough to have a middle, about two thirds of the route is now at least 25 m from the edge (the middle cell is about 30 m out). The 2-cell pinches are still about 10 m from the edge, because that is the middle of the cut there. Maryland Marina to Ego Alley at 5 ft with Stay inside and Move ends stays 26.5 nm, 36 points, planned in about 1 s. The Termux script is unchanged.
+
 ## 2026-11-02: east of the Bay Bridge knoll (not released yet)
 
 Planning:
