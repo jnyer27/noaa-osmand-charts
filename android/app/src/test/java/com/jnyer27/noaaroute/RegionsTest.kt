@@ -100,4 +100,12 @@ class RegionsTest {
         assertEquals("ncds_04", Regions.areaAt(marina, catalog)!!.id)
         assertNull(Regions.areaAt(LatLon(41.5, -70.0), catalog))
     }
+
+    @Test
+    fun regionMapLegendNamesRouteData() {
+        val text = Regions.mapLegend()
+        assertTrue(text, text.contains("route data for planning"))
+        assertTrue(text, text.contains("chart map"))
+        assertTrue(text, text.contains("OsmAnd"))
+    }
 }

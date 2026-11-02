@@ -2762,10 +2762,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
         companion object {
             fun summary(runs: Int, resolved: Int, partly: Int, extraM: Double): String {
-                if (runs == 0) return "Avoid checks: the route has no checks."
+                if (runs == 0) return "No check stretch on this route."
                 val left = runs - resolved - partly
-                    return String.format(Locale.US, "Avoid checks: %d of %d check stretches resolved", resolved, runs) +
-                    (if (partly > 0) ", $partly down to shallow water only" else "") +
+                val still = left + partly
+                val lead = if (still == 0) "No check stretch left."
+                    else "$still ${if (still == 1) "check stretch is" else "check stretches are"} still on the route."
+                return lead + String.format(Locale.US, " Looked for a way around: %d of %d cleared", resolved, runs) +
+                    (if (partly > 0) ", $partly still in water that may be under your depth" else "") +
                     (if (resolved + partly > 0) String.format(Locale.US, " (%+.2f nm)", extraM / NM) else "") +
                     (if (left > 0) ", $left unchanged (no way around within %.1f nm or %.0f%% of the stretch)"
                         .format(Locale.US, RESOLVE_EXTRA_M / NM, RESOLVE_EXTRA_FRAC * 100) else "") + "."

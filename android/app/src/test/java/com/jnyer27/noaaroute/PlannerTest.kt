@@ -109,9 +109,9 @@ class PlannerTest {
                 val c = ((p.lon - west) / dlon).toInt()
                 assertTrue("col $c inside channel", c in 250..261)
             }
-            assertTrue("bridge span reported", r.legs.any { l -> l.notes.any { it.startsWith("Test Bridge span (clearance 33 ft)") } })
+            assertTrue("bridge span reported", r.legs.any { l -> l.notes.any { it.startsWith("Test Bridge span (vertical clearance 33 ft)") } })
             // No air draft was given, so the span the route still crosses is a check
-            assertTrue("bridge is a check", r.legs.any { l -> l.notes.any { it == "Test Bridge span (clearance 33 ft): check" } })
+            assertTrue("bridge is a check", r.legs.any { l -> l.notes.any { it == "Test Bridge span (vertical clearance 33 ft): check" } })
             assertTrue("bridge leg flagged", r.legs.any { Gpx.flagged(it) && it.notes.any { n -> n.contains("Test Bridge") } })
             val gpx = Gpx.write(r)
             assertTrue(gpx.contains("<rtept"))
@@ -378,6 +378,10 @@ class PlannerTest {
     fun parsesCoordinates() {
         assertEquals(LatLon(39.25084, -76.48861), Coords.parse("39.25084° N, 76.48861° W"))
         assertEquals(LatLon(39.2508, -76.4886), Coords.parse("39.2508,-76.4886"))
+        val dm = Coords.parse("39 19.4 N, 76 24.0 W")
+        assertNotNull(dm)
+        assertEquals(39.323333, dm!!.lat, 0.00002)
+        assertEquals(-76.4, dm.lon, 0.00002)
         assertNotNull(Coords.parse("39.2508 -76.4886"))
         assertNull(Coords.parse("abc"))
         assertNull(Coords.parse("95,10"))
@@ -670,7 +674,7 @@ class PlannerTest {
             assertEquals("same ends", pts.last(), a.points.last())
             val extra = (a.totalNm - r.totalNm) * Planner.NM
             assertTrue("small detour: $extra m", extra > 0 && extra <= max(Planner.RESOLVE_EXTRA_M, r.totalNm * Planner.NM * Planner.RESOLVE_EXTRA_FRAC))
-            assertTrue(a.messages.last(), a.messages.last().startsWith("Avoid checks: 1 of 1 check stretches resolved (+"))
+            assertTrue(a.messages.last(), a.messages.last().startsWith("No check stretch left. Looked for a way around: 1 of 1 cleared (+"))
             assertEquals("t_adjusted", a.name)
             // A route with no checks is left alone
             val clear = planner.resolveChecks(a, pts)

@@ -118,7 +118,7 @@ object ChartDepth {
         if (underM >= MIN_M)
             out.add("crosses %.0f m charted entirely under your %s ft: check".format(underM, depth))
         if (straddleM >= MIN_M)
-            out.add("crosses %.0f m of a depth area that straddles your %s ft: check".format(straddleM, depth))
+            out.add("crosses %.0f m of a depth area that may be under your %s ft: check".format(straddleM, depth))
         return out
     }
 

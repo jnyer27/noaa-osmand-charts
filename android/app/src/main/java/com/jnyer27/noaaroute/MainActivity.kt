@@ -151,7 +151,7 @@ class MainActivity : Activity() {
         col.addView(packButton)
         col.addView(button("View map") { showChart() })
         col.addView(TextView(this).apply {
-            text = "View map draws NOAA's chart for your safe operating depth. A region's chart can be downloaded from that screen, or from the region in Regions, when the catalog publishes one. Until a downloaded chart covers the area on screen, the bundled Middle River chart is shown. A planned route is drawn from View on map, under the report. On the chart, Route data draws what the planner sees from a region you have downloaded, on whichever chart is showing."
+            text = "View map draws the chart for your safe depth. Download a region's chart from Regions when one is published. Until then, Middle River is shown."
             textSize = 12f
         })
         noticeText = TextView(this)
@@ -172,9 +172,9 @@ class MainActivity : Activity() {
         col.addView(row(via, button("Add") { pickPlace(via, append = true) }))
 
         val num = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        depth = field("e.g. 3 (draft plus margin)", num)
+        depth = field("feet", num)
         air = field("height above the water", num)
-        col.addView(label("Safe operating depth (ft)"))
+        col.addView(label("Safe operating depth (ft), e.g. 3 (draft plus margin)"))
         col.addView(depth)
         col.addView(label("Air draft (ft)"))
         col.addView(air)
@@ -187,7 +187,7 @@ class MainActivity : Activity() {
         inside = CheckBox(this).apply { text = "Stay inside (avoid open ocean)" }
         col.addView(inside)
         col.addView(TextView(this).apply {
-            text = "Keeps the route on bays, sounds, rivers and the ICW: no water seaward of the territorial sea baseline (the line across inlets and bay mouths)."
+            text = "Stay inside the inlets and bay mouths. Bays, sounds, rivers, and the ICW. Not the ocean along the beach."
             textSize = 12f
         })
         moveEnds = CheckBox(this).apply { text = "Move ends to navigable water" }
@@ -224,7 +224,7 @@ class MainActivity : Activity() {
         }
         col.addView(result)
         actions = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-        resolveButton = button("Try to avoid checks") { resolveChecks() }
+        resolveButton = button("Look for a way around the checks") { resolveChecks() }
         actions.addView(resolveButton)
         actions.addView(button("View on map") { showOnMap() })
         actions.addView(button("Open in OsmAnd") { openInOsmAnd() })
@@ -660,7 +660,7 @@ class MainActivity : Activity() {
 
     /** The Regions screen: NCDS region map, automatic downloads, and the list of packs. */
     private fun showRegions() {
-        val d = Dialog(this, android.R.style.Theme_DeviceDefault_DayNight)
+        val d = Dialog(this, android.R.style.Theme_DeviceDefault_Light)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(16), dp(8), dp(8), 0) }
@@ -690,10 +690,14 @@ class MainActivity : Activity() {
         }
         map.labelAt = { code -> areaFor(code)?.bbox?.let { LatLon((it[1] + it[3]) / 2, (it[0] + it[2]) / 2) } }
         val pts = tripPoints()
+        val vias = via.text.toString().split(";").mapNotNull { p ->
+            val t = p.trim()
+            if (t.isEmpty()) null else Coords.parse(t)?.let { it to "Via" }
+        }
         map.markers = listOfNotNull(
             Coords.parse(start.text.toString())?.let { it to "Start" },
             Coords.parse(dest.text.toString())?.let { it to "Destination" },
-        ) + listOfNotNull(lastFix()?.let { it to "You" })
+        ) + vias + listOfNotNull(lastFix()?.let { it to "You" })
         // Fit the trip, else the downloaded regions, else what is published
         val boxes = (pts.map { doubleArrayOf(it.lon - 0.5, it.lat - 0.5, it.lon + 0.5, it.lat + 0.5) }.ifEmpty {
             catalog.filter { !it.deprecated && installed(it.id) != null }.map { it.bbox }
@@ -702,6 +706,11 @@ class MainActivity : Activity() {
         map.onRegionTap = { r -> regionCard(r.code) }
         map.hasChart = { code -> maps.get(code)?.state == ChartMaps.State.READY }
         root.addView(map, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.4f))
+        root.addView(TextView(this).apply {
+            text = Regions.mapLegend()
+            textSize = 12f
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+        })
 
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(16)) }
         val auto = CheckBox(this).apply {
@@ -730,7 +739,10 @@ class MainActivity : Activity() {
                 if (replacedBy(id) != null && have == null) continue
                 rows.addView(TextView(this).apply {
                     text = "${c?.name ?: have?.areaName ?: id}\n$state"
-                    setPadding(0, dp(10), 0, dp(10))
+                    minHeight = dp(48)
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(dp(8), dp(12), dp(8), dp(12))
+                    setBackgroundResource(android.R.drawable.list_selector_background)
                     setOnClickListener { c?.ncds?.let { regionCard(it) } ?: areaAction(id) }
                 })
             }
@@ -920,13 +932,21 @@ class MainActivity : Activity() {
             }
         })
         if (area != null && (have == null || hasUpdate(area)))
-            box.addView(act(if (have == null) "Download route data" else "Update route data") { ensureAuto { downloadAreas(listOf(area)) } })
-        if (have != null) box.addView(act("Delete route data") {
-            charts?.packs?.forEach { it.close() }
-            charts = null
-            store.delete(area!!.id)
-            openCharts()
-            checkTrip()
+            box.addView(act(if (have == null) "Download this region for planning" else "Update route data for planning") { ensureAuto { downloadAreas(listOf(area)) } })
+        if (have != null) box.addView(button("Delete route data for planning") {
+            AlertDialog.Builder(this)
+                .setTitle("Delete route data?")
+                .setMessage("Removes the route data for planning for ${area?.name ?: code}. Chart files for OsmAnd are not removed.")
+                .setPositiveButton("Delete") { _, _ ->
+                    d.dismiss()
+                    charts?.packs?.forEach { it.close() }
+                    charts = null
+                    store.delete(area!!.id)
+                    openCharts()
+                    checkTrip()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         })
 
         val appChart = chartTiles.catalogSets().firstOrNull { it.ncds == code }
@@ -965,8 +985,8 @@ class MainActivity : Activity() {
                         else "NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd. Could not reach NOAA to check the size."
                     }
                 }
+                box.addView(label("For OsmAnd"))
                 box.addView(act("Download for OsmAnd") { startChart(code, mbtilesOnly = false) })
-                box.addView(act("Download the .mbtiles only") { startChart(code, mbtilesOnly = true) })
             }
             ChartMaps.State.READY -> {
                 status.text = chartStatus(e)
@@ -1325,7 +1345,7 @@ class MainActivity : Activity() {
     }
 
     private fun plan() {
-        val p = charts ?: run { toast("Download a chart region first (Regions)."); return }
+        val p = charts ?: run { toast("Download route data for planning first (Regions)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
         val b = Coords.parse(dest.text.toString()) ?: run { toast("Destination must be LAT, LON"); return }
         val vias = via.text.toString().split(";").filter { it.isNotBlank() }.map {
@@ -1420,7 +1440,7 @@ class MainActivity : Activity() {
                     val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
                     showReport(ar, pl.trip, afterLines(pl.used, sec), pl.datum, saved)
                     status.text = res.summary
-                    resolveButton.visibility = View.GONE
+                    resolveButton.visibility = if (Gpx.checkRuns(ar).isNotEmpty()) View.VISIBLE else View.GONE
                     resolveButton.isEnabled = true
                     planButton.isEnabled = true; packButton.isEnabled = true
                 }

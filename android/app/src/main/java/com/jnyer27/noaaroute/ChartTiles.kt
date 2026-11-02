@@ -112,10 +112,17 @@ object ChartTiles {
      * deep limit is under the safe depth, lighter blue is one whose range straddles
      * it, pale blue is at or over it.
      */
+    /** About how wide the chart on screen is, from its west and east edges. */
+    fun spanText(west: Double, east: Double, lat: Double): String {
+        val km = (east - west) * Pack.M_PER_DEG * kotlin.math.cos(Math.toRadians(lat)) / 1000.0
+        return "Across this chart is about %.0f km. ".format(kotlin.math.abs(km))
+    }
+
     fun depthLegend(depthFt: Double): String {
         val depth = depthText(depthFt)
         return "Safe operating depth $depth ft: strong blue is charted entirely under it, " +
-            "lighter blue is a range that straddles it, pale blue is at or over it, olive dries. "
+            "lighter blue may be under your $depth ft, pale blue is $depth ft or more, olive dries. " +
+            "A sounding drawn in red is under your $depth ft. "
     }
 
     /** One GeoJSON feature per leg (flagged 1 when [Gpx.flagged]) plus a point at each route position. */

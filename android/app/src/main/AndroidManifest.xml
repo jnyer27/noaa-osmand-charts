@@ -20,7 +20,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="NOAA Route"
         android:largeHeap="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@android:style/Theme.DeviceDefault.Light">
         <activity
             android:name=".MainActivity"
             android:exported="true"
