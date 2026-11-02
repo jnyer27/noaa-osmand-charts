@@ -35,7 +35,7 @@ With an air draft set, the route goes only under spans with a charted clearance 
 
 ## Keeping off the shore
 
-The cost of a cell rises within about 100 m of land, shallow water, piers and hazards, so the route only goes close where it has to, and keeps toward the middle of gaps under 600 m wide. In 0-6 ft water near the bank the cost is 10 times higher again, so the route does not take a narrow marsh gut as a shortcut.
+The cost of a cell rises within about 100 m of land, shallow water, piers and hazards, so the route only goes close where it has to, and keeps toward the middle of gaps under 600 m wide. In open water the same rise applies beside a depth area that straddles your safe depth, so the route passes a shoal on the deeper side instead of running along its edge. Inside a dredged channel or fairway it does not. In 0-6 ft water near the bank the cost is 10 times higher again, so the route does not take a narrow marsh gut as a shortcut. A long straight leg does not cut across a shoal the path went around, and it does not enter a hazard buffer the path did not use.
 
 ## Stay inside
 
