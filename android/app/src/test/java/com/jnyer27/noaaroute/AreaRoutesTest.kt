@@ -80,6 +80,8 @@ class AreaRoutesTest {
                         // "message": text one of the route's messages must contain
                         test["message"] != null && r.messages.none { it.contains(test["message"] as String) } ->
                             failures.add("$name: no message containing \"${test["message"]}\"")
+                        test["note"] != null && r.legs.none { l -> l.notes.any { it.contains(test["note"] as String) } } ->
+                            failures.add("$name: no leg note containing \"${test["note"]}\"")
                         // "cleanEnd": the leg before the last (the one to your point) has no shallow water
                         test["cleanEnd"] == true && r.legs.size > 1 && r.legs[r.legs.size - 2].shoalM > 0 ->
                             failures.add("$name: the leg before the destination has %.0f m of shallow water".format(r.legs[r.legs.size - 2].shoalM))

@@ -790,4 +790,40 @@ class PlannerTest {
             }
         }
     }
+
+    /**
+     * A pin inside entry-prohibited water. The route stops outside that water and
+     * does not draw the unchecked leg into the pin. A long channel leg that only
+     * clips the boundary is not labeled prohibited for its whole length.
+     */
+    @Test
+    fun pinInsideEntryProhibitedWaterStopsOutside() {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 80..420) for (c in 250..261) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 350..390) for (c in 230..256) {
+            planes[Pack.P_DEPTH][r * size + c] = 1
+            planes[Pack.P_FLAGS][r * size + c] = (Pack.F_PROHIB or Pack.F_RESNOTE).toByte()
+        }
+        // The note's all-touched halo: one channel cell east of the boundary, not prohibited.
+        for (r in 360..370) planes[Pack.P_FLAGS][r * size + 257] =
+            (planes[Pack.P_FLAGS][r * size + 257].toInt() or Pack.F_RESNOTE).toByte()
+        val pin = cellCenter(365, 248)
+        val n = pin.lat + 8 * dlat
+        val s = pin.lat - 8 * dlat
+        val w = pin.lon - 8 * dlon
+        val e = pin.lon + 4 * dlon
+        val notes = """[{"kind":"resare","band":5,"bbox":[$w,$s,$e,$n],"type":"Polygon",""" +
+            """"coords":[[[$w,$n],[$e,$n],[$e,$s],[$w,$s],[$w,$n]]],"name":"Sunny Point","rules":["entry prohibited"],"cfr":"33 CFR 334.450"}]"""
+        Pack(writePack(planes, notes)).use { pack ->
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(cellCenter(100, 255), pin), 6.0, 55.0)
+            assertTrue("drew the pin", r.points.last() != pin)
+            assertTrue("came within 30 m of the pin", Planner.distanceM(r.points.last(), pin) > 30.0)
+            val msg = r.messages.joinToString("\n")
+            assertTrue(msg, msg.contains("entry is prohibited"))
+            assertTrue(msg, msg.contains("does not draw a line"))
+            assertTrue(msg, msg.contains("33 CFR 334.450"))
+            assertTrue("unchecked leg into the pin", r.legs.none { l -> l.notes.any { it.contains("not checked, use your eyes") } })
+            assertTrue("long leg labeled prohibited", r.legs.none { it.distM > 200.0 && it.notes.any { n0 -> n0.contains("entry prohibited") } })
+        }
+    }
 }
