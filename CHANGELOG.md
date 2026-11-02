@@ -4,6 +4,15 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: Kent Narrows and the Rock Hall bar (not released yet)
+
+Planning:
+
+- **Kent Narrows at 6 ft is not drawn at 40 m on the wrong side of the marks.** Ego Alley to St. Michaels via the narrows had no route in the 20 m window, widened, and came down the north side of the cut beside charted 0.3 ft to 3.9 ft soundings, including the wrong side of a mark. A coarser grid is no longer used for a narrow cut when that line crosses a mark. The app stops and tells you to move a point or add a via in the marked channel.
+- **Rock Hall at 6 ft with Move ends stops before the 0-6 ft bar.** The harbor pin is in the 0-6 ft band. The route used to spend about 750 m in that band and finish across a charted 1 ft sounding, and the report gave two distances for the same point (39 m to water charted at least 6 ft, and 372 m to water that leads out). There is now one distance. The route stops on the near side of the bar, about 1.7 nm short of the pin, and does not draw a line across the 1 ft sounding. At 4 ft the same trip still runs in, which matches the chart: the bar's soundings are not under a 4 ft safe depth the way the 1 ft sounding is under 6 ft.
+
+No pack rebuild.
+
 ## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
 
 Planning:
