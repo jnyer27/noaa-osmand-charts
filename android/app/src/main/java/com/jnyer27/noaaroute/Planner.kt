@@ -535,6 +535,20 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (chan) for (i in comp) if (ok[i] && !(dredged[i] && nav[i].toInt() == SAFE)) sideSpan[i] = true
             }
         }
+        // A pier cell on the span, next to the dredged opening, is the fender.
+        // Leaving it passable put Coinjock's leg on that cell. The opening stays open.
+        for (i in 0 until n) if (ok[i] && (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER &&
+            (planes[Pack.P_FLAGS][i].toInt() and (Pack.F_SPAN or Pack.F_BRIDGE)) != 0 &&
+            !(dredged[i] && nav[i].toInt() == SAFE)) {
+            val r = i / w
+            val c = i % w
+            var opening = false
+            for (rr in max(0, r - 2)..min(h - 1, r + 2)) for (cc in max(0, c - 2)..min(w - 1, c + 2)) {
+                val j = rr * w + cc
+                if (dredged[j] && nav[j].toInt() == SAFE && spanok[j]) opening = true
+            }
+            if (opening) ok[i] = false
+        }
         val pier = BooleanArray(n) { ok[it] && ((planes[Pack.P_HAZARD][it].toInt() and 0xff) == Pack.HZ_PIER && !fender[it] || snag[it] || gate[it] || sideSpan[it]) }
         // The spread reaches kf cells: k for the shore proximity cost, farther for the
         // centering cost (FAR_M)
@@ -712,6 +726,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // Pensacola to Mobile left through the pass.
                 if (a.f == 1 && !dredged[i] && besideChannel[i]) c *= BESIDE_CHANNEL_COST
             }
+            // A deck cell that is usable only because a passable span was widened by one
+            // cell. The opening itself stays cheap, so the line takes the span that opens
+            // instead of the deck beside it. When the opening misses every cell center,
+            // the widened cells are the passage and they all cost the same.
+            if (nopass[i] && spanWide[i] && !spanok[i]) c *= 8f
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
                 (planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !fender[i] || sideSpan[i] -> c *= PIER_COST
@@ -953,7 +972,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     /** Water reachable from start: cells, touches window edge, reason -> (edge cells, example). */
     /** Water reachable from a point: cell count, whether it reaches the window edge, and what walls it in. */
-    private class Enc(val cells: Int, val edge: Boolean, val walls: Map<String, Pair<Int, Int>>, val hazardWalls: List<Int>)
+    private class Enc(val cells: Int, val edge: Boolean, val walls: Map<String, Pair<Int, Int>>, val hazardWalls: List<Int>, val nopassAt: List<Int>)
 
     private fun enclosure(a: Area, g: Grid, start: Int): Enc {
         val w = a.w
@@ -967,6 +986,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         var edge = false
         val walls = HashMap<String, Pair<Int, Int>>()
         val hazardWalls = ArrayList<Int>()
+        val nopassAt = ArrayList<Int>()
         while (sp > 0) {
             val k = stack[--sp]
             cnt++
@@ -990,9 +1010,37 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val cur = walls[why]
                 walls[why] = if (cur == null) 1 to j else cur.first + 1 to cur.second
                 if (why == "hazard") hazardWalls.add(j)
+                if (why == "nopass") recordLimit(g, j, nopassAt)
             }
         }
-        return Enc(cnt, edge, walls, hazardWalls)
+        return Enc(cnt, edge, walls, hazardWalls, nopassAt)
+    }
+
+    /**
+     * Keep the bridge and cable cells that actually limit the boat. An opening
+     * span is not that limit (Bear Creek's 8 ft swing opens). The flood meets the
+     * inner bridges first; a fixed cap of the first cells never reached the
+     * entrance cable.
+     */
+    private fun recordLimit(g: Grid, j: Int, list: ArrayList<Int>) {
+        fun flags(i: Int) = g.planes[Pack.P_FLAGS][i].toInt()
+        val fl = flags(j)
+        val cable = (fl and Pack.F_CABLE) != 0
+        if (!cable && (fl and Pack.F_OPENING) != 0) return
+        fun units(i: Int): Int {
+            val f = flags(i)
+            val u = if ((f and Pack.F_CABLE) != 0) g.planes[Pack.P_CABLECLR][i].toInt() and 0xff
+                else g.planes[Pack.P_SPANCLR][i].toInt() and 0xff
+            return if (u == 0) 999 else u
+        }
+        fun same(i: Int) = ((flags(i) and Pack.F_CABLE) != 0) == cable
+        val have = list.count { same(it) }
+        if (have < if (cable) 24 else 40) { list.add(j); return }
+        val worst = list.filter { same(it) }.maxBy { units(it) }
+        if (units(j) < units(worst)) {
+            list.remove(worst)
+            list.add(j)
+        }
     }
 
     /**
@@ -1066,18 +1114,42 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /** The lowest charted bridge or cable on these cells, named when the pack has a note. */
-    private fun structurePhrase(a: Area, g: Grid, cells: List<Int>): String {
+    private fun structurePhrase(a: Area, g: Grid, cells: List<Int>, airFt: Double? = null): String {
         val notes = ArrayList<String>()
-        for (i in cells) {
+        val step = max(1, cells.size / 40)
+        var k = 0
+        while (k < cells.size) {
+            val i = cells[k]
             val fl = g.planes[Pack.P_FLAGS][i].toInt() and 0xff
-            if (fl and Pack.F_CABLE != 0) notes.addAll(featureNotes("cable", a.latlon(i), a.res * 1.5))
+            if (fl and Pack.F_CABLE != 0) notes.addAll(featureNotes("cable", a.latlon(i), a.res * 0.6, airFt))
             if (fl and (Pack.F_BRIDGE or Pack.F_DECK or Pack.F_SPAN) != 0)
-                notes.addAll(featureNotes("bridge", a.latlon(i), a.res * 1.5))
+                notes.addAll(featureNotes("bridge", a.latlon(i), a.res * 1.5, airFt))
+            k += step
         }
-        val named = notes.distinct()
-        if (named.isNotEmpty()) return named.minBy { clearanceFt(it) }
-        if (cells.isEmpty()) return ""
-        return planePhrase(g, cells.minBy { clearanceFt(planePhrase(g, it)) })
+        return lowestStructure(notes.distinct(), airFt).ifEmpty {
+            if (cells.isEmpty()) "" else planePhrase(g, cells.minBy { clearanceFt(planePhrase(g, it)) })
+        }
+    }
+
+    /** An opening bridge is not the wall that stops a boat: the fixed span and the cable are. */
+    private fun openingNote(s: String) =
+        s.contains("may need an opening") || s.contains("has to open") || s.contains("clears when closed")
+
+    /**
+     * The fixed span or cable under the air draft, lowest first. An opening bridge's
+     * closed clearance is left out when a fixed span or cable is on the same wall, and
+     * a "clearance not charted" note does not outrank one that has a number.
+     */
+    private fun lowestStructure(notes: List<String>, airFt: Double?): String {
+        if (notes.isEmpty()) return ""
+        val known = notes.filter { !openingNote(it) && !it.contains("not charted") }
+        val under = if (airFt != null) known.filter { clearanceFt(it) <= airFt + 0.05 } else known
+        val pick = when {
+            under.isNotEmpty() -> under
+            known.isNotEmpty() -> known
+            else -> notes
+        }
+        return pick.sortedBy { clearanceFt(it) }.distinct().take(3).joinToString("; ")
     }
 
     /**
@@ -1303,6 +1375,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             for (k in p..q) used.add(path[k])
             if (corners.any { !g.ok[it] || marginalUnvisited(g, it, used, a.w, false) || bufferUnvisited(g, it, used, a.w) }) return false
             if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) return false
+            if (leavesSpanOpening(a, g, path[p], path[q])) return false
             // Hazard-buffer cells are compared as shares, plus one: a diagonal line
             // samples more cells than the 8-direction path over the same water.
             val pn = q - p + 1
@@ -1407,6 +1480,63 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return false
     }
 
+    /**
+     * A straight line through a bridge that has a dredged span, and also a pier or
+     * deck cell beside that opening. Coinjock's chord crossed the fender cell next
+     * to the dredged span. The opening cell stays; the neighbor does not.
+     */
+    /** Cell-center distance, in cells, from [i] to the segment [p]-[q]. */
+    private fun cellLineDist(w: Int, i: Int, p: Int, q: Int): Double {
+        val ax = (p % w).toDouble()
+        val ay = (p / w).toDouble()
+        val dx = (q % w) - ax
+        val dy = (q / w) - ay
+        val px = (i % w) - ax
+        val py = (i / w) - ay
+        val l2 = (dx * dx + dy * dy).takeIf { it > 0 } ?: 1.0
+        val t = ((px * dx + py * dy) / l2).coerceIn(0.0, 1.0)
+        return hypot(px - t * dx, py - t * dy)
+    }
+
+    /**
+     * The straight line comes within about 12 m of a pier cell on a span, and also
+     * within that distance of the dredged opening. Coinjock's one chord did that.
+     * A line down the opening is a cell away from the fender and is kept.
+     */
+    private fun leavesSpanOpening(a: Area, g: Grid, p: Int, q: Int): Boolean {
+        val w = a.w
+        if (max(abs(p / w - q / w), abs(p % w - q % w)) > 150) return false
+        fun dredgedSpan(i: Int): Boolean {
+            if (i !in g.ok.indices || !g.ok[i]) return false
+            val depth = g.planes[Pack.P_DEPTH][i].toInt()
+            val fl = g.planes[Pack.P_FLAGS][i].toInt()
+            return (depth and DREDGED) != 0 && g.nav[i].toInt() == SAFE &&
+                ((fl and Pack.F_SPAN) != 0 || (fl and Pack.F_OPENING) != 0)
+        }
+        fun fender(i: Int): Boolean {
+            if (i !in g.nav.indices) return false
+            val fl = g.planes[Pack.P_FLAGS][i].toInt()
+            if ((fl and (Pack.F_SPAN or Pack.F_BRIDGE)) == 0) return false
+            val hz = g.planes[Pack.P_HAZARD][i].toInt() and 0xff
+            if (hz != Pack.HZ_PIER && !g.pier[i]) return false
+            return !dredgedSpan(i)
+        }
+        val r0 = min(p, q) / w
+        val r1 = max(p, q) / w
+        val c0 = min(p % w, q % w)
+        val c1 = max(p % w, q % w)
+        var span = false
+        var side = false
+        for (r in max(0, r0 - 2)..min(a.h - 1, r1 + 2)) for (c in max(0, c0 - 2)..min(w - 1, c1 + 2)) {
+            val i = r * w + c
+            if (cellLineDist(w, i, p, q) > 0.7) continue
+            if (dredgedSpan(i)) span = true
+            if (fender(i)) side = true
+            if (span && side) return true
+        }
+        return false
+    }
+
     private fun bufferUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int): Boolean {
         if (cell !in g.soft.indices || !g.soft[cell] || cell in used) return false
         return !touchesUsed(g, cell, used, w) { g.soft[it] }
@@ -1459,6 +1589,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (k in i0..i1) used.add(path[k])
                 if (!cells.all { graze(it, used) } || !corners.all { graze(it, used) }) continue
                 if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) continue
+                if (leavesSpanOpening(a, g, path[i0], path[i1])) continue
                 if (!keepsCenter(a, g, path, i0, i1)) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
@@ -1500,11 +1631,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return if (best == 0) null else (best - 1) / 10.0
     }
 
-    private fun featureNotes(kind: String, p: LatLon, tolM: Double): List<String> {
+    private fun featureNotes(kind: String, p: LatLon, tolM: Double, airFt: Double? = null): List<String> {
         val near = pack.notes.filter { it.kind == kind && it.near(p.lat, p.lon, tolM) }
         if (near.isEmpty()) return emptyList()
         val top = near.maxOf { it.band } // most detailed chart with this kind of feature here wins
-        return near.filter { it.band == top }.mapNotNull { it.describe() }.distinct()
+        return near.filter { it.band == top }.mapNotNull { it.describe(airFt) }.distinct()
     }
 
     /** A charted hazard near a leg: its cell, closest distance to the leg (m), what it is and its depth. */
@@ -1570,9 +1701,56 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return best
     }
 
-    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>, airChecked: Boolean): List<Leg> {
+    /**
+     * Cables the leg actually crosses, plus a cable beside the leg whose clearance
+     * is under the air draft. A 54.8 ft cable on the next cell used to be named on
+     * the channel leg and rounded to 55. Beside it is said so, and it is not a check.
+     */
+    private fun cableNotes(a: Area, g: Grid, lc: IntArray, airFt: Double?): List<String> {
+        val cables = pack.notes.filter { it.kind == "cable" }
+        if (cables.isEmpty() || lc.isEmpty()) return emptyList()
+        val near = ArrayList<Note>()
+        for (note in cables) {
+            val hit = lc.any { i ->
+                val ll = a.latlon(i)
+                note.near(ll.lat, ll.lon, a.res * 1.5)
+            }
+            if (hit) near.add(note)
+        }
+        if (near.isEmpty()) return emptyList()
+        val top = near.maxOf { it.band }
+        val out = ArrayList<String>()
+        for (note in near) {
+            if (note.band != top) continue
+            val clr = note.clr
+            var on = false
+            var beside = false
+            for (i in lc) {
+                val ll = a.latlon(i)
+                val fl = g.planes[Pack.P_FLAGS][i].toInt()
+                val cellClr = (g.planes[Pack.P_CABLECLR][i].toInt() and 0xff) / 2.0
+                val same = clr == null || cellClr == 0.0 || abs(cellClr - clr) < 0.5
+                // On the cable: the leg's cell is that cable. A note with only a bbox
+                // (no line) matches the whole box, so the cell's own clearance has to agree.
+                if (fl and Pack.F_CABLE != 0 && same && note.near(ll.lat, ll.lon, a.res * 0.6)) on = true
+                else if (note.coords != null && note.near(ll.lat, ll.lon, a.res * 1.5) &&
+                    !note.near(ll.lat, ll.lon, a.res * 0.55)) beside = true
+            }
+            val text = note.describe(airFt) ?: continue
+            val under = airFt != null && (clr == null || clr < airFt * Pack.FT)
+            when {
+                on && under && !text.contains("check") -> out.add("$text: check")
+                on -> out.add(text)
+                beside && under -> out.add("$text; the route passes beside it and is not on it")
+            }
+        }
+        return out.distinct()
+    }
+
+    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>, airFt: Double?): List<Leg> {
         val out = ArrayList<Leg>()
-        val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
+        val airChecked = airFt != null
+        val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE)
         val every = max(1, (500 / a.res).toInt())
         var prevPier = false
         var prevSnag = false
@@ -1582,6 +1760,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for (k in 0 until idx.size - 1) {
             val lc = lineCells(a, idx[k], idx[k + 1])
             val marg = lc.count { g.nav[it].toInt() == MARGINAL }
+            val legM = distanceM(wps[k], wps[k + 1])
             val notes = ArrayList<String>()
             for ((kind, bit) in kinds) {
                 val hits = ArrayList<Int>()
@@ -1592,12 +1771,30 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                         run++
                     } else run = 0
                 }
-                for (i in hits.take(12)) for (s0 in featureNotes(kind, a.latlon(i), a.res * 1.5)) {
-                    // With no air draft, a span or cable the route still crosses was not tested.
+                for (i in hits.take(12)) for (s0 in featureNotes(kind, a.latlon(i), a.res * 1.5, airFt)) {
+                    // With no air draft, a span the route still crosses was not tested.
                     var s = s0
-                    if (!airChecked && (kind == "bridge" || kind == "cable") && !s.contains("check")) s = "$s: check"
-                    if (s !in seen) { seen.add(s); notes.add(s) }
+                    if (!airChecked && kind == "bridge" && !s.contains("check")) s = "$s: check"
+                    if (kind == "resare") {
+                        // Kept on every leg still inside the area. One note on the entry
+                        // leg left the next 10 nm of Aberdeen Proving Ground silent.
+                        if (notes.any { it == s || it.startsWith("$s (about") }) continue
+                        val inside = lc.count { cell ->
+                            (g.planes[Pack.P_FLAGS][cell].toInt() and bit) != 0 &&
+                                s0 in featureNotes(kind, a.latlon(cell), a.res * 1.5, airFt)
+                        }
+                        val insideM = inside * legM / max(lc.size, 1)
+                        if (insideM > 0 && insideM + a.res < legM)
+                            s = "$s (about ${insideM.roundToInt()} m of this %.2f nm leg is inside)".format(Locale.US, legM / NM)
+                        notes.add(s)
+                    } else if (s !in seen) {
+                        seen.add(s); notes.add(s)
+                    }
                 }
+            }
+            for (s in cableNotes(a, g, lc, airFt)) {
+                val text = if (!airChecked && !s.contains("check") && !s.contains("passes beside")) "$s: check" else s
+                if (text !in seen) { seen.add(text); notes.add(text) }
             }
             // A long channel leg that only clips an entry-prohibited area at the end is not
             // "prohibited" for its whole length. The cells inside the area keep the note.
@@ -1694,7 +1891,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         sb.append(if (c.airFt != null) " and ${fmt(c.airFt)} ft air draft.\n" else ".\n")
         sb.append("$who is in a pocket of about %.1f ha of usable water, closed off by:\n".format(cnt * a.res * a.res / 1e4))
         fun at(i: Int) = a.latlon(i).let { "%.5f, %.5f".format(it.lat, it.lon) }
-        for ((why, v) in walls.entries.sortedByDescending { it.value.first }) {
+        // A bridge or cable the air draft cannot clear is the limit, even when a
+        // longer edge of shoal water is also on the pocket. Opening bridges are
+        // not that limit: Bear Creek's 8 ft swing and 25 ft bascule open.
+        val order = walls.entries.sortedWith(compareBy<Map.Entry<String, Pair<Int, Int>>> { if (it.key == "nopass") 0 else 1 }.thenByDescending { it.value.first })
+        for ((why, v) in order) {
             val edge = "${(v.first * a.res).roundToInt()} m of edge"
             if (why == "hazard") {
                 val (snd, obs) = hazardSources(a, g, enc.hazardWalls)
@@ -1703,11 +1904,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                                            else "  - rocks, wrecks or obstructions as shallow as %.1f ft (near %s), with their safety buffer\n".format(obs.first / Pack.FT, at(obs.second)))
                 if (snd == null && obs == null) sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
             } else if (why == "nopass") {
-                val phrase = structurePhrase(a, g, listOf(v.second))
+                val phrase = structurePhrase(a, g, enc.nopassAt, c.airFt)
                 sb.append("  - ${wallText[why]}" + (if (phrase.isNotEmpty()) ": $phrase" else "") + " ($edge, near ${at(v.second)})\n")
             } else sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
         }
-        val limitedByDepth = walls.keys.any { it == "hazard" || it == "shallow" }
+        // Do not offer a shallower depth when a bridge or cable is what stops the boat.
+        val blockedByStructure = "nopass" in walls
+        val limitedByDepth = !blockedByStructure && walls.keys.any { it == "hazard" || it == "shallow" }
         val hint = if (limitedByDepth) depthHint(pt, c, who) else DepthHint(null, false)
         if (hint.feet != null) sb.append("With a safe depth of ${fmt(hint.feet)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
         else if (limitedByDepth && !hint.localEscape) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
@@ -1716,40 +1919,122 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return PlanException(sb.toString())
     }
 
+    /** Charted water, including a band under the safe depth. Land, a dock and a pier are not. */
+    private fun chartedWater(g: Grid, i: Int): Boolean {
+        val v = g.nav[i].toInt()
+        return v == SAFE || v == MARGINAL || v == SHALLOW || v == HAZARD || v == SEA
+    }
+
+    private fun landMessage(n: Int, distM: Double) =
+        "Point $n is on land or a dock. The route uses the nearest usable water, ${distM.roundToInt()} m away. Check the way between on a chart."
+
+    /** Why Move ends is walking this point to water charted at least the safe depth. */
+    private fun moveWhy(g: Grid, userCell: Int, depthFt: Double): String {
+        val v = g.nav[userCell].toInt()
+        val d = fmt(depthFt)
+        val hazards = g.soft[userCell] || g.pier[userCell] || g.snag[userCell] || g.gate[userCell] || v == HAZARD
+        val depth = when (v) {
+            SHALLOW -> "in water charted entirely under your $d ft"
+            MARGINAL -> "in water that may be under your $d ft"
+            else -> null
+        }
+        return when {
+            depth != null && hazards -> "$depth and near charted hazards"
+            depth != null -> depth
+            else -> "near charted hazards"
+        }
+    }
+
+    private fun moveMessage(n: Int, why: String, depthFt: Double, distM: Double) =
+        "Point $n is $why; with Move ends to navigable water on, the route uses the nearest water charted at least " +
+            "${fmt(depthFt)} ft, ${distM.roundToInt()} m away. Check the way between on a chart."
+
+    /**
+     * The first cell on the way from [from] to [goal], within [MOVE_ENDS_M], that is
+     * charted at least the safe depth. Null when the way out stays shallower than
+     * that for the whole distance: the ICW at Wrightsville is that ditch, and the
+     * deep water off to the east is not the way out.
+     */
+    private fun clearOnPath(a: Area, g: Grid, from: Int, goal: Int, user: LatLon): Pair<Int, Double>? {
+        val path = astar(a, g, from, goal) ?: return null
+        var walked = 0.0
+        for (k in 1 until path.size) {
+            val step = if (path[k] / a.w != path[k - 1] / a.w && path[k] % a.w != path[k - 1] % a.w) 1.4142135 else 1.0
+            walked += step * a.res
+            if (walked > MOVE_ENDS_M) return null
+            if (clearWater(g, path[k])) return path[k] to distanceM(user, a.latlon(path[k]))
+        }
+        return null
+    }
+
+    private fun moveLeftMessage(n: Int, why: String, depthFt: Double) =
+        "Point $n is $why, and no water charted at least ${fmt(depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, " +
+            "so Move ends to navigable water left it; the legs there are flagged."
+
     /** Route a to b on the full-detail grid (its window must fit without coarsening). */
     private fun planPiece(p: LatLon, q: LatLon, np: Int?, nq: Int?, c: Ctx): Piece {
         for ((attempt, widen) in widths.withIndex()) {
+            val attemptSnap = c.snap()
             val a = area(listOf(p, q), widen)
             val g = buildGrid(a, c.depthM, c.airM, c.bufM)
             var (sp, mp) = snap(a, g, p)
             var (sq, mq) = snap(a, g, q)
             if (moveEnds) {
-                // Your points in water charted under the safe depth (or in a hazard buffer)
-                // start or end at the nearest water that is not: the leg between is not planned
+                // Water charted under the safe depth, or in a hazard buffer, starts or ends
+                // at the nearest water that is not. A pin on land or a dock stays at the
+                // snap: walking on to the nearest deep cell sent Wrightsville east out of
+                // the ICW, and the Alligator-Pungo end across a 2 ft sounding.
                 for (e in 0..1) {
                     val n = (if (e == 0) np else nq) ?: continue
+                    if (n in c.moved) continue
                     val pt = if (e == 0) p else q
                     val s0 = if (e == 0) sp else sq
-                    val (cell, dist) = nearestNavigable(a, g, pt, s0) ?: run {
+                    val userCell = a.cell(pt)
+                    if (!chartedWater(g, userCell)) {
+                        // Walk only to clear water that the way out already uses, and
+                        // only within Move ends' distance. The nearest deep cell in
+                        // any direction is what left the ICW at Wrightsville. A dock
+                        // at the head of a creek walks out along that creek.
+                        val other = if (e == 0) sq else sp
+                        val along = clearOnPath(a, g, s0, other, pt)
+                        if (along != null) {
+                            val (cell, dist) = along
+                            if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
+                            val msg = moveMessage(n, moveWhy(g, s0, c.depthFt), c.depthFt, dist)
+                            if (msg !in c.messages) c.messages.add(msg)
+                            c.moved.add(n)
+                        } else {
+                            val dist = if (e == 0) mp else mq
+                            if (dist + 1e-6 >= a.res) {
+                                val msg = landMessage(n, dist)
+                                if (msg !in c.messages) c.messages.add(msg)
+                                c.moved.add(n)
+                            }
+                        }
+                        continue
+                    }
+                    val found = nearestNavigable(a, g, pt, s0)
+                    if (found == null) {
                         if (!clearWater(g, s0)) {
-                            val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards, and no water " +
-                                "charted at least ${fmt(c.depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, so Move ends to " +
-                                "navigable water left it; the legs there are flagged."
+                            val msg = moveLeftMessage(n, moveWhy(g, userCell, c.depthFt), c.depthFt)
                             if (msg !in c.messages) c.messages.add(msg)
                         }
-                        null
-                    } ?: continue
+                        continue
+                    }
+                    val (cell, dist) = found
                     if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
-                    val msg = "Point $n is in water charted under your ${fmt(c.depthFt)} ft or near charted hazards; with Move ends " +
-                        "to navigable water on, the route uses the nearest water charted at least ${fmt(c.depthFt)} ft, ${dist.roundToInt()} m away. " +
-                        "Check the way between on a chart."
+                    val msg = moveMessage(n, moveWhy(g, userCell, c.depthFt), c.depthFt, dist)
                     if (msg !in c.messages) c.messages.add(msg)
                     c.moved.add(n)
                 }
             }
-            for ((n, m) in listOf(np to mp, nq to mq)) if (n != null && m > a.res && n !in c.moved) {
+            for ((n, pt, m) in listOf(Triple(np, p, mp), Triple(nq, q, mq))) {
+                if (n == null || n in c.moved) continue
+                val onLand = !chartedWater(g, a.cell(pt))
+                if (onLand && m + 1e-6 < a.res) continue
+                if (!onLand && m <= a.res) continue
                 c.moved.add(n)
-                c.messages.add("Point $n moved ${m.roundToInt()} m to the nearest usable water")
+                c.messages.add(if (onLand) landMessage(n, m) else "Point $n moved ${m.roundToInt()} m to the nearest usable water")
             }
             var path = astar(a, g, sp, sq)
             if (path == null) {
@@ -1823,7 +2108,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 for (n in listOfNotNull(np, nq)) {
                     val lead = c.messages.filter { it.startsWith("Point $n:") && it.contains("leads out") }
                     if (lead.isNotEmpty()) c.messages.removeAll {
-                        it.startsWith("Point $n is in water charted under") || it.startsWith("Point $n:") && it !in lead
+                        it.startsWith("Point $n is ") || (it.startsWith("Point $n:") && it !in lead)
                     }
                 }
             }
@@ -1857,11 +2142,25 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 else if (headCross == null && headProhib == null && (np != null || cp == idx.first())) wps[0] = p
                 if (tail) { wps.add(q); idx += cq }
                 else if (tailCross == null && tailProhib == null && (nq != null || cq == idx.last())) wps[wps.size - 1] = q
-                val ls = legs(a, g, wps, idx, c.seen, c.airFt != null).toMutableList()
+                val ls = legs(a, g, wps, idx, c.seen, c.airFt).toMutableList()
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])
                 if (tail) ls[ls.size - 1] = offWater(ls[ls.size - 1])
                 if (moveEnds && nq != null) stopForShoalBar(c, nq, q, wps, ls)
+                // The connector is drawn. Say the pin is on land when nothing else
+                // already explained the move. A long trip's earlier try can drop
+                // the sentence added at the snap.
+                fun ensureLand(n: Int?, user: LatLon, drawn: Boolean) {
+                    if (n == null || !drawn) return
+                    val cell = a.cell(user)
+                    if (chartedWater(g, cell)) return
+                    if (c.messages.any { it.startsWith("Point $n is on land") || it.startsWith("Point $n:") }) return
+                    val water = if (n == np) wps[min(1, wps.size - 1)] else wps[max(0, wps.size - 2)]
+                    c.messages.add(landMessage(n, distanceM(user, water)))
+                    c.moved.add(n)
+                }
+                ensureLand(np, p, head)
+                ensureLand(nq, q, tail)
                 // A 40 m grid will draw a narrow marked cut on the wrong side of the marks
                 // (Kent Narrows). Full detail is the grid that knows the cut. If this piece
                 // had to be coarsened and it still crosses a mark, do not hand that line over.
@@ -1872,6 +2171,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
                 return Piece(wps, ls, a.res, cost)
             }
+            // This wider window did not produce a route. Drop the distances it
+            // reported so the next try, or the refusal, is not a second number
+            // for the same point.
+            c.restore(attemptSnap)
             val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
             val closed = (0..1).filter { !ends[it].edge }
             if (closed.isNotEmpty() || attempt == widths.size - 1) {
@@ -2027,6 +2330,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
         var (s, _) = snap(fa, fg, pt)
         var enc = enclosure(fa, fg, s)
+        val onLand = !chartedWater(fg, fa.cell(pt))
         val landOnly = enc.walls.keys.all { it == "land" || it == "struct" }
         if (!enc.edge && (landOnly || moveEnds)) {
             // Cut off within the window: use the nearest water that leads out of it
@@ -2038,7 +2342,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val out = region(fa, fg.ok, border)
             nearestIn(fa, out, pt, if (moveEnds) MOVE_ENDS_M else CUT_OFF_M)?.let { s = it.first; enc = enclosure(fa, fg, s) }
         }
-        if (moveEnds && enc.edge) nearestNavigable(fa, fg, pt, s)?.let { s = it.first }
+        // A land pin stays on the snap. Walking to the nearest deep cell is what
+        // pulled a long trip's first guide points out of the ditch. The sentence
+        // is written by planPiece, which draws the leg.
+        if (moveEnds && enc.edge && !onLand) nearestNavigable(fa, fg, pt, s)?.let { s = it.first }
         val (cost, parent) = costField(fa, fg, s)
         return Approach(fa, cost, parent, if (enc.edge) null else noRoute(c, fa, fg, who, pt, enc))
     }
@@ -2319,6 +2626,38 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
             for (at in joins) rejoin(wps, legs, at, first, c)
         }
+        // One Move ends sentence per point: the last one, from the attempt that
+        // was kept. A widened window used to leave an earlier distance in the report.
+        val lastFor = HashMap<Int, Int>()
+        for (i in c.messages.indices) {
+            val m = c.messages[i]
+            val n = Regex("""^Point (\d+)""").find(m)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+            lastFor[n] = i
+        }
+        if (lastFor.isNotEmpty()) {
+            val drop = HashSet<Int>()
+            for (i in c.messages.indices) {
+                val m = c.messages[i]
+                val n = Regex("""^Point (\d+)""").find(m)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                if (lastFor[n] != i && (m.startsWith("Point $n is ") || m.startsWith("Point $n moved") || m.startsWith("Point $n:")))
+                    drop.add(i)
+            }
+            for (i in drop.sortedDescending()) c.messages.removeAt(i)
+        }
+        // A pin on land whose connector survived every restore still needs one sentence.
+        for ((idx, pt) in pts.withIndex()) {
+            val n = idx + 1
+            if (c.messages.any { it.startsWith("Point $n") }) continue
+            val at = if (idx == 0) wps.firstOrNull() else if (idx == pts.lastIndex) wps.lastOrNull() else null
+            val nbr = if (idx == 0) wps.getOrNull(1) else wps.getOrNull(wps.size - 2)
+            if (at == null || nbr == null || distanceM(at, pt) > 1.0) continue
+            val dist = distanceM(pt, nbr)
+            if (dist < 15.0) continue
+            val fa = areaAround(pt, 80.0)
+            val fg = buildGrid(fa, c.depthM, c.airM, c.bufM)
+            if (chartedWater(fg, fa.cell(pt))) continue
+            c.messages.add(landMessage(n, dist))
+        }
         return Route(name, wps, legs, depthFt, airFt, res, c.messages, guideRes)
     }
 
@@ -2489,7 +2828,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val nw = idx.map { a.latlon(it) }.toMutableList()
                 nw[0] = old.first()
                 nw[nw.size - 1] = old.last()
-                val nl = legs(a, g, nw, idx, HashSet(seen), c.airFt != null)
+                val nl = legs(a, g, nw, idx, HashSet(seen), c.airFt)
                 if (nl.sumOf { it.distM } > limit) continue
                 val left = nl.filter { Gpx.flagged(it) }
                 if (left.isEmpty()) { best = nw to nl; clear = true; break }

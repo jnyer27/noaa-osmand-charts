@@ -4,6 +4,22 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: land pins, bridge notes, and what a check covers (not released yet)
+
+Planning:
+
+- **A pin on land or a dock stays at the nearest usable water.** Move ends was treating that cell as shallow water and walking on to the nearest water charted at least the safe depth. At Wrightsville Beach that walk left the ICW and started the trip to the east. The Alligator-Pungo end did the same and drew the line back across a 2 ft sounding, with no sentence saying the pin was on land. The report now says the point is on land or a dock and how far the water is. Move ends still walks a point that is already in the water out of a depth area under your safe depth. That sentence says whether the water may be under your depth, is charted entirely under it, or is near a hazard. One distance per point.
+- **A refusal blocked by a bridge or cable names that structure, and does not suggest a shallower depth.** Bear Creek at 55 ft of air draft is still refused. The message leads with the fixed span and the cable under the air draft (about 55 ft and 46 ft at the entrance), not the opening bridges inside the creek and not "try 0.5 ft".
+- **An opening bridge says whether it has to open.** A closed clearance under your air draft says the bridge has to open. A closed clearance over your air draft says how many feet it clears by. With no air draft the note still says it may need an opening.
+- **A cable beside the route is not reported as if the boat were on it.** On the White Oak River the channel cable is about 100 ft. A 54.8 ft cable on the next cells was rounded to 55 ft and listed on the channel leg. The tenth of a foot is kept when the whole-foot label rounds up. A cable the route only passes beside, and that is under the air draft, says the route is not on it and is not a check.
+- **Aberdeen Proving Ground stays a check for as long as the route is inside it.** The entry-restricted note (33 CFR 334.140) is repeated on each of those legs, and it says this is a firing danger zone and that the ship channel south of Pooles Island is the other way. The zone is not blocked.
+- **The C&D Canal note no longer says entry is restricted.** 33 CFR 162.40 is the canal traffic rule. Anchoring stays restricted. The route is unchanged.
+- **A pier cell on a span, beside the dredged opening, is a wall.** The opening stays open. A straight line that comes within about 14 m of both that fender and the opening is not used. Coinjock's one chord through the fender and the dredged span is split. The line can still pass about 12 m from the fender cell's center, which is the corner of the next cell.
+- **A security zone on part of a long leg says how much of the leg is inside.** Cove Point is about a mile of a 3 nm leg, and the note says that length. The leg is still one leg.
+- **A fairway whose soundings are well under the boat is not called "under your depth".** Along Oak Island at 2 ft the fairway is stored as a wide depth range, so the old note said the water may be under 2 ft while the soundings on it are 9 to 13 ft. The note now leads with that sounding. A sounding the chart labels under your safe depth is still "under your depth". A printed 2 ft is not called under a 2 ft safe depth.
+
+No pack rebuild. The packs already store the clearances and the regulation numbers. The Termux script does not have Move ends.
+
 ## 2026-11-02: stay out of prohibited water, and stay in the Carolina cuts (not released yet)
 
 Planning:
