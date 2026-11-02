@@ -120,13 +120,17 @@ class PlannerTest {
             val text = Gpx.report(r, listOf("start: Home (1, 2)", "destination: 3, 4"), listOf("charts: Test"), 40.0)
             val lines = text.lines()
             assertTrue(text, lines[0].startsWith("Bridges and cables were not checked."))
-            assertTrue(text, lines[1].startsWith("t: "))
-            assertTrue(text, lines[2] == "start: Home (1, 2)" && lines[3] == "destination: 3, 4")
-            assertTrue(text, lines[4].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
-            assertTrue(text, lines[5] == "charts: Test")
+            val nameAt = lines.indexOfFirst { it.startsWith("t: ") }
+            assertTrue(text, nameAt > 1)
+            assertTrue(text, lines[nameAt - 1].isEmpty() || lines.take(nameAt).any { it.contains("to check") })
+            assertTrue(text, lines[nameAt + 1] == "start: Home (1, 2)" && lines[nameAt + 2] == "destination: 3, 4")
+            assertTrue(text, lines[nameAt + 3].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
+            assertTrue(text, lines[nameAt + 4] == "charts: Test")
+            assertTrue(text, lines.indexOfFirst { it.startsWith("Not for navigation") } < nameAt)
             // Great Lakes packs: depths are charted to Low Water Datum, not MLLW
             val lake = Gpx.report(r, emptyList(), emptyList(), null, Pack.datumName(listOf(25)))
-            assertTrue(lake, lake.lines()[2].startsWith("depth 3 ft (Low Water Datum), "))
+            val depthLine = lake.lines().first { it.startsWith("depth ") }
+            assertTrue(lake, depthLine.startsWith("depth 3 ft (Low Water Datum), "))
             assertTrue(Gpx.write(r, "Low Water Datum").contains("ft depth at Low Water Datum from NOAA ENC"))
         }
     }

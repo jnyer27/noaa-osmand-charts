@@ -3,8 +3,15 @@ package com.jnyer27.noaaroute
 /** A named position found in shared text or a GPX file. */
 data class SharedPoint(val name: String, val pos: LatLon)
 
-/** Points from a GPX file: named waypoints, route points, and each track's first and last point. */
-class SharedGpx(val waypoints: List<SharedPoint>, val route: List<SharedPoint>, val trackEnds: List<SharedPoint>) {
+/**
+ * Points from a GPX file: named waypoints, route points, and each track's first and last point.
+ * [trip] is the start, via points and destination when this app wrote them. [summary] is the
+ * route description, which carries the same warning lines as the report.
+ */
+class SharedGpx(
+    val waypoints: List<SharedPoint>, val route: List<SharedPoint>, val trackEnds: List<SharedPoint>,
+    val trip: List<LatLon> = emptyList(), val summary: String = "",
+) {
     val isEmpty get() = waypoints.isEmpty() && route.isEmpty() && trackEnds.isEmpty()
 }
 
@@ -131,6 +138,17 @@ object Shared {
             point(pts.first().groupValues[2], null, "$trackName (start)")?.let { ends.add(it) }
             if (pts.size > 1) point(pts.last().groupValues[2], null, "$trackName (end)")?.let { ends.add(it) }
         }
-        return SharedGpx(wpts, rte, ends)
+        val rteDesc = Regex("""<rte\b[^>]*>.*?<desc>\s*(?:<!\[CDATA\[)?(.*?)(?:]]>)?\s*</desc>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            .find(xml)?.groupValues?.get(1)?.let(::unescape).orEmpty()
+        val trip = Regex("""Trip points:\s*([0-9.,;\s\-]+)""").find(rteDesc)?.groupValues?.get(1)?.split(';')?.mapNotNull { part ->
+            val bits = part.trim().split(',').map { it.trim() }
+            if (bits.size != 2) null else {
+                val lat = bits[0].toDoubleOrNull()
+                val lon = bits[1].toDoubleOrNull()
+                if (lat != null && lon != null && valid(lat, lon)) LatLon(lat, lon) else null
+            }
+        }.orEmpty()
+        val summary = rteDesc.substringBefore("Trip points:").trim()
+        return SharedGpx(wpts, rte, ends, trip, summary)
     }
 }

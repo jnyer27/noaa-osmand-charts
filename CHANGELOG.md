@@ -15,6 +15,27 @@ Planning:
 
 No pack rebuild. The Termux script does not have this pin stop or the extra cost beside a channel.
 
+## 2026-11-02: Kent Narrows and the Rock Hall bar (not released yet)
+
+Planning:
+
+- **Kent Narrows at 6 ft is not drawn at 40 m on the wrong side of the marks.** Ego Alley to St. Michaels via the narrows had no route in the 20 m window, widened, and came down the north side of the cut beside charted 0.3 ft to 3.9 ft soundings, including the wrong side of a mark. A coarser grid is no longer used for a narrow cut when that line crosses a mark. The app stops and tells you to move a point or add a via in the marked channel.
+- **Rock Hall at 6 ft with Move ends stops before the 0-6 ft bar.** The harbor pin is in the 0-6 ft band. The route used to spend about 750 m in that band and finish across a charted 1 ft sounding, and the report gave two distances for the same point (39 m to water charted at least 6 ft, and 372 m to water that leads out). There is now one distance. The route stops on the near side of the bar, about 1.7 nm short of the pin, and does not draw a line across the 1 ft sounding. At 4 ft the same trip still runs in, which matches the chart: the bar's soundings are not under a 4 ft safe depth the way the 1 ft sounding is under 6 ft.
+
+No pack rebuild.
+
+## 2026-11-02: the checks lead, and the chart keeps one depth key (not released yet)
+
+The report and the chart:
+
+- **The plan no longer opens with "saved".** The first line is how many legs to check. Under it: shoal water, bridges, cables, and restricted areas, then "Not for navigation", then where the GPX file was saved, then the leg table. Shoal rows are dark red, bridges blue, cables purple, restricted areas purple, and the check count a deep orange.
+- **Entry restricted and entry prohibited are checks.** The leg is orange on the chart and the GPX point is named "check". Anchoring, fishing and no-wake rules stay information. A security zone was already a check.
+- **The GPX description carries the same warning lines**, plus the start, via points and destination. **Use as trip** on a file this app wrote puts the via points back and shows those lines. A file from another app still uses the first and last point.
+- **Route data no longer paints depth in red and amber.** The chart's blue ramp is the only depth key. The overlay leaves depth areas clear and keeps bright red for a hazard, black for a pier or structure, and a purple hatch for entry prohibited. A bridge that is too low stays maroon. A cable that is too low is navy, and both are labeled vertical clearance, so orange on the route line is only a leg to check.
+- **On the chart, each leg has its number.** Tap the leg and the note from the report is shown under the chart.
+
+No pack rebuild.
+
 ## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
 
 Planning:

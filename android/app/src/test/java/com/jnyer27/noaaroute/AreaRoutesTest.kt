@@ -115,6 +115,8 @@ class AreaRoutesTest {
                     if (!mustFail) failures.add("$name: ${e.message}")
                     else if (noText != null && e.message!!.contains(noText))
                         failures.add("$name: refusal contains \"$noText\"")
+                    else if (test["failText"] != null && !e.message!!.contains(test["failText"] as String))
+                        failures.add("$name: refusal does not contain \"${test["failText"]}\"")
                 }
             }
             open.forEach { it.close() }
