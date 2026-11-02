@@ -26,7 +26,10 @@ class ChartTilesTest {
     @Test
     fun routeGeoJsonFlagsTheSameLegsAsTheReport() {
         val features = arr(obj(MiniJson.parse(ChartTiles.routeGeoJson(route)))["features"])
-        assertEquals(7, features.size)
+        assertEquals(10, features.size) // 3 legs, 3 leg numbers, 4 points
+        val first = obj(obj(features[0])["properties"])
+        assertEquals(1.0, first["leg"] as Double, 0.0)
+        assertTrue((first["note"] as String).contains("under 3 ft") || (first["note"] as String).isNotEmpty())
         val flagged = features.map { obj(obj(it)["properties"]) }
             .filter { it["kind"] == "leg" }
             .map { (it["flagged"] as Double).toInt() }
@@ -37,6 +40,9 @@ class ChartTilesTest {
         assertEquals(39.32, start[1] as Double, 1e-6)
         assertFalse(Gpx.flagged(route.legs[1]))
         assertTrue(Gpx.flagged(route.legs[0]))
+        val mid = ChartTiles.legAt(ChartTiles.routeGeoJson(route), 39.315, -76.39)
+        assertTrue(mid, mid!!.startsWith("Leg 1."))
+        assertNull(ChartTiles.legAt(ChartTiles.routeGeoJson(route), 40.0, -70.0))
     }
 
     @Test
@@ -51,6 +57,8 @@ class ChartTilesTest {
         assertTrue(style.contains("[\"<\", [\"get\", \"ft\"], 5]"))
         assertTrue(style.contains("NotoSansRegular"))
         assertTrue(style.contains("route-check"))
+        assertTrue(style.contains("route-label"))
+        assertTrue(style.contains(""""text-field": ["to-string", ["get", "leg"]]"""))
         // A green light is not the same dot as a red one. col comes from S-57 COLOUR.
         assertTrue(style.contains("""["match",["get","col"],"G","#1b8a34","R","#d01818"""))
         assertFalse(style.contains("#e91e63"))

@@ -4,6 +4,18 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: the checks lead, and the chart keeps one depth key (not released yet)
+
+The report and the chart:
+
+- **The plan no longer opens with "saved".** The first line is how many legs to check. Under it: shoal water, bridges, cables, and restricted areas, then "Not for navigation", then where the GPX file was saved, then the leg table. Shoal rows are dark red, bridges blue, cables purple, restricted areas purple, and the check count a deep orange.
+- **Entry restricted and entry prohibited are checks.** The leg is orange on the chart and the GPX point is named "check". Anchoring, fishing and no-wake rules stay information. A security zone was already a check.
+- **The GPX description carries the same warning lines**, plus the start, via points and destination. **Use as trip** on a file this app wrote puts the via points back and shows those lines. A file from another app still uses the first and last point.
+- **Route data no longer paints depth in red and amber.** The chart's blue ramp is the only depth key. The overlay leaves depth areas clear and keeps bright red for a hazard, black for a pier or structure, and a purple hatch for entry prohibited. A bridge that is too low stays maroon. A cable that is too low is navy, and both are labeled vertical clearance, so orange on the route line is only a leg to check.
+- **On the chart, each leg has its number.** Tap the leg and the note from the report is shown under the chart.
+
+No pack rebuild.
+
 ## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
 
 Planning:

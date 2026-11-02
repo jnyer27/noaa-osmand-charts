@@ -71,15 +71,12 @@ class RouteOverlayTest {
         assertEquals(RouteOverlay.Kind.FAIRWAY_MARGINAL, kind(depth = 8))
         // A fairway whose whole range is under the safe depth is shallow water, not a channel.
         assertEquals(RouteOverlay.Kind.SHALLOW, kind(depth = 9))
-        val colours = listOf(
+        // Depth fills stay clear so the chart's blue ramp is the only depth key.
+        for (k in listOf(
             RouteOverlay.Kind.SAFE, RouteOverlay.Kind.DREDGED, RouteOverlay.Kind.FAIRWAY,
             RouteOverlay.Kind.MARGINAL, RouteOverlay.Kind.DREDGED_MARGINAL, RouteOverlay.Kind.FAIRWAY_MARGINAL,
             RouteOverlay.Kind.SHALLOW,
-        ).map { RouteOverlay.argb(it, 0, 0) }
-        assertEquals(colours.size, colours.toSet().size)
-        assertTrue((RouteOverlay.argb(RouteOverlay.Kind.SAFE, 0, 0) ushr 24) < 80)
-        assertTrue((RouteOverlay.argb(RouteOverlay.Kind.SHALLOW, 0, 0) ushr 24) > 100)
-        assertTrue((RouteOverlay.argb(RouteOverlay.Kind.DREDGED, 0, 0) ushr 24) > 100)
+        )) assertEquals(k.name, 0, RouteOverlay.argb(k, 0, 0))
     }
 
     @Test
@@ -95,6 +92,8 @@ class RouteOverlayTest {
         assertEquals(RouteOverlay.Kind.PIER, kind(hazard = Pack.HZ_PIER))
         assertEquals(RouteOverlay.Kind.PIER, kind(flags = Pack.F_STRUCT))
         assertNotEquals(RouteOverlay.argb(RouteOverlay.Kind.HAZARD, 1, 1), RouteOverlay.argb(RouteOverlay.Kind.SHALLOW, 1, 1))
+        assertEquals(0, RouteOverlay.argb(RouteOverlay.Kind.SHALLOW, 1, 1))
+        assertNotEquals(0, RouteOverlay.argb(RouteOverlay.Kind.HAZARD, 1, 1))
         assertNotEquals(RouteOverlay.argb(RouteOverlay.Kind.PIER, 0, 0), RouteOverlay.argb(RouteOverlay.Kind.HAZARD, 0, 0))
         // The hazard wins over the depth fill, so the dot shows on shallow water too.
         assertEquals(RouteOverlay.Kind.HAZARD, kind(depth = 4, hazard = 6))
@@ -158,6 +157,10 @@ class RouteOverlayTest {
             RouteOverlay.argb(RouteOverlay.Kind.LOW_BRIDGE, 0, 0),
             RouteOverlay.argb(RouteOverlay.Kind.LOW_CABLE, 0, 0),
         )
+        // A cable is not the orange of a check leg (#e65100), and the legend says vertical clearance.
+        val cable = RouteOverlay.argb(RouteOverlay.Kind.LOW_CABLE, 0, 0) and 0xFFFFFF
+        assertNotEquals(0xE65100, cable)
+        assertNotEquals(0xFF6D00, cable)
     }
 
     @Test
@@ -192,9 +195,10 @@ class RouteOverlayTest {
         val n = RouteOverlay.paintBlock(2, tile, { tx, ty ->
             if (tx == 0 && ty == 0) RouteOverlay.TilePlanes(data, table) else null
         }, depthM, airM, pixels)
-        assertTrue(n > 1000)
+        assertTrue(n > 0)
+        assertTrue(n < 100) // depth stays clear; only the hazard pixel is painted
         assertEquals(RouteOverlay.argb(RouteOverlay.Kind.HAZARD, 0, 0), pixels[0])
-        assertEquals(RouteOverlay.argb(RouteOverlay.Kind.SAFE, 0, 1), pixels[1])
+        assertEquals(0, pixels[1]) // charted depth is not repainted
     }
 
     @Test
@@ -208,7 +212,7 @@ class RouteOverlayTest {
         val n = RouteOverlay.paintBlock(1, tile, { _, _ -> RouteOverlay.TilePlanes(data, table) }, depthM, airM, pixels)
         val ms = (System.nanoTime() - t0) / 1e6
         println("ROUTE_OVERLAY_TILE_MS %.1f drawn %d".format(ms, n))
-        assertTrue(n > 60000)
+        assertTrue(n in 100..1000) // hazards only; the marginal fill stays clear
         assertTrue("one tile took %.0f ms".format(ms), ms < 2000)
         // A zoomed-out block reads every cell of 16 x 16 tiles. The cap keeps this off the common path.
         val t1 = System.nanoTime()
@@ -294,17 +298,19 @@ class RouteOverlayTest {
         noDash(RouteOverlay.DRAWING)
         assertTrue(text.contains("3 ft"))
         assertTrue(text.contains("10 ft"))
-        assertTrue(text.contains("too shallow or drying"))
-        assertTrue(text.contains("dredged"))
-        assertTrue(text.contains("fairway"))
+        assertTrue(text.contains("chart's blues"))
+        assertTrue(text.contains("does not repaint"))
+        assertFalse(text.contains("Red: too shallow"))
+        assertFalse(text.contains("Amber:"))
+        assertTrue(text.contains("vertical clearance"))
         assertTrue(text.contains("hazard"))
         assertTrue(text.contains("pier"))
         assertTrue(text.contains("prohibited"))
-        assertTrue(text.contains("bridge too low"))
-        assertTrue(text.contains("cable too low"))
+        assertTrue(text.contains("Navy: cable"))
+        assertTrue(text.contains("not a cable"))
         assertTrue(text.contains("wrong side of a mark"))
         assertTrue(text.contains("snag"))
-        assertTrue(text.contains("land or no data"))
+        assertTrue(text.contains("charted depth"))
         assertTrue(RouteOverlay.NO_PACK.contains("no route pack downloaded for this view"))
         assertTrue(RouteOverlay.NO_PACK_NONE.contains("Download a region under Regions"))
         val noAir = RouteOverlay.legend(5.5, null, 1, 0.04, 4)
