@@ -326,7 +326,7 @@
   ],
   "tests": [
     {"name": "Maryland Marina to Ego Alley", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 3, "air": 10, "nm": [24, 29], "resolve": true, "areas": ["ncds_04", "ncds_05"]},
-    {"name": "Maryland Marina to Ego Alley at 5 ft (slip leads out; a charted 5 ft sounding is not a wall)", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 5, "air": 10, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Ego Alley at 5 ft (slip leads out; a charted 5 ft sounding is not a wall; east of the 0-6 ft knoll north of the Bay Bridge)", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 5, "air": 10, "nm": [24, 29], "avoid": [[39.01213, -76.38590, 120]], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Hart-Miller to Bear Creek (opening bridges)", "points": ["39.2470,-76.3880", "39.25084,-76.48861"], "depth": 3, "air": 10, "nm": [9, 12], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to Rock Hall", "points": ["39.32371,-76.39998", "39.13276,-76.24449"], "depth": 3, "air": 10, "nm": [14, 18], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to upper Bush River (Amtrak swing bridge, cables with only a safe clearance)", "points": ["39.32371,-76.39998", "39.44288,-76.23491"], "depth": 3, "air": 10, "nm": [15, 20], "areas": ["ncds_04", "ncds_05"]},
