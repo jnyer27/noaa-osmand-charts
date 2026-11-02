@@ -110,18 +110,23 @@ class PlannerTest {
                 assertTrue("col $c inside channel", c in 250..261)
             }
             assertTrue("bridge span reported", r.legs.any { l -> l.notes.any { it.startsWith("Test Bridge span (clearance 33 ft)") } })
+            // No air draft was given, so the span the route still crosses is a check
+            assertTrue("bridge is a check", r.legs.any { l -> l.notes.any { it == "Test Bridge span (clearance 33 ft): check" } })
+            assertTrue("bridge leg flagged", r.legs.any { Gpx.flagged(it) && it.notes.any { n -> n.contains("Test Bridge") } })
             val gpx = Gpx.write(r)
             assertTrue(gpx.contains("<rtept"))
-            // The summary names the trip's ends and settings
+            assertTrue(gpx, gpx.contains("Bridges and cables were not checked (no air draft)."))
+            // The summary names the trip's ends and settings, and leads with the skipped checks
             val text = Gpx.report(r, listOf("start: Home (1, 2)", "destination: 3, 4"), listOf("charts: Test"), 40.0)
             val lines = text.lines()
-            assertTrue(text, lines[0].startsWith("t: "))
-            assertTrue(text, lines[1] == "start: Home (1, 2)" && lines[2] == "destination: 3, 4")
-            assertTrue(text, lines[3].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
-            assertTrue(text, lines[4] == "charts: Test")
+            assertTrue(text, lines[0].startsWith("Bridges and cables were not checked."))
+            assertTrue(text, lines[1].startsWith("t: "))
+            assertTrue(text, lines[2] == "start: Home (1, 2)" && lines[3] == "destination: 3, 4")
+            assertTrue(text, lines[4].startsWith("depth 3 ft (MLLW), air draft not checked, hazard buffer 40 m, grid"))
+            assertTrue(text, lines[5] == "charts: Test")
             // Great Lakes packs: depths are charted to Low Water Datum, not MLLW
             val lake = Gpx.report(r, emptyList(), emptyList(), null, Pack.datumName(listOf(25)))
-            assertTrue(lake, lake.lines()[1].startsWith("depth 3 ft (Low Water Datum), "))
+            assertTrue(lake, lake.lines()[2].startsWith("depth 3 ft (Low Water Datum), "))
             assertTrue(Gpx.write(r, "Low Water Datum").contains("ft depth at Low Water Datum from NOAA ENC"))
         }
     }
@@ -226,6 +231,8 @@ class PlannerTest {
                 fail("planned out of a pocket closed by shallow water with Move ends off")
             } catch (e: PlanException) {
                 assertTrue(e.message, e.message!!.contains("pocket"))
+                // The ring opens at a shallower depth, and a plan at that depth does connect
+                assertTrue(e.message, e.message!!.contains("With a safe depth of"))
             }
             val r = planner.plan("t", listOf(start, open), 3.0, null, moveEnds = true)
             assertEquals(start, r.points[0])
@@ -688,6 +695,95 @@ class PlannerTest {
             assertEquals(res.summary, 0, res.resolved + res.partly)
             assertEquals(r.points, res.route.points)
             assertTrue(res.summary, res.summary.endsWith("1 unchanged (no way around within 0.2 nm or 10% of the stretch)."))
+        }
+    }
+
+    @Test
+    fun blankAirDraftNeedsAnExplicitChoice() {
+        assertEquals(10.0, Planner.airDraftFt("10", false)!!, 0.0)
+        assertEquals(10.0, Planner.airDraftFt(" 10 ", true)!!, 0.0)
+        assertNull(Planner.airDraftFt("", true))
+        assertNull(Planner.airDraftFt("  ", true))
+        try {
+            Planner.airDraftFt("", false)
+            fail("blank air draft was accepted")
+        } catch (e: PlanException) {
+            assertTrue(e.message, e.message!!.contains("Don't check bridges and cables"))
+        }
+        try {
+            Planner.airDraftFt("0", true)
+            fail("zero air draft was accepted")
+        } catch (e: PlanException) {
+            assertTrue(e.message, e.message!!.contains("feet"))
+        }
+    }
+
+    /**
+     * A channel crossed by a 20 ft cable, with 35 ft and 43 ft cables on the same
+     * line, and a land pin north of it. South of the cable is open. North is a
+     * deep basin in 0-2 ft water, so a lower safe depth reaches the window edge
+     * and still cannot pass the cable.
+     */
+    @Test
+    fun moveEndsDoesNotCrossACableTheAirDraftCannotClear() {
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        // North of the cable is 0-2 ft water, so a lower safe depth reaches the window edge.
+        // A deep basin sits in it. The cable crosses the whole grid, so nothing goes around it.
+        // South of the cable is deep water out to the pack edge.
+        for (r in 0..199) for (c in 0 until size) planes[Pack.P_DEPTH][r * size + c] = 2 // 0-0.6 m
+        for (r in 150..185) for (c in 220..300) planes[Pack.P_DEPTH][r * size + c] = 1
+        for (r in 186..194) for (c in 248..268) planes[Pack.P_DEPTH][r * size + c] = 0 // the pin sits on land
+        for (c in 0 until size) {
+            val i = 200 * size + c
+            planes[Pack.P_DEPTH][i] = 1
+            planes[Pack.P_FLAGS][i] = Pack.F_CABLE.toByte()
+            planes[Pack.P_CABLECLR][i] = 12 // 6.0 m, charted 20 ft
+        }
+        for (r in 201 until size) for (c in 0 until size) planes[Pack.P_DEPTH][r * size + c] = 1
+        val lat = north - 200.5 * dlat
+        val notes = """[{"kind":"cable","band":5,"bbox":[${west},${lat - 2 * dlat},${west + size * dlon},${lat + 2 * dlat}],"type":"Bbox","coords":null,"name":"power line","clr":10.668},""" +
+            """{"kind":"cable","band":5,"bbox":[${west},${lat - 2 * dlat},${west + size * dlon},${lat + 2 * dlat}],"type":"Bbox","coords":null,"name":"overhead cable","clr":6.0},""" +
+            """{"kind":"cable","band":5,"bbox":[${west},${lat - 2 * dlat},${west + size * dlon},${lat + 2 * dlat}],"type":"Bbox","coords":null,"name":"higher cable","clr":13.1064}]"""
+        val pin = cellCenter(190, 258)
+        val start = cellCenter(400, 258)
+        fun rowOf(p: LatLon) = ((north - p.lat) / dlat).toInt()
+        fun crossesCable(r: Route): Boolean {
+            for ((p, q) in r.points.zipWithNext()) {
+                val n = max(1, (Planner.distanceM(p, q) / 5.0).toInt())
+                for (k in 0..n) {
+                    val t = k / n.toDouble()
+                    if (rowOf(LatLon(p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)) == 200) return true
+                }
+            }
+            return false
+        }
+        Pack(writePack(planes, notes, depthTable = "[null,[2.0,3.6,0],[0.0,0.6,0]]")).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            for ((depth, air) in listOf(6.0 to 55.0, 4.0 to 25.0)) {
+                try {
+                    planner.plan("t", listOf(start, pin), depth, air)
+                    fail("planned across the cable at $depth ft with air $air and Move ends off")
+                } catch (e: PlanException) {
+                    assertTrue(e.message, e.message!!.contains("No route found"))
+                    assertTrue(e.message, !e.message!!.contains("With a safe depth of"))
+                }
+                val r = planner.plan("t", listOf(start, pin), depth, air, moveEnds = true)
+                assertTrue("route crossed the 20 ft cable at $depth ft / $air ft", !crossesCable(r))
+                assertTrue("ended on the pin", r.points.last() != pin)
+                assertTrue("a point north of the cable", r.points.none { rowOf(it) < 200 })
+                val msg = r.messages.joinToString("\n")
+                assertTrue(msg, msg.contains("overhead cable (clearance 20 ft)"))
+                assertTrue(msg, msg.contains("near side"))
+                assertTrue(msg, msg.contains("land beyond"))
+                assertTrue("leg still names the cable", r.legs.none { l -> l.notes.any { it.contains("clearance 20 ft") } })
+            }
+            // 10 ft of air clears a charted 20 ft cable. The route uses that water and still ends at the pin.
+            for (move in listOf(false, true)) {
+                val r = planner.plan("t", listOf(start, pin), 2.0, 10.0, moveEnds = move)
+                assertEquals(pin, r.points.last())
+                assertTrue("10 ft route did not use the cable crossing (move ends $move)", crossesCable(r))
+                assertTrue(r.legs.any { l -> l.notes.any { it.contains("overhead cable (clearance 20 ft)") && !it.contains("check") } })
+            }
         }
     }
 }

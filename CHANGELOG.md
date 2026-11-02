@@ -4,6 +4,15 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
+
+Planning:
+- **Move ends does not draw across a bridge or cable the boat cannot clear.** With Move ends on, a straight line from your pin to the water the route can use used to cross a charted overhead cable, and the land beyond it, and the note called that line "not checked" in the same sentence as the cable. Maryland Marina to the upper Bush River pin did this for a 55 ft air draft and a 25 ft air draft: the checked water stopped south of a charted 20 ft cable, and the last leg ran across that cable and then across land. The route now stops on the near side of the lowest cable or bridge the air draft cannot clear, names that charted clearance, and does not cross the structure or the land beyond it. A 10 ft air draft still goes under the 20 ft cable. With Move ends off, those taller boats are still refused.
+- **A shallower safe depth is suggested only when a route at that depth joins the two ends.** The old line looked only at whether water near the point reached the edge of a 4 km window. For the 25 ft boat that window opened at 1 ft, and the refusal said to try 1 ft, but the cable still blocked the river at 1 ft. The suggestion is kept when the whole trip plans at that depth (Maryland Marina at 6 ft with a 10 ft air draft still says 5 ft works). When the wall is the cable, no depth is offered.
+- **Air draft is no longer an empty field you can plan past without noticing.** The hint is no longer "optional". Plan route asks for a height in feet. **Don't check bridges and cables** is a separate checkbox, off by default, and it is the only way to plan with the field empty. That choice is the first line of the report and a sentence in the GPX description. Bridge and cable notes on that route are checks, with the orange and green markers. A height you type is used even if the checkbox is on.
+
+No pack rebuild. The Termux script has no Move ends option. Its air draft question already says that Enter skips the bridge and cable checks.
+
 ## 2026-11-02: Pensacola to Mobile stays in the GIWW (not released yet)
 
 Planning:

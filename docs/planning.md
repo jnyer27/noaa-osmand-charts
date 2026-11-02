@@ -42,7 +42,9 @@ Allowed values: 0 to 40 ft. The app remembers your last setting.
 
 ## Air draft (ft)
 
-Your boat's height above the waterline. With it, the route goes only under bridge spans and power lines whose charted clearance covers it. Opening bridges (swing, bascule, lift) are passed and reported with their closed clearance, so you can check the opening schedule. Leave it empty and clearances are not checked at all.
+Your boat's height above the waterline. The route goes only under bridge spans and power lines whose charted clearance covers it. Opening bridges (swing, bascule, lift) are passed and reported with their closed clearance, so you can check the opening schedule.
+
+The field is not optional. **Plan route** asks for a height unless **Don't check bridges and cables** is on. That checkbox is off until you turn it on, and it is remembered. Turn it on only when you mean to leave the field empty. The route then does not avoid a low bridge or power line. The report's first line says "Bridges and cables were not checked", the GPX description says the same, and every bridge or cable note is a check. A height you type is used even if the checkbox is on.
 
 ## Stay inside (avoid open ocean)
 
@@ -54,7 +56,7 @@ Without it, the planner takes the cheapest safe water, which can include the oce
 
 Off by default. Normally, a point in water charted under your safe depth (a marina in a 0-6 ft creek at 3 ft) is routed out through that water, and those legs are flagged; a point in water your boat cannot get out of is refused with "No route found" and an explanation of what closes it in. With this checked, the route starts or ends instead at the nearest water charted at least your safe depth, clear of hazard buffers, piers and markers, up to 0.5 nm away along the water, that leads to the rest of the trip. The report then says "Point 1 is in water charted under your 3 ft or near charted hazards; with Move ends to navigable water on, the route uses the nearest water charted at least 3 ft, 180 m away. Check the way between on a chart." It is for a dock or a mooring up a creek shallower than your safe depth, or behind a bridge too low for your air draft, that you know how to get in and out of (on the tide, with the mast down).
 
-For a boxed-in point, the report says which point moved, how far, and what closed it in, for example "Point 1: the water there is cut off by water shallower than your safe depth; with Move ends to navigable water on, the route uses the nearest water that leads out, 850 m away. Check the way between on a chart." The leg from your point to that water is marked "connects your point to usable water: not checked, use your eyes" and is a check, with check markers in the GPX. It is a straight line, not a route: it can cross shallows, a hazard, a bridge or the shore.
+For a boxed-in point, the report says which point moved, how far, and what closed it in, for example "Point 1: the water there is cut off by water shallower than your safe depth; with Move ends to navigable water on, the route uses the nearest water that leads out, 850 m away. Check the way between on a chart." The leg from your point to that water is marked "connects your point to usable water: not checked, use your eyes" and is a check, with check markers in the GPX. It is a straight line, not a route: it can cross shallows, a hazard, or a dock. It does not cross a bridge or cable your air draft cannot clear, or the land on the far side of one. The route stops on the near side and names the structure and its charted feet, for example "Point 2: overhead cable (clearance 20 ft) blocks the way to your point. With Move ends to navigable water on, the route stops on the near side, 700 m away, and does not cross it or the land beyond."
 
 It applies to your start, destination and via points. A point on land or a dock is moved to the nearest usable water with or without it.
 
@@ -88,7 +90,7 @@ After planning, read the [route report](report.html) leg by leg. Each leg with a
 - **chart depth areas**: "crosses N m of a depth area that straddles your 5 ft" or "crosses N m charted entirely under your 5 ft", when the leg line crosses that area on a chart downloaded in the app (or the bundled Middle River chart),
 - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
 - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
-- **bridges and cables**: clearances and opening schedules,
+- **bridges and cables**: clearances and opening schedules. With **Don't check bridges and cables** on, these notes are checks too, and the report's first line says the clearances were not checked,
 - **restricted areas**: their rules.
 
 [What each note means](report.html#what-each-note-means) explains every note and what to do about it. With **Check markers in the GPX** on, each stretch of flagged legs also has an orange start and a green end marker in OsmAnd, which announces them as you approach (see [In the GPX file](report.html#in-the-gpx-file)). Underway, follow the buoys rather than the line and watch the depth sounder where the report flags shallow water. See also [What to check yourself](safety.html#what-to-check-yourself).
@@ -120,7 +122,7 @@ The shading follows your safe operating depth. Strong blue is charted entirely u
 
 **Route data** is a checkbox on the chart, off until you turn it on, and remembered after that. It draws what the route planner sees, from the route pack already downloaded for a region, on top of whichever chart is showing (a downloaded region chart, or the bundled Middle River chart). It stays on when the chart switches after a download. It sits above the chart picture and under the route line. It does not need a connection. Land and cells with no pack data stay clear, so the chart shows through.
 
-The colours follow the safe operating depth and air draft for this screen. **View map** uses the form, and 3 ft if the depth field is empty. **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked, the same as planning. A bridge deck with no charted clearance is still marked, because the planner will not go under it.
+The colours follow the safe operating depth and air draft for this screen. **View map** uses the form, and 3 ft if the depth field is empty. **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked, the same as planning with **Don't check bridges and cables** on. A bridge deck with no charted clearance is still marked, because the planner will not go under it.
 
 | Colour | What the planner sees |
 |---|---|
@@ -153,7 +155,7 @@ Opening bridges are not marked as too low: the planner goes through them and the
 
 ## When there is no route
 
-If a point is boxed in, the app stops and says why: shallow water, land, a hazard buffer, or a bridge or power line too low for your air draft. It names the shallowest sounding or obstruction responsible, with its position. When depth is the limit, it suggests the deepest setting that gets out ("With a safe depth of 5 ft or less the water here leads out of this area"). Move the point into open water, or adjust the depth or air draft.
+If a point is boxed in, the app stops and says why: shallow water, land, a hazard buffer, or a bridge or power line too low for your air draft. It names the shallowest sounding or obstruction responsible, with its position. When depth is the limit, and a full plan at a shallower setting joins the two ends, it suggests that setting ("With a safe depth of 5 ft or less the water here leads out of this area"). A low bridge or cable is not answered with a shallower depth. Move the point into open water, or adjust the depth or air draft.
 
 ## Places
 
