@@ -109,7 +109,10 @@ class AreaRoutesTest {
                     }
                 } catch (e: PlanException) {
                     println("REFUSED $name: ${e.message!!.lines().first()}")
+                    val noText = test["noText"] as String?
                     if (!mustFail) failures.add("$name: ${e.message}")
+                    else if (noText != null && e.message!!.contains(noText))
+                        failures.add("$name: refusal contains \"$noText\"")
                 }
             }
             open.forEach { it.close() }

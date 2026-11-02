@@ -31,7 +31,7 @@ Lateral buoys and daybeacons are never passed on the wrong side, in either direc
 
 ## Bridges and power lines
 
-With an air draft set, the route goes only under spans with a charted clearance that covers it. Opening bridges are passed and reported with their closed clearance. Bridge piers are avoided. Where a bridge crosses a dredged channel, the route takes the channel span.
+With an air draft set, the route goes only under spans with a charted clearance that covers it. Opening bridges are passed and reported with their closed clearance. Bridge piers are avoided. Where a bridge crosses a dredged channel, the route takes the channel span. Planning with no air draft is allowed only when **Don't check bridges and cables** is on. Spans and cables are then not tested, the report and the GPX say so, and those notes are checks.
 
 ## Keeping off the shore
 
@@ -43,7 +43,7 @@ With **Stay inside**, open ocean is never used. Open ocean is the water reached 
 
 ## Move ends to navigable water
 
-A point in a pocket of water walled in only by land or structures (a marina basin behind a pier too thin for the grid) moves up to 250 m to connected water. With **Move ends to navigable water**, a point in water charted under your safe depth or in a hazard buffer moves to the nearest water, along the water within 0.5 nm, charted at least that deep and clear of buffers, piers and markers; and a point in a pocket closed by anything (water shallower than your safe depth, a hazard buffer, a bridge or cable too low for your air draft, land) moves to the nearest water within 0.5 nm that leads to the rest of the trip. The leg between is never planned, only marked to check.
+A point in a pocket of water walled in only by land or structures (a marina basin behind a pier too thin for the grid) moves up to 250 m to connected water. With **Move ends to navigable water**, a point in water charted under your safe depth or in a hazard buffer moves to the nearest water, along the water within 0.5 nm, charted at least that deep and clear of buffers, piers and markers; and a point in a pocket closed by anything (water shallower than your safe depth, a hazard buffer, a bridge or cable too low for your air draft, land) moves to the nearest water within 0.5 nm that leads to the rest of the trip. The leg between is never planned, only marked to check. It does not cross a bridge or cable the air draft cannot clear, or the land beyond one: the route stops on the near side and names the charted clearance. A shallower safe depth is suggested only when a full plan at that depth joins the two ends.
 
 ## Restricted areas
 

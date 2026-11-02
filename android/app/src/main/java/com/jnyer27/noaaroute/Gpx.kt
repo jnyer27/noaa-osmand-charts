@@ -89,7 +89,8 @@ object Gpx {
             marker(r.points[run.last + 1], "Check ends: $legs", "End of the stretch to check ($legs).", end = true)
         }
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
-        sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC. Not for navigation.", r.totalNm, num(r.depthFt), datum))}</desc>\n")
+        val clearance = if (r.airFt == null) " Bridges and cables were not checked (no air draft)." else ""
+        sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC.%s Not for navigation.", r.totalNm, num(r.depthFt), datum, clearance))}</desc>\n")
         for ((k, p) in r.points.withIndex()) {
             var label = when (k) {
                 0 -> "Start"
@@ -122,6 +123,9 @@ object Gpx {
      */
     fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null, datum: String = "MLLW"): String {
         val sb = StringBuilder()
+        if (r.airFt == null) {
+            sb.append("Bridges and cables were not checked. No air draft was given, so a low bridge or overhead cable was not avoided.\n")
+        }
         val air = if (r.airFt != null) "air draft ${num(r.airFt)} ft" else "air draft not checked"
         sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\n", r.name, r.totalNm, r.points.size))
         for (t in trip) sb.append(t).append('\n')

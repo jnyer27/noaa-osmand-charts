@@ -37,6 +37,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private var inside = false
     /** Move ends to navigable water: your points in a pocket move out of it, whatever walls it in (set by [plan]). */
     private var moveEnds = false
+    /** Points of the plan in progress, so a depth suggestion can be tried as a full plan. */
+    private var tripPts: List<LatLon> = emptyList()
+    /** A trial plan for a depth suggestion is running. It must not start another trial. */
+    private var probing = false
 
     companion object {
         const val NM = 1852.0
@@ -75,6 +79,22 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
          * still a hazard. Depth areas keep [ROUNDING_M].
          */
         fun soundingShallow(meters: Double, depthFt: Double) = printedFeet(meters) < depthFt - 1e-6
+
+        /**
+         * Air draft from the form, in feet. A blank field is allowed only when
+         * [skipBridges] is on, the explicit choice to not check bridges and cables,
+         * and the result is then null. A height that is filled in is used either way.
+         */
+        fun airDraftFt(text: String, skipBridges: Boolean): Double? {
+            val t = text.trim()
+            if (t.isEmpty()) {
+                if (skipBridges) return null
+                throw PlanException("Enter an air draft in feet, or turn on Don't check bridges and cables.")
+            }
+            val v = t.toDoubleOrNull()
+            if (v == null || v <= 0.0 || v >= 300.0) throw PlanException("Air draft must be feet")
+            return v
+        }
         const val MAX_CELLS = 4_000_000
         const val CUT_OFF_M = 250.0 // how far an end may move to escape a cut-off pocket
         const val MOVE_ENDS_M = 0.5 * NM // ...and with Move ends to navigable water, from any pocket or along the water
@@ -985,12 +1005,105 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return (if (sndAt >= 0) (snd - 1) / 10.0 to sndAt else null) to (if (obsAt >= 0) (obs - 1) / 10.0 to obsAt else null)
     }
 
+    /** A straight line from usable water back to your point crosses a bridge or cable the air draft cannot clear. */
+    private class Crossing(val note: String, val land: Boolean)
+
+    /** [feet] to suggest, and whether any shallower depth even leaves the local window. */
+    private class DepthHint(val feet: Double?, val localEscape: Boolean)
+
+    private fun isLand(g: Grid, i: Int): Boolean {
+        val v = g.nav[i].toInt()
+        return v != SAFE && v != MARGINAL && v != SHALLOW && v != HAZARD && v != STRUCT && v != SEA
+    }
+
     /**
-     * Deepest safe-depth setting (0.5 ft steps, below the one asked for) at
-     * which the water around p leads out of a 4 km detail window, or null.
+     * A cell the route cannot enter because of a bridge or cable. An opening span
+     * the route may use is ok water and is not this.
      */
-    private fun deepestThatGetsOut(p: LatLon, c: Ctx): Double? {
-        fun escapes(ft: Double): Boolean {
+    private fun structureWall(g: Grid, i: Int): Boolean {
+        if (g.ok[i] || !g.nopass[i]) return false
+        val fl = g.planes[Pack.P_FLAGS][i].toInt() and 0xff
+        return fl and (Pack.F_CABLE or Pack.F_DECK or Pack.F_SPAN or Pack.F_BRIDGE) != 0
+    }
+
+    /** Charted feet in a bridge or cable note. Unknown clearance sorts as the lowest. */
+    private fun clearanceFt(note: String): Double {
+        if (note.contains("not charted") || note.contains("no charted")) return -1.0
+        val m = Regex("""clearance (\d+(?:\.\d+)?) ft""").find(note) ?: return Double.MAX_VALUE
+        return m.groupValues[1].toDouble()
+    }
+
+    private fun planePhrase(g: Grid, i: Int): String {
+        val fl = g.planes[Pack.P_FLAGS][i].toInt() and 0xff
+        fun ft(units: Int): String {
+            if (units == 0) return "clearance not charted"
+            return "clearance %.0f ft".format((units / 2.0) / Pack.FT)
+        }
+        if (fl and Pack.F_CABLE != 0)
+            return "overhead cable (${ft(g.planes[Pack.P_CABLECLR][i].toInt() and 0xff)})"
+        if (fl and Pack.F_DECK != 0 && fl and Pack.F_SPAN == 0) return "a bridge with no charted clearance"
+        return "a bridge span (${ft(g.planes[Pack.P_SPANCLR][i].toInt() and 0xff)})"
+    }
+
+    /** The lowest charted bridge or cable on these cells, named when the pack has a note. */
+    private fun structurePhrase(a: Area, g: Grid, cells: List<Int>): String {
+        val notes = ArrayList<String>()
+        for (i in cells) {
+            val fl = g.planes[Pack.P_FLAGS][i].toInt() and 0xff
+            if (fl and Pack.F_CABLE != 0) notes.addAll(featureNotes("cable", a.latlon(i), a.res * 1.5))
+            if (fl and (Pack.F_BRIDGE or Pack.F_DECK or Pack.F_SPAN) != 0)
+                notes.addAll(featureNotes("bridge", a.latlon(i), a.res * 1.5))
+        }
+        val named = notes.distinct()
+        if (named.isNotEmpty()) return named.minBy { clearanceFt(it) }
+        if (cells.isEmpty()) return ""
+        return planePhrase(g, cells.minBy { clearanceFt(planePhrase(g, it)) })
+    }
+
+    /**
+     * The straight line from [water] (usable water the route reached) to [user]
+     * crosses a bridge or cable the air draft cannot clear. The note names the
+     * lowest charted clearance on that line. Land on the line, including the
+     * point itself, is recorded so the stop can say the line does not cross the
+     * shore. A dock a few cells inland, with no such structure, is not a crossing.
+     */
+    private fun connectorCrossing(a: Area, g: Grid, water: Int, user: LatLon): Crossing? {
+        val userCell = a.cell(user)
+        if (userCell == water) return null
+        val blocked = ArrayList<Int>()
+        var land = isLand(g, userCell)
+        for (i in lineCells(a, water, userCell)) {
+            if (i == water) continue
+            if (structureWall(g, i)) blocked.add(i)
+            else if (isLand(g, i)) land = true
+        }
+        if (blocked.isEmpty()) return null
+        val note = structurePhrase(a, g, blocked).ifEmpty { "a bridge or overhead cable without enough charted clearance" }
+        return Crossing(note, land)
+    }
+
+    /** Replace the Move ends "check the way between" lines: the connector is not drawn. */
+    private fun noteStopped(c: Ctx, n: Int, user: LatLon, water: LatLon, cross: Crossing) {
+        c.messages.removeAll { it.startsWith("Point $n:") || it.startsWith("Point $n ") }
+        val shore = if (cross.land) " or the land beyond" else ""
+        val dist = distanceM(user, water).roundToInt()
+        val lead = if (moveEnds) "With Move ends to navigable water on, the route stops" else "The route stops"
+        val msg = "Point $n: ${cross.note} blocks the way to your point. $lead on the near side, $dist m away, and does not cross it$shore."
+        if (msg !in c.messages) c.messages.add(msg)
+        c.moved.add(n)
+    }
+
+    /**
+     * Deepest safe depth, in 0.5 ft steps below the one that failed, at which a
+     * full plan joins the trip's ends. Reaching the edge of a 4 km window is
+     * only a filter: that water can still be cut off from the other end by a
+     * bridge or cable, and then no depth is suggested. A guide point's refusal
+     * keeps the local answer. Those messages are dropped when the stretch is
+     * retried, and a full plan there would replan the whole trip.
+     */
+    private fun depthHint(p: LatLon, c: Ctx, who: String): DepthHint {
+        if (probing) return DepthHint(null, false)
+        fun local(ft: Double): Boolean {
             val fa = areaAround(p, 4000.0)
             val fg = buildGrid(fa, ft * Pack.FT, c.airM, c.bufM)
             val s = try { snap(fa, fg, p).first } catch (_: PlanException) { return false }
@@ -998,12 +1111,49 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         }
         var lo = 1                                   // half-feet
         var hi = (ceil(c.depthFt * 2) - 1).toInt()   // just below what failed
-        if (hi < lo || !escapes(lo / 2.0)) return null
+        if (hi < lo || !local(0.5)) return DepthHint(null, false)
         while (lo < hi) {
             val mid = (lo + hi + 1) / 2
-            if (escapes(mid / 2.0)) lo = mid else hi = mid - 1
+            if (local(mid / 2.0)) lo = mid else hi = mid - 1
         }
-        return lo / 2.0
+        val localBest = lo / 2.0
+        // Checking the suggestion with a second full plan, while this plan still holds
+        // its grids, only fits when the trip is one detail window. That is also the
+        // case a cable can fake: the 4 km box opens, and the other end stays walled
+        // off. A long trip keeps the local answer.
+        if (!who.startsWith("Point") || tripPts.size < 2 || area(tripPts, 1.0).f != 1) return DepthHint(localBest, true)
+        if (connectsAt(localBest, c)) return DepthHint(localBest, true)
+        if (localBest <= 0.5 + 1e-9) return DepthHint(null, true)
+        if (!connectsAt(0.5, c)) return DepthHint(null, true)
+        lo = 1
+        hi = (floor(localBest * 2) - 1).toInt()
+        if (hi < lo) return DepthHint(0.5, true)
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (connectsAt(mid / 2.0, c)) lo = mid else hi = mid - 1
+        }
+        return DepthHint(lo / 2.0, true)
+    }
+
+    /**
+     * True when planning the same trip at [ft] joins the ends. Runs on this
+     * planner while an outer plan is still on the stack, so it restores the
+     * flags and does not start its own depth trial.
+     */
+    private fun connectsAt(ft: Double, c: Ctx): Boolean {
+        probing = true
+        val in0 = inside
+        val mv = moveEnds
+        return try {
+            plan("probe", tripPts, ft, c.airFt, c.bufM, in0, mv) {}
+            true
+        } catch (_: PlanException) {
+            false
+        } finally {
+            probing = false
+            inside = in0
+            moveEnds = mv
+        }
     }
 
     /**
@@ -1311,7 +1461,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return best
     }
 
-    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>): List<Leg> {
+    private fun legs(a: Area, g: Grid, wps: List<LatLon>, idx: IntArray, seen: HashSet<String>, airChecked: Boolean): List<Leg> {
         val out = ArrayList<Leg>()
         val kinds = listOf("resare" to Pack.F_RESNOTE, "bridge" to Pack.F_BRIDGE, "cable" to Pack.F_CABLE)
         val every = max(1, (500 / a.res).toInt())
@@ -1333,7 +1483,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                         run++
                     } else run = 0
                 }
-                for (i in hits.take(12)) for (s in featureNotes(kind, a.latlon(i), a.res * 1.5)) {
+                for (i in hits.take(12)) for (s0 in featureNotes(kind, a.latlon(i), a.res * 1.5)) {
+                    // With no air draft, a span or cable the route still crosses was not tested.
+                    var s = s0
+                    if (!airChecked && (kind == "bridge" || kind == "cable") && !s.contains("check")) s = "$s: check"
                     if (s !in seen) { seen.add(s); notes.add(s) }
                 }
             }
@@ -1417,12 +1570,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (obs != null) sb.append(if (obs.first == 0.0) "  - a rock, wreck or obstruction of unknown or near-zero depth (near ${at(obs.second)}), with its safety buffer\n"
                                            else "  - rocks, wrecks or obstructions as shallow as %.1f ft (near %s), with their safety buffer\n".format(obs.first / Pack.FT, at(obs.second)))
                 if (snd == null && obs == null) sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
+            } else if (why == "nopass") {
+                val phrase = structurePhrase(a, g, listOf(v.second))
+                sb.append("  - ${wallText[why]}" + (if (phrase.isNotEmpty()) ": $phrase" else "") + " ($edge, near ${at(v.second)})\n")
             } else sb.append("  - ${wallText[why]} ($edge, near ${at(v.second)})\n")
         }
         val limitedByDepth = walls.keys.any { it == "hazard" || it == "shallow" }
-        val best = if (limitedByDepth) deepestThatGetsOut(pt, c) else null
-        if (best != null) sb.append("With a safe depth of ${fmt(best)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
-        else if (limitedByDepth) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
+        val hint = if (limitedByDepth) depthHint(pt, c, who) else DepthHint(null, false)
+        if (hint.feet != null) sb.append("With a safe depth of ${fmt(hint.feet)} ft or less the water here leads out of this area; try that (the rest of the trip may still have shallower spots).\n")
+        else if (limitedByDepth && !hint.localEscape) sb.append("Even 0.5 ft of depth does not lead out from here.\n")
         if (moveEnds) sb.append("Move ends to navigable water is on, but no water within ${fmt(MOVE_ENDS_M / NM)} nm of this point leads out.\n")
         sb.append("Move the point into open water, or adjust depth or air draft.")
         return PlanException(sb.toString())
@@ -1538,13 +1694,22 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // the first or last leg cut across land or piers unchecked.
                 val cp = a.cell(p)
                 val cq = a.cell(q)
+                // The straight stub back to your point is not a planned leg. It may cross a
+                // dock or shallow water. It must not cross a bridge or cable the air draft
+                // cannot clear, or the land on the far side of one: stop on the near side.
+                val headCross = if (np != null && cp != idx.first()) connectorCrossing(a, g, idx.first(), p) else null
+                val tailCross = if (nq != null && cq != idx.last()) connectorCrossing(a, g, idx.last(), q) else null
+                if (headCross != null && np != null) noteStopped(c, np, p, a.latlon(idx.first()), headCross)
+                if (tailCross != null && nq != null) noteStopped(c, nq, q, a.latlon(idx.last()), tailCross)
                 // A guide point (np/nq null) just starts or ends at the water found for it
-                val head = np != null && cp != idx.first()
-                val tail = nq != null && cq != idx.last()
-                if (idx.size == 1 && !head && !tail) { wps.add(p); idx = intArrayOf(idx[0], idx[0]) }
-                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else if (np != null || cp == idx.first()) wps[0] = p
-                if (tail) { wps.add(q); idx += cq } else if (nq != null || cq == idx.last()) wps[wps.size - 1] = q
-                val ls = legs(a, g, wps, idx, c.seen).toMutableList()
+                val head = np != null && cp != idx.first() && headCross == null
+                val tail = nq != null && cq != idx.last() && tailCross == null
+                if (idx.size == 1 && !head && !tail && headCross == null && tailCross == null) {
+                    wps.add(p); idx = intArrayOf(idx[0], idx[0])
+                }
+                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else if (headCross == null && (np != null || cp == idx.first())) wps[0] = p
+                if (tail) { wps.add(q); idx += cq } else if (tailCross == null && (nq != null || cq == idx.last())) wps[wps.size - 1] = q
+                val ls = legs(a, g, wps, idx, c.seen, c.airFt != null).toMutableList()
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])
                 if (tail) ls[ls.size - 1] = offWater(ls[ls.size - 1])
@@ -1906,6 +2071,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     fun plan(name: String, pts: List<LatLon>, depthFt: Double, airFt: Double?, bufM: Double = 60.0,
              stayInside: Boolean = false, moveEnds: Boolean = false, progress: (String) -> Unit = {}): Route {
         require(pts.size >= 2)
+        if (!probing) tripPts = pts
         inside = stayInside
         this.moveEnds = moveEnds
         for (p in pts) if (!pack.covers(p.lat, p.lon))
@@ -2166,7 +2332,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val nw = idx.map { a.latlon(it) }.toMutableList()
                 nw[0] = old.first()
                 nw[nw.size - 1] = old.last()
-                val nl = legs(a, g, nw, idx, HashSet(seen))
+                val nl = legs(a, g, nw, idx, HashSet(seen), c.airFt != null)
                 if (nl.sumOf { it.distM } > limit) continue
                 val left = nl.filter { Gpx.flagged(it) }
                 if (left.isEmpty()) { best = nw to nl; clear = true; break }

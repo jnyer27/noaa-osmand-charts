@@ -95,6 +95,7 @@ class MainActivity : Activity() {
     private lateinit var via: EditText
     private lateinit var depth: EditText
     private lateinit var air: EditText
+    private lateinit var skipBridges: CheckBox
     private lateinit var inside: CheckBox
     private lateinit var moveEnds: CheckBox
     private lateinit var checks: CheckBox
@@ -170,11 +171,17 @@ class MainActivity : Activity() {
 
         val num = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         depth = field("e.g. 3 (draft plus margin)", num)
-        air = field("optional", num)
+        air = field("height above the water", num)
         col.addView(label("Safe operating depth (ft)"))
         col.addView(depth)
         col.addView(label("Air draft (ft)"))
         col.addView(air)
+        skipBridges = CheckBox(this).apply { text = "Don't check bridges and cables" }
+        col.addView(skipBridges)
+        col.addView(TextView(this).apply {
+            text = "Leave this off and enter your boat's height. Turn it on only when you mean to plan with air draft empty: low bridges and power lines are not avoided, and the report says so."
+            textSize = 12f
+        })
         inside = CheckBox(this).apply { text = "Stay inside (avoid open ocean)" }
         col.addView(inside)
         col.addView(TextView(this).apply {
@@ -228,6 +235,7 @@ class MainActivity : Activity() {
 
         depth.setText(prefs.getString("depth", "3"))
         air.setText(prefs.getString("air", ""))
+        skipBridges.isChecked = prefs.getBoolean("skipBridges", false)
         inside.isChecked = prefs.getBoolean("inside", false)
         moveEnds.isChecked = prefs.getBoolean("moveEnds", false)
         checks.isChecked = prefs.getBoolean("checks", true)
@@ -1308,8 +1316,10 @@ class MainActivity : Activity() {
             Coords.parse(it) ?: run { toast("Bad via point: $it"); return }
         }
         val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: run { toast("Depth must be feet, 0-40"); return }
-        val airFt = air.text.toString().takeIf { it.isNotBlank() }?.let {
-            it.toDoubleOrNull()?.takeIf { v -> v > 0 && v < 300 } ?: run { toast("Air draft must be feet"); return }
+        val airFt = try {
+            Planner.airDraftFt(air.text.toString(), skipBridges.isChecked)
+        } catch (e: PlanException) {
+            toast(e.message ?: "Air draft must be feet"); return
         }
         val routeName = name.text.toString().trim().ifEmpty {
             "route_" + SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
@@ -1317,7 +1327,8 @@ class MainActivity : Activity() {
         val stayInside = inside.isChecked
         val moveToWater = moveEnds.isChecked
         val markChecks = checks.isChecked
-        prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString()).putBoolean("inside", stayInside)
+        prefs.edit().putString("depth", depth.text.toString()).putString("air", air.text.toString())
+            .putBoolean("skipBridges", skipBridges.isChecked).putBoolean("inside", stayInside)
             .putBoolean("moveEnds", moveToWater)
             .putBoolean("checks", markChecks)
             .putString("start", start.text.toString()).putString("dest", dest.text.toString()).apply()
