@@ -1082,6 +1082,43 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return Crossing(note, land)
     }
 
+    /**
+     * Move ends reached the pin by a long stretch of water charted under the safe depth,
+     * and a sounding in that stretch prints under it. Drop that stretch, including the
+     * line back to the pin, and say so once. Rock Hall at 6 ft was crossing a 1 ft
+     * sounding after about 750 m in the 0-6 ft band.
+     */
+    private fun stopForShoalBar(c: Ctx, n: Int, user: LatLon, wps: MutableList<LatLon>, ls: MutableList<Leg>) {
+        // Only a point that was moved out of a pocket. A point that merely started in
+        // shallow water and still leads out (Ego Alley at 6 ft) is left as planned.
+        if (c.messages.none { it.startsWith("Point $n:") && it.contains("leads out") }) return
+        var window = 0.0
+        var shoal = 0.0
+        var shallow = Double.MAX_VALUE
+        var cut = ls.size
+        var k = ls.size - 1
+        while (k >= 0 && window < 4000.0) {
+            val l = ls[k]
+            window += l.distM
+            shoal += l.shoalM
+            val low = l.lowM
+            if (low != null && soundingShallow(low, c.depthFt)) {
+                val ft = low / Pack.FT
+                if (ft < shallow) shallow = ft
+            }
+            if (l.shoalM > 100.0) cut = k
+            k--
+        }
+        if (shoal < 400.0 || shallow == Double.MAX_VALUE || cut <= 0 || cut >= ls.size) return
+        while (ls.size > cut) ls.removeAt(ls.size - 1)
+        while (wps.size > cut + 1) wps.removeAt(wps.size - 1)
+        c.messages.removeAll { it.startsWith("Point $n:") || it.startsWith("Point $n ") || it.startsWith("Point $n is ") }
+        val dist = distanceM(user, wps.last()).roundToInt()
+        c.messages.add("Point $n: the only charted way in is water charted under your ${fmt(c.depthFt)} ft, " +
+            "including a charted %.1f ft sounding. The route stops on the near side, %d m away, and does not draw a line across it.".format(shallow, dist))
+        c.moved.add(n)
+    }
+
     /** Replace the Move ends "check the way between" lines: the connector is not drawn. */
     private fun noteStopped(c: Ctx, n: Int, user: LatLon, water: LatLon, cross: Crossing) {
         c.messages.removeAll { it.startsWith("Point $n:") || it.startsWith("Point $n ") }
@@ -1685,6 +1722,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     }
                 }
             }
+            if (path != null && moveEnds) {
+                // One distance. The "nearest water charted at least D ft" line is an earlier
+                // try that did not lead out; the move above is the one that did.
+                for (n in listOfNotNull(np, nq)) {
+                    val lead = c.messages.filter { it.startsWith("Point $n:") && it.contains("leads out") }
+                    if (lead.isNotEmpty()) c.messages.removeAll {
+                        it.startsWith("Point $n is in water charted under") || it.startsWith("Point $n:") && it !in lead
+                    }
+                }
+            }
             if (path != null) {
                 val cost = pathCost(a, g, path)
                 var idx = simplify(a, g, path)
@@ -1713,6 +1760,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])
                 if (tail) ls[ls.size - 1] = offWater(ls[ls.size - 1])
+                if (moveEnds && nq != null) stopForShoalBar(c, nq, q, wps, ls)
+                // A 40 m grid will draw a narrow marked cut on the wrong side of the marks
+                // (Kent Narrows). Full detail is the grid that knows the cut. If this piece
+                // had to be coarsened and it still crosses a mark, do not hand that line over.
+                if (a.res >= 30.0 && ls.any { l -> l.notes.any { it.contains("wrong side of a channel marker") } }) {
+                    throw PlanException(
+                        "No route at full chart detail through this narrow channel without crossing the wrong side of a mark. " +
+                            "A coarser grid is not used for that cut. Move a point, or add a via point in the marked channel.")
+                }
                 return Piece(wps, ls, a.res, cost)
             }
             val ends = listOf(enclosure(a, g, sp), enclosure(a, g, sq))
