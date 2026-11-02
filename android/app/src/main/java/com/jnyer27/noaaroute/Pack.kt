@@ -81,7 +81,7 @@ class Note(
             "resare" -> resareText()
             "bridge" -> when {
                 opening != null -> openingText(airFt)
-                clr != null -> "$name span (clearance ${feet(clr)})"
+                clr != null -> "$name span (vertical clearance ${feet(clr)})"
                 else -> null // bridge part without clearance: blocks, nothing to report
             }
             "cable" -> name + (clr?.let { " (clearance ${cableClearance(it)})" } ?: " (clearance not charted)")
@@ -125,15 +125,15 @@ class Note(
         val base = "$name: $opening bridge"
         val closedM = closed
         if (closedM == null || airFt == null)
-            return "$base, may need an opening" + (closedM?.let { " (closed clearance ${feet(it)})" } ?: "")
+            return "$base, may need an opening" + (closedM?.let { " (closed vertical clearance ${feet(it)})" } ?: "")
         val closedFt = Planner.printedFeet(closedM)
         val air = if (airFt == Math.floor(airFt)) airFt.toInt().toString() else airFt.toString()
         if (airFt > closedFt)
-            return "$base has to open (closed clearance $closedFt ft, under your $air ft air draft)"
+            return "$base has to open (closed vertical clearance $closedFt ft, under your $air ft air draft)"
         val margin = closedFt - airFt
         val over = if (Math.abs(margin - Math.rint(margin)) < 0.05) Math.rint(margin).toInt().toString()
             else String.format(Locale.US, "%.1f", margin)
-        return "$base clears when closed (closed clearance $closedFt ft, $over ft over your $air ft air draft)"
+        return "$base clears when closed (closed vertical clearance $closedFt ft, $over ft over your $air ft air draft)"
     }
 }
 

@@ -4,6 +4,19 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: the helm says what the buttons do (not released yet)
+
+The screen:
+
+- **The region map has a key.** Green is route data installed, amber is an update, blue dashed is published and not downloaded, faint is no route data. "chart map" means an OsmAnd file, not the route data and not the chart in this app. Via points are drawn. The GPS fix is blue and is nudged off the start when they sit on top of each other. A tap has a little slack.
+- **Route data is called route data.** Plan says "Download route data for planning first" when none is installed. The region card's main button is "Download this region for planning". OsmAnd files are under "For OsmAnd". The .mbtiles-only button is off the card. Deleting route data asks first and names what is removed.
+- **The button is "Look for a way around the checks".** The line that comes back leads with how many check stretches are still on the route. If any remain, the button stays. Share follows the route on screen, and the save line says the original file is unchanged.
+- **Depth, air draft, and the helpers.** The depth label keeps the example "e.g. 3 (draft plus margin)" even when a saved depth is showing. Stay inside says "Stay inside the inlets and bay mouths", not the territorial sea baseline. Region rows are at least 48 dp and look like buttons. The app uses a light theme so helper text stays dark on white.
+- **The chart key names the boat's depth.** Lighter blue may be under your depth. A sounding in red is under it. North is up, and the key says about how wide the chart is. "Not for navigation" is its own sentence.
+- **A bridge span says vertical clearance**, so the number is the height under the span. A position can be degrees and decimal minutes, such as 39 19.4 N, 76 24.0 W.
+
+No pack rebuild.
+
 ## 2026-11-02: land pins, bridge notes, and what a check covers (not released yet)
 
 Planning:

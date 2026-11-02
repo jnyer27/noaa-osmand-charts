@@ -15,6 +15,7 @@ import android.view.View
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -129,9 +130,12 @@ class RegionMapView(ctx: Context) : View(ctx) {
         override fun onDoubleTap(e: MotionEvent): Boolean { zoom(2f, e.x, e.y); return true }
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             val lon = ((e.x - ox) / scale / K).toDouble().let { if (it < -180) it + 360 else it }
-            val p = LatLon(-((e.y - oy) / scale).toDouble(), lon)
-            // The smallest region under the finger (some sit inside wider ones' rectangles at the edges)
-            Regions.ALL.filter { it.contains(p) }.minByOrNull { (it.east - it.west) * (it.north - it.south) }?.let(onRegionTap)
+            val lat = -((e.y - oy) / scale).toDouble()
+            val slopLon = (24 * density / scale / K).toDouble()
+            val slopLat = (24 * density / scale).toDouble()
+            fun hit(r: NcdsRegion) = lon in (r.west - slopLon)..(r.east + slopLon) && lat in (r.south - slopLat)..(r.north + slopLat)
+            // The smallest region under the finger, with a little slop (some sit inside wider ones at the edges)
+            Regions.ALL.filter { hit(it) }.minByOrNull { (it.east - it.west) * (it.north - it.south) }?.let(onRegionTap)
             return true
         }
     })
@@ -202,10 +206,17 @@ class RegionMapView(ctx: Context) : View(ctx) {
                 }
             }
         }
+        val drawn = ArrayList<Pair<Float, Float>>()
         for ((p, name) in markers) {
-            val x = sx(p.lon)
-            val y = sy(p.lat)
-            fill.color = Color.rgb(220, 50, 47)
+            var x = sx(p.lon)
+            var y = sy(p.lat)
+            // Start and the GPS fix are both red. Nudge the later label so they do not stack.
+            if (drawn.any { hypot((it.first - x).toDouble(), (it.second - y).toDouble()) < 18 * density }) {
+                x += 14 * density
+                y += 16 * density
+            }
+            drawn.add(x to y)
+            fill.color = if (name == "You") Color.rgb(20, 90, 160) else Color.rgb(220, 50, 47)
             fill.alpha = 255
             c.drawCircle(x, y, 5 * density, fill)
             label.textSize = 12f * density

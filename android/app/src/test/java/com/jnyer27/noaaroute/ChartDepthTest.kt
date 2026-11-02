@@ -40,7 +40,7 @@ class ChartDepthTest {
         val b = LatLon(39.0105, lon)
         val notes = ChartDepth.notes(a, b, 5.0, cover(listOf(ChartDepth.Area(listOf(knoll), 0, 6))))
         assertEquals(1, notes.size)
-        assertTrue(notes[0], notes[0].contains("straddles your 5 ft: check"))
+        assertTrue(notes[0], notes[0].contains("may be under your 5 ft: check"))
         assertFalse(notes[0], notes[0].contains("entirely under"))
         val crossed = meters(notes[0])
         assertTrue("crossed %.0f m".format(crossed), crossed in 80.0..160.0)
@@ -119,7 +119,7 @@ class ChartDepthTest {
         val lon = -76.38632 + 4.0 / (111320.0 * cos(Math.toRadians(39.012)))
         val notes = ChartDepth.notes(LatLon(39.0132, lon), LatLon(39.0105, lon), 5.0,
             listOf(ChartDepth.Cover(doubleArrayOf(-77.8, 38.23, -73.4, 39.73), 4.0, areas)))
-        assertTrue(notes.toString(), notes.any { it.contains("straddles your 5 ft") && meters(it) >= 50.0 })
+        assertTrue(notes.toString(), notes.any { it.contains("may be under your 5 ft") && meters(it) >= 50.0 })
     }
 
 }

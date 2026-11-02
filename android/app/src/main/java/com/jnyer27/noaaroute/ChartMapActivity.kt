@@ -392,7 +392,9 @@ class ChartMapActivity : Activity() {
     private fun legendText(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean): String {
         val outside = routePoints().any { it.lon !in w..e || it.lat !in s..n }
         val sb = StringBuilder()
-        sb.append("Proof of concept, not for navigation. NOAA ENC of $heading, depths in feet. ")
+        sb.append("Not for navigation. ")
+        sb.append("NOAA ENC of $heading, depths in feet. North is up. ")
+        sb.append(ChartTiles.spanText(w, e, (s + n) / 2))
         sb.append(ChartTiles.depthLegend(depthFt))
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
         sb.append("The small dot beside a mark is its light, in that light's colour. ")

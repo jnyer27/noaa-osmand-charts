@@ -72,7 +72,7 @@ object Gpx {
         if (notes.any { navigationLimit(it) }) return MARK_RESTRICTED
         if (l.shoalM > 0) return MARK_SHOAL
         if (notes.any { it.contains("cable") }) return MARK_CABLE
-        if (notes.any { it.contains("bridge") || it.contains("span (clearance") }) return MARK_BRIDGE
+        if (notes.any { it.contains("bridge") || it.contains("span (vertical clearance") || it.contains("span (clearance") }) return MARK_BRIDGE
         if (flagged(l)) return MARK_CHECK
         return 0
     }
@@ -91,7 +91,7 @@ object Gpx {
         val shoal = r.legs.count { it.shoalM > 0 }
         if (shoal > 0) lines.add("$shoal ${if (shoal == 1) "leg is" else "legs are"} in water that may be under your ${num(r.depthFt)} ft.")
         fun named(pred: (String) -> Boolean) = r.legs.flatMap { it.notes }.filter(pred).distinct()
-        val bridges = named { it.contains("bridge") || it.contains("span (clearance") }
+        val bridges = named { it.contains("bridge") || it.contains("span (vertical clearance") || it.contains("span (clearance") }
         if (bridges.isNotEmpty()) lines.add("${bridges.size} ${if (bridges.size == 1) "bridge" else "bridges"}: ${bridges.joinToString("; ")}")
         val cables = named { it.contains("cable") }
         if (cables.isNotEmpty()) lines.add("${cables.size} ${if (cables.size == 1) "cable" else "cables"}: ${cables.joinToString("; ")}")

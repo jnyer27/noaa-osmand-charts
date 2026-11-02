@@ -97,7 +97,7 @@ After planning, read the [route report](report.html) leg by leg. Each leg with a
 
 ### Try to avoid checks
 
-When the route has legs to check, a **Try to avoid checks** button appears under the report. It replans each stretch of flagged legs on its own, this time treating the causes of the checks (shallow water, the hazard buffer, piers and seawalls, piles, security zones) as land, and keeps the new stretch only if:
+When the route has legs to check, a **Look for a way around the checks** button appears under the report. It replans each stretch of flagged legs on its own, this time treating the causes of the checks (shallow water, the hazard buffer, piers and seawalls, piles, security zones) as land, and keeps the new stretch only if:
 
 - its checks are gone (or, failing that, its "check" notes are gone and what is left is shallow water no longer than before), and
 - it is no more than 0.2 nm or 10% longer than the old stretch, whichever is more.
@@ -116,7 +116,7 @@ The chart on screen is the downloaded one whose bounds cover the route, or the m
 
 The buoy or daybeacon is the green or red mark (a dark ring is a daybeacon). The small dot just above it is the light, in the light's own colour.
 
-The shading follows your safe operating depth. Strong blue is charted entirely under it, lighter blue is a range that straddles it (the 0-6 ft band at a 3 ft or 5 ft setting), and pale blue is at or over it. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. Each leg is numbered with its row in the report, and tapping it shows that leg's note. A bridge or cable marked for vertical clearance is not drawn in that orange. The blue dot is your GPS position, once you allow location.
+The shading follows your safe operating depth. Strong blue is charted entirely under it, lighter blue may be under it (the 0-6 ft band at a 3 ft or 5 ft setting), and pale blue is at or over it. A sounding in red is under it. North is up. Olive is drying ground. Soundings are whole feet, in red when they are under your safe depth. Green marks are port and red marks are starboard, the IALA-B colors used on the Chesapeake; a mark with a dark ring is a daybeacon, and the small dot above it is its light, in that light's colour. Legs the report tells you to check are drawn orange and dashed. Each leg is numbered with its row in the report, and tapping it shows that leg's note. A bridge or cable marked for vertical clearance is not drawn in that orange. The blue dot is your GPS position, once you allow location.
 
 ### Route data
 

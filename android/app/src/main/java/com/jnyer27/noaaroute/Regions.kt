@@ -126,6 +126,15 @@ object Regions {
         return TripNeed(need.values.toList(), outside)
     }
 
+    /**
+     * Key for the region map. Green, amber, and blue are route data for planning.
+     * "chart map" is an OsmAnd file, not the route data and not the chart in this app.
+     */
+    fun mapLegend() = "Green: route data for planning is installed. Amber: an update is ready. " +
+        "Blue dashed: route data is published and not downloaded. Faint: no route data. " +
+        "\"chart map\" under a code means an OsmAnd chart file is ready. It does not mean the route data is ready, and it does not mean the chart in this app is ready. " +
+        "Start is the red dot. You is the GPS fix, drawn beside Start when they are close. Vias are marked."
+
     /** Published, current pack covering p (for "Where do you boat?"). */
     fun areaAt(p: LatLon, catalog: List<AreaInfo>) = catalog.firstOrNull { !it.deprecated && it.covers(p) }
 

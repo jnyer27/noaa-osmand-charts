@@ -140,8 +140,10 @@ class ChartTilesTest {
         val text = ChartTiles.depthLegend(5.0)
         assertTrue(text, text.contains("Safe operating depth 5 ft"))
         assertTrue(text, text.contains("strong blue is charted entirely under it"))
-        assertTrue(text, text.contains("lighter blue is a range that straddles it"))
-        assertTrue(text, text.contains("pale blue is at or over it"))
+        assertTrue(text, text.contains("lighter blue may be under your 5 ft"))
+        assertTrue(text, text.contains("sounding drawn in red"))
+        assertTrue(ChartTiles.spanText(-76.5, -76.3, 39.3).contains("km"))
+        assertTrue(text, text.contains("pale blue is 5 ft or more"))
         assertFalse(text, text.contains("\u2014"))
     }
 }
