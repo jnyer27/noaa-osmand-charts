@@ -38,8 +38,9 @@ Planes (0 always means "nothing here"):
             0 = land, uncharted or no data.
             A shallower DEPARE that covers more than about a quarter of a cell is stored
             instead of the deeper value at the cell center (2x2 supersamples: a straight
-            edge wider than about 5 m). DRGARE, fairway and recommended-track cells keep
-            the deeper center value, so a channel one cell wide stays open.
+            edge wider than about 5 m). DRGARE, fairway, recommended-track cells and a
+            deeper strip only a cell or two wide keep the deeper center value, so a
+            channel one cell wide stays open.
   1 HAZARD  shallowest OBSTRN/WRECKS/UWTROC: 1 + VALSOU in dm (0-253); unknown
             depth is stored as 1 (0.0 m) so it is a hazard for any boat.
             255 = shoreline construction (SLCONS: pier, seawall, jetty) and no
@@ -732,10 +733,80 @@ def depare_coverage(grid, feats, depth_table, sub=COVERAGE_SUB, frac=COVERAGE_FR
     return out
 
 
+def _shift_bool(m, dr, dc):
+    """Shift a boolean array by (dr, dc). Cells shifted in from outside are False."""
+    out = np.zeros(m.shape, np.bool_)
+    h, w = m.shape
+    if abs(dr) >= h or abs(dc) >= w:
+        return out
+    r_src = slice(max(0, -dr), min(h, h - dr))
+    c_src = slice(max(0, -dc), min(w, w - dc))
+    r_dst = slice(max(0, dr), min(h, h + dr))
+    c_dst = slice(max(0, dc), min(w, w + dc))
+    out[r_dst, c_dst] = m[r_src, c_src]
+    return out
+
+
+def narrow_strip(depth, depth_table):
+    """Cells of a deeper strip at most two cells wide and at least three long.
+
+    The shallow fringe must not replace these with the surrounding shallower
+    area. A 6-12 ft channel a cell or two wide (the ICW in Bogue Sound, charted
+    as an ordinary depth area, not a dredged area) would become 0-6 ft wherever
+    the shoal covers a quarter of the cell, and a 5 ft route would leave it.
+    The rim of a wide deep area sits next to water that survives a one-cell
+    shrink, so it is not a strip and a shoal on that rim is still stored (the
+    0-6 ft knoll west of the Bay Bridge). A lone cell is not a strip either.
+    """
+    rank = depth_rank_array(depth_table)
+    h, w = depth.shape
+    out = np.zeros((h, w), np.bool_)
+    if h == 0 or w == 0 or not np.any(depth):
+        return out
+    present = np.unique(rank[depth[depth > 0]])
+    present = [int(x) for x in present if int(x) < 65535]
+    halo = 2
+    for r0 in range(0, h, 512):
+        a = max(0, r0 - halo)
+        b = min(h, r0 + 512 + halo)
+        dep = depth[a:b]
+        rnk = np.full(dep.shape, -1, np.int32)
+        nz = dep > 0
+        if nz.any():
+            rnk[nz] = rank[dep[nz]]
+        block = np.zeros(dep.shape, np.bool_)
+        mask = np.zeros(dep.shape, np.bool_)
+        for rk in sorted(present, reverse=True):
+            mask |= rnk == rk
+            if not mask.any():
+                continue
+            interior = mask.copy()
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    interior &= _shift_bool(mask, dr, dc)
+            near = np.zeros(mask.shape, np.bool_)
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    near |= _shift_bool(interior, dr, dc)
+            long = np.zeros(mask.shape, np.bool_)
+            for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+                fwd = _shift_bool(mask, dr, dc)
+                back = _shift_bool(mask, -dr, -dc)
+                fwd2 = _shift_bool(mask, 2 * dr, 2 * dc)
+                back2 = _shift_bool(mask, -2 * dr, -2 * dc)
+                long |= (mask & fwd & back) | (mask & fwd & fwd2) | (mask & back & back2)
+            block |= (rnk == rk) & long & ~near
+        lo = r0 - a
+        n = min(512, h - r0)
+        out[r0:r0 + n] = block[lo:lo + n]
+    return out
+
+
 def apply_shallow_fringe(depth, covered, depth_table, protect):
     """Store `covered` where it is a shallower depth than `depth` and `protect` is
     false. In place. Cells with no depth stay empty, and protected cells (dredged,
-    fairway, recommended track) keep the deeper center value. Returns the count."""
+    fairway, recommended track, narrow deeper strip) keep the deeper center value.
+    Returns the count."""
     rank = depth_rank_array(depth_table)
     n = 0
     for r0 in range(0, depth.shape[0], 512):
@@ -903,18 +974,21 @@ def build(cells, grid, work, depth=None, quiet=False):
         # cell's edge. The 0-6 ft knoll on US5MD1ND (about 39.012 N, 76.386 W) covers
         # about 8 m of the cells to its west, which stayed 6-12 ft, so a 5 ft route
         # clipped it. Where that shallower DEPARE covers more than about a quarter of
-        # the cell, store it. Dredged cells and the fairway/track cells above keep the
-        # deeper center value (deeper-wins), so a one-cell channel stays open.
+        # the cell, store it. Dredged cells, fairway and track cells, and a deeper
+        # strip only a cell or two wide keep the deeper center value, so a one-cell
+        # channel stays open (Bogue Sound's 6-12 ft ICW is an ordinary depth area).
         depare = [(g_, v) for order, g_, v in depth_feats if order[0] == 0]
         if depare:
             t0 = time.time()
             covered = depare_coverage(grid, depare, depth_table)
             # Kind 1 and 2 are this band's dredged cells and any fairway a more detailed
             # chart did not replace. `inf` is the fairway or track this band will mark
-            # after the fringe step. All of them keep the deeper center value.
+            # after the fringe step. A narrow deeper strip is the same idea for an
+            # ordinary depth area. All of them keep the deeper center value.
             protect = kinds[planes[DEPTH]] != 0
             if inf is not None:
                 protect |= inf
+            protect |= narrow_strip(planes[DEPTH], depth_table)
             nfringe = apply_shallow_fringe(planes[DEPTH], covered, depth_table, protect)
             del covered, protect
             if nfringe:

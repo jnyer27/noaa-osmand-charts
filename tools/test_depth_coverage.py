@@ -172,6 +172,35 @@ class CoverageRuleTest(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertEqual(int(fair[0, 0]), 2)
 
+    def test_narrow_strip_keeps_depth_and_a_wide_edge_does_not(self):
+        # A one-cell and a two-cell ribbon of 6-12 ft through 0-6 ft stays deep
+        # even when the shoal covers the cell. The rim of a wide 6-12 ft area
+        # does not: that is the knoll, and the fringe still stores 0-6 ft.
+        h, w = 14, 20
+        center = np.zeros((h, w), np.uint8)
+        center[2:12, 2:12] = self.deep          # wide
+        center[2:12, 14] = self.deep             # one cell wide, ten long
+        center[2:12, 16:18] = self.deep          # two cells wide
+        center[2:3, 19] = self.deep              # two cells long: not a strip
+        covered = np.zeros_like(center)
+        covered[2:12, 11] = self.shallow         # eastern rim of the wide area
+        covered[2:12, 14] = self.shallow
+        covered[2:12, 16:18] = self.shallow
+        covered[2:3, 19] = self.shallow
+        protect = bp.narrow_strip(center, self.table)
+        self.assertTrue(protect[6, 14])
+        self.assertTrue(protect[6, 16] and protect[6, 17])
+        self.assertFalse(protect[6, 11])
+        self.assertFalse(protect[2, 19])
+        n = bp.apply_shallow_fringe(center.copy(), covered, self.table, protect)
+        kept = center.copy()
+        bp.apply_shallow_fringe(kept, covered, self.table, protect)
+        self.assertGreater(n, 0)
+        self.assertEqual(int(kept[6, 14]), self.deep)
+        self.assertEqual(int(kept[6, 16]), self.deep)
+        self.assertEqual(int(kept[6, 11]), self.shallow)
+        self.assertEqual(int(kept[2, 19]), self.shallow)
+
     def test_apply_does_not_deepen_a_shallow_center(self):
         center = np.zeros((2, 2), np.uint8)
         center[0, 0] = self.shallow

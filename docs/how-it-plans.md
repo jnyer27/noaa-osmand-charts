@@ -15,7 +15,7 @@ The app turns NOAA's charts into a grid of 20 m cells and finds the cheapest pat
 | Depth area that spans your safe depth (NOAA's usual 0-6 ft band) | Used only when needed, and flagged with the length in it and the shallowest sounding nearby. A sounding the chart labels under your depth is a hazard. A label equal to your depth is not. |
 | Land, drying, unsurveyed or uncharted water | Never used |
 
-On the 20 m grid, a shallower depth area that covers more than about a quarter of a cell is counted, so the route sees the edge of a shoal and not only the depth at the cell's center. A dredged channel or fairway keeps the deeper depth, so a narrow channel stays open.
+On the 20 m grid, a shallower depth area that covers more than about a quarter of a cell is counted, so the route sees the edge of a shoal and not only the depth at the cell's center. A dredged channel, a fairway, or a deeper strip only a cell or two wide keeps the deeper depth, so a narrow channel stays open.
 
 ## Hazards
 
