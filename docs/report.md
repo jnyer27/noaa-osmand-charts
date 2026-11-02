@@ -7,12 +7,23 @@ nav_order: 5
 
 After **Plan route**, the report appears under the button. You can select and copy its text.
 
-## The header
+## The warning, then the header
+
+The first lines are the checks, before the leg table and before the sentence that says where the file was saved. A route with nothing flagged still says to verify every leg. Entry restricted and entry prohibited are listed here and the leg is a check. Anchoring, fishing and no-wake rules are listed too, and they stay information unless the leg is also shoal.
 
 ```
+2 legs to check, in 1 stretch. Look at each one on a current chart before you go.
+2 legs are in water that may be under your 5 ft.
+1 bridge: Eastern Channel span (clearance 58 ft)
+1 restricted area: ... entry restricted ...
+Not for navigation. Verify every leg against a current chart.
+Saved to Download/noaa-charts/routes/....gpx
+
 Annapolis trip: 26.5 nm, 38 points
 depth 5 ft (MLLW), air draft 10 ft, hazard buffer 60 m, grid 20 m
 ```
+
+Shoal rows are coloured dark red, bridges blue, cables purple, restricted areas purple, and the check count a deep orange. That orange is the report text. On the chart, the dashed check leg is orange and a cable drawn for vertical clearance is navy, so the two are not the same mark.
 
 - The total distance and number of route points.
 - Your start, via points and destination.
@@ -53,7 +64,8 @@ Leg Course  Dist nm  Notes
 | **Bridge name: swing (or bascule, lift) bridge, may need an opening (closed clearance N ft)** | An opening bridge on the route. | Check its opening schedule and call ahead if needed. |
 | **Bridge name span (clearance N ft)** | A fixed bridge span you clear by your air draft. With **Don't check bridges and cables** on, the same note ends in "check": the span was not tested. | Check the clearance board; water levels vary. |
 | **Cable name (clearance N ft)** or **(clearance not charted)** | An overhead cable. With **Don't check bridges and cables** on, the note ends in "check". | Make sure your air draft clears it with margin. |
-| **Area name: rules (CFR)** | A restricted area: no wake, anchoring rules, entry restricted, or an area to be avoided by large ships. | Read the rule; the route is not blocked by it. |
+| **Area name: entry restricted, or entry prohibited (CFR)** | The leg crosses water where entry is restricted or prohibited. The leg is a check, with the orange dashed line and a check marker in the GPX. | Read the rule. Do not enter water where entry is prohibited. |
+| **Area name: other rules (CFR)** | No wake, anchoring, fishing, or an area to be avoided by large ships. | Read the rule. The route is not blocked by it, and the leg is not a check unless it is also shoal. |
 | **Zone name: security zone, entry may be prohibited: check (33 CFR 165.xxx)** | The leg crosses a Coast Guard security zone. Some are always closed (the Cove Point LNG terminal, nuclear plants, Navy bases), others only around particular vessels or when the Coast Guard announces them; the charts do not say which, so the route is not changed. | Read the regulation and the Local Notice to Mariners. If entry is prohibited, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around the zone, or call the Coast Guard on VHF 16 for permission. |
 
 ## How the shallow-water note is measured
@@ -79,14 +91,14 @@ Each route point in the GPX file carries a short description of the next leg, wi
 Next: 357 T, 0.05 nm, 95 m where charted depth may be under 5 ft (shallowest sounding nearby 3.9 ft, under your 5 ft)
 ```
 
-Points are named **Start**, **WP01**, **WP02** ... **End**. The file description says the total distance, the depth it was planned for, and "Not for navigation". When bridges and cables were not checked, it says that too.
+Points are named **Start**, **WP01**, **WP02** ... **End**. The file description says the total distance, the depth it was planned for, the same warning lines as the report (checks, shoal water, bridges, cables, restricted areas), and "Not for navigation". When bridges and cables were not checked, it says that too. It also lists the start, via points and destination (`Trip points:`), so **Use as trip** can put those back, including via points.
 
 With **Check markers in the GPX** on (the default; see [Planning a route](planning.html#check-markers-in-the-gpx)), every stretch of legs to check also gets two waypoints:
 
 - **Check: legs 16-18 (0.21 nm)** where the stretch starts: an orange warning triangle in OsmAnd, with the notes of each leg in it.
 - **Check ends: legs 16-18** where it ends: a green check mark.
 
-A leg is checked when it has water that may be under your safe depth or a note ending in "check" (or "not checked"). With an air draft set, bridge and cable notes are information (the route already cleared them), and so are other restricted areas. Security zones are checks. With **Don't check bridges and cables** on, bridge and cable notes are checks too. The report's first line says the clearances were not checked. The route points of checked legs are named with "check" (**WP09 check**), with markers on or off. Both markers are in OsmAnd's **Check** group, which you can hide, and OsmAnd announces them during navigation when **GPX waypoints** is on in its voice prompts. Other chart apps show them as ordinary waypoints (symbol `Danger Area` and `Flag, Green`).
+A leg is checked when it has water that may be under your safe depth, a note ending in "check" (or "not checked"), or a note that entry is restricted or prohibited. With an air draft set, bridge and cable notes are information (the route already cleared them). Anchoring, fishing and no-wake rules are information. Security zones are checks. Entry restricted and entry prohibited are checks. With **Don't check bridges and cables** on, bridge and cable notes are checks too. The report's first line says the clearances were not checked. The route points of checked legs are named with "check" (**WP09 check**), with markers on or off. Both markers are in OsmAnd's **Check** group, which you can hide, and OsmAnd announces them during navigation when **GPX waypoints** is on in its voice prompts. Other chart apps show them as ordinary waypoints (symbol `Danger Area` and `Flag, Green`).
 
 <img src="osmand-check-markers.jpg" alt="OsmAnd chart of Middle River with a planned route as a dashed line: an orange Check marker labeled Check: leg 10 (1.00 nm) where the stretch starts near Galloway Point, and a green check mark labeled Check ends: leg 10 where it ends, past the Eastern Yacht Club, with the marker details panel below" width="300" align="top">
 <img src="osmand-check-details.jpg" alt="OsmAnd details of the Check: leg 10 (1.00 nm) waypoint in the Check group of route 20261018 1703: description and comment leg 10: 39 m where charted depth may be under 5 ft (shallowest sounding nearby 1.0 ft, under your 5 ft). Check the chart and the water." width="300" align="top">

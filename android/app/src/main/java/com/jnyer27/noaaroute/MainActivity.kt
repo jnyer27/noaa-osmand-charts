@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
@@ -388,12 +390,26 @@ class MainActivity : Activity() {
             val items = ArrayList<String>()
             val actions = ArrayList<() -> Unit>()
             val line = gpx.route.ifEmpty { gpx.trackEnds }
-            if (line.size >= 2) {
-                items.add("Use as trip: ${line.first().name} \u2192 ${line.last().name}")
+            // A file this app wrote lists the start, via points and destination. Any other
+            // route or track still contributes only its first and last point: the bends in
+            // between are the planned line, not stops the skipper asked for.
+            val trip = when {
+                gpx.trip.size >= 2 -> gpx.trip
+                line.size >= 2 -> listOf(line.first().pos, line.last().pos)
+                else -> emptyList()
+            }
+            if (trip.size >= 2) {
+                val vias = if (trip.size > 2) trip.subList(1, trip.size - 1) else emptyList()
+                val title = if (vias.isEmpty()) "Use as trip: ${line.firstOrNull()?.name ?: "start"} \u2192 ${line.lastOrNull()?.name ?: "destination"}"
+                    else "Use as trip: start, ${vias.size} via ${if (vias.size == 1) "point" else "points"}, destination"
+                items.add(title)
                 actions.add {
-                    start.setText(Coords.format(line.first().pos))
-                    dest.setText(Coords.format(line.last().pos))
-                    status.text = "Start and destination set from the GPX file."
+                    start.setText(Coords.format(trip.first()))
+                    dest.setText(Coords.format(trip.last()))
+                    via.setText(vias.joinToString("; ") { Coords.format(it) })
+                    status.text = if (vias.isEmpty()) "Start and destination set from the GPX file."
+                        else "Start, ${vias.size} via ${if (vias.size == 1) "point" else "points"} and destination set from the GPX file."
+                    if (gpx.summary.isNotBlank()) result.text = gpx.summary
                 }
             }
             if (gpx.waypoints.isNotEmpty()) {
@@ -1344,18 +1360,20 @@ class MainActivity : Activity() {
                 val r = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
                 val used = usedPacks(p, r)
                 val datum = Pack.datumName(used.flatMap { it.datums })
-                val (uri, savedAs) = saveGpx(r, datum, markChecks)
+                val pts = listOf(a) + vias + listOf(b)
+                val (uri, savedAs) = saveGpx(r, datum, markChecks, pts)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside },
                     "Move ends to navigable water: on".takeIf { moveToWater })
+                val saved = "Saved to Download/$ROUTES_DIR/$savedAs" +
+                    if (savedAs != "${r.name}.gpx") " (${r.name}.gpx already exists from another app or an earlier install)" else ""
                 ui.post {
                     route = r
                     gpxUri = uri
-                    planned = Planned(listOf(a) + vias + listOf(b), stayInside, markChecks, datum, trip, used)
+                    planned = Planned(pts, stayInside, markChecks, datum, trip, used)
                     resolveButton.visibility = if (Gpx.checkRuns(r).isNotEmpty()) View.VISIBLE else View.GONE
-                    result.text = Gpx.report(r, trip, afterLines(used, sec), BUF_M, datum)
-                    status.text = "Planned in %.1f s. Saved to Download/$ROUTES_DIR/$savedAs".format(sec) +
-                        if (savedAs != "${r.name}.gpx") "\n(${r.name}.gpx already exists from another app or an earlier install)" else ""
+                    showReport(r, trip, afterLines(used, sec), datum, saved)
+                    status.text = Gpx.warnings(r).first()
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
                 }
@@ -1395,12 +1413,13 @@ class MainActivity : Activity() {
                     return@execute
                 }
                 val ar = withChartDepth(res.route)
-                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks)
+                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks, pl.pts)
                 ui.post {
                     route = ar
                     gpxUri = uri
-                    result.text = Gpx.report(ar, pl.trip, afterLines(pl.used, sec), BUF_M, pl.datum)
-                    status.text = res.summary + "\nSaved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
+                    val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
+                    showReport(ar, pl.trip, afterLines(pl.used, sec), pl.datum, saved)
+                    status.text = res.summary
                     resolveButton.visibility = View.GONE
                     resolveButton.isEnabled = true
                     planButton.isEnabled = true; packButton.isEnabled = true
@@ -1439,10 +1458,29 @@ class MainActivity : Activity() {
             "charts: " + used.joinToString(", ") { pk -> pk.areaName.substringBefore(":") + " (built ${pk.created.take(10)})" },
             "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(sec))
 
-    /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). */
-    private fun saveGpx(r: Route, datum: String, checks: Boolean): Pair<Uri, String> {
+    /** The report, with check, shoal, bridge, cable and restricted rows coloured. The warning block leads. */
+    private fun showReport(r: Route, trip: List<String>, after: List<String>, datum: String, saved: String) {
+        val shown = Gpx.shown(r, trip, after, BUF_M, datum, saved)
+        val span = SpannableString(shown.text)
+        val colors = intArrayOf(
+            0,
+            0xFF8D1D1D.toInt(), // shoal
+            0xFF0D47A1.toInt(), // bridge
+            0xFF4A148C.toInt(), // cable, not the orange of a check leg
+            0xFF6A1B9A.toInt(), // restricted
+            0xFFBF360C.toInt(), // checks to read first
+        )
+        for (s in shown.spans) {
+            val color = colors.getOrElse(s.mark) { 0xFF212121.toInt() }
+            span.setSpan(ForegroundColorSpan(color), s.start, (s.end).coerceAtMost(span.length), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        result.setText(span, TextView.BufferType.SPANNABLE)
+    }
+
+    /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). [trip] is written so Use as trip can restore via points. */
+    private fun saveGpx(r: Route, datum: String, checks: Boolean, trip: List<LatLon> = emptyList()): Pair<Uri, String> {
         val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
-        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks).toByteArray()) }
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks, trip).toByteArray()) }
         return uri to name
     }
 

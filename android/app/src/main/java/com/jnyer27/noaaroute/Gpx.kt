@@ -34,8 +34,60 @@ object Gpx {
         return d
     }
 
-    /** A leg to look at: water that may be under the safe depth, or a planner note asking for a check. */
-    fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") }
+    /**
+     * Entry restricted or entry prohibited is a limit on the boat, so the leg is a check.
+     * "entry may be prohibited" is a security zone: that note already ends in "check".
+     * Anchoring, fishing and no-wake rules stay information.
+     */
+    fun navigationLimit(note: String) =
+        (note.contains("entry restricted") || note.contains("entry prohibited")) && !note.contains("may be prohibited")
+
+    /** A leg to look at: shoal water, a note asking for a check, or a navigation limit. */
+    fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") || navigationLimit(it) }
+
+    /** One leg's sentence, the same text the GPX route point carries. */
+    fun legText(r: Route, k: Int) = legDesc(r.legs[k], r.depthFt)
+
+    const val MARK_SHOAL = 1
+    const val MARK_BRIDGE = 2
+    const val MARK_CABLE = 3
+    const val MARK_RESTRICTED = 4
+    const val MARK_CHECK = 5
+
+    /** Which colour a leg row takes. 0 is ordinary text. Restricted water wins, then shoal water. */
+    fun legMark(l: Leg): Int {
+        val notes = l.notes
+        if (notes.any { navigationLimit(it) }) return MARK_RESTRICTED
+        if (l.shoalM > 0) return MARK_SHOAL
+        if (notes.any { it.contains("cable") }) return MARK_CABLE
+        if (notes.any { it.contains("bridge") || it.contains("span (clearance") }) return MARK_BRIDGE
+        if (flagged(l)) return MARK_CHECK
+        return 0
+    }
+
+    /**
+     * What to read before the leg table: how many legs to check, then shoal water,
+     * bridges, cables and restricted areas. The closing line is here so it is not
+     * only the last line of a long table.
+     */
+    fun warnings(r: Route): List<String> {
+        val lines = ArrayList<String>()
+        val runs = checkRuns(r)
+        val n = runs.sumOf { it.last - it.first + 1 }
+        if (n == 0) lines.add("No leg is flagged. Still verify every leg against a current chart before you go.")
+        else lines.add("$n ${if (n == 1) "leg" else "legs"} to check, in ${runs.size} ${if (runs.size == 1) "stretch" else "stretches"}. Look at each one on a current chart before you go.")
+        val shoal = r.legs.count { it.shoalM > 0 }
+        if (shoal > 0) lines.add("$shoal ${if (shoal == 1) "leg is" else "legs are"} in water that may be under your ${num(r.depthFt)} ft.")
+        fun named(pred: (String) -> Boolean) = r.legs.flatMap { it.notes }.filter(pred).distinct()
+        val bridges = named { it.contains("bridge") || it.contains("span (clearance") }
+        if (bridges.isNotEmpty()) lines.add("${bridges.size} ${if (bridges.size == 1) "bridge" else "bridges"}: ${bridges.joinToString("; ")}")
+        val cables = named { it.contains("cable") }
+        if (cables.isNotEmpty()) lines.add("${cables.size} ${if (cables.size == 1) "cable" else "cables"}: ${cables.joinToString("; ")}")
+        val areas = named { navigationLimit(it) || it.contains("restricted area") || it.contains("security zone") || it.contains("anchoring") || it.contains("fishing") || it.contains("no wake") }
+        if (areas.isNotEmpty()) lines.add("${areas.size} restricted ${if (areas.size == 1) "area" else "areas"}: ${areas.joinToString("; ")}")
+        lines.add("Not for navigation. Verify every leg against a current chart.")
+        return lines
+    }
 
     // Check markers: a standard symbol and type for any app, OsmAnd's icon in its own extension.
     // The end of a stretch gets a green check mark instead of the orange warning.
@@ -68,8 +120,8 @@ object Gpx {
         return notes.joinToString("; ") + ". Check the chart and the water."
     }
 
-    /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. */
-    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true): String {
+    /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. [trip] is the start, via points and destination, written so opening the file can set them again. */
+    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true, trip: List<LatLon> = emptyList()): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
@@ -90,7 +142,10 @@ object Gpx {
         }
         sb.append("<rte>\n<name>${esc(r.name)}</name>\n")
         val clearance = if (r.airFt == null) " Bridges and cables were not checked (no air draft)." else ""
-        sb.append("<desc>${esc(String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC.%s Not for navigation.", r.totalNm, num(r.depthFt), datum, clearance))}</desc>\n")
+        val head = String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC.%s", r.totalNm, num(r.depthFt), datum, clearance)
+        val warn = warnings(r).joinToString(" ")
+        val tripLine = if (trip.size >= 2) " Trip points: " + trip.joinToString("; ") { String.format(Locale.US, "%.5f,%.5f", it.lat, it.lon) } else ""
+        sb.append("<desc>${esc("$head $warn$tripLine")}</desc>\n")
         for ((k, p) in r.points.withIndex()) {
             var label = when (k) {
                 0 -> "Start"
@@ -116,25 +171,57 @@ object Gpx {
         return sb.toString()
     }
 
+    /** A coloured stretch of [ShownReport.text]. [mark] is one of the MARK_ constants. */
+    class ReportSpan(val start: Int, val end: Int, val mark: Int)
+
+    /** The report text and the stretches to colour (warning lines and leg rows). */
+    class ShownReport(val text: String, val spans: List<ReportSpan>)
+
+    /** The report as plain text. [saved] is the file sentence, placed after the warning block. */
+    fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null, datum: String = "MLLW", saved: String? = null) =
+        shown(r, trip, after, bufM, datum, saved).text
+
     /**
-     * The route summary shown under Plan route. [trip]: lines naming the start, via points
-     * and destination; [after]: lines after the settings (charts used, when planned);
-     * [bufM]: the hazard buffer, if it should be shown; [datum]: what depths are charted to.
+     * The route summary shown under Plan route. The warning block comes first (after the
+     * air-draft line, when bridges were not checked). [trip]: lines naming the start, via
+     * points and destination; [after]: lines after the settings (charts used, when planned);
+     * [bufM]: the hazard buffer, if it should be shown; [datum]: what depths are charted to;
+     * [saved]: where the GPX file went, after the warnings and before the leg table.
      */
-    fun report(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null, datum: String = "MLLW"): String {
+    fun shown(r: Route, trip: List<String> = emptyList(), after: List<String> = emptyList(), bufM: Double? = null, datum: String = "MLLW", saved: String? = null): ShownReport {
         val sb = StringBuilder()
-        if (r.airFt == null) {
-            sb.append("Bridges and cables were not checked. No air draft was given, so a low bridge or overhead cable was not avoided.\n")
+        val spans = ArrayList<ReportSpan>()
+        fun line(text: String, mark: Int = 0) {
+            val start = sb.length
+            sb.append(text).append('\n')
+            if (mark != 0) spans.add(ReportSpan(start, sb.length, mark))
         }
+        if (r.airFt == null) {
+            line("Bridges and cables were not checked. No air draft was given, so a low bridge or overhead cable was not avoided.")
+        }
+        for (w in warnings(r)) {
+            val mark = when {
+                w.startsWith("No leg is flagged") || w.contains("legs to check") || w.contains("leg to check") -> MARK_CHECK
+                w.contains("may be under your") -> MARK_SHOAL
+                w.startsWith("1 bridge") || w.contains(" bridges:") -> MARK_BRIDGE
+                w.startsWith("1 cable") || w.contains(" cables:") -> MARK_CABLE
+                w.contains("restricted") -> MARK_RESTRICTED
+                else -> 0
+            }
+            line(w, mark)
+        }
+        if (saved != null) line(saved)
+        line("")
         val air = if (r.airFt != null) "air draft ${num(r.airFt)} ft" else "air draft not checked"
-        sb.append(String.format(Locale.US, "%s: %.1f nm, %d points\n", r.name, r.totalNm, r.points.size))
-        for (t in trip) sb.append(t).append('\n')
-        sb.append(String.format(Locale.US, "depth %s ft (%s), %s%s, grid %.0f m%s\n",
+        line(String.format(Locale.US, "%s: %.1f nm, %d points", r.name, r.totalNm, r.points.size))
+        for (t in trip) line(t)
+        line(String.format(Locale.US, "depth %s ft (%s), %s%s, grid %.0f m%s",
             num(r.depthFt), datum, air, bufM?.let { String.format(Locale.US, ", hazard buffer %.0f m", it) } ?: "", r.resM,
             r.guideM?.let { String.format(Locale.US, " (long trip, guided by a %.0f m overview)", it) } ?: ""))
-        for (t in after) sb.append(t).append('\n')
-        for (m in r.messages) sb.append(m).append('\n')
-        sb.append("\nLeg Course  Dist nm  Notes\n")
+        for (t in after) line(t)
+        for (m in r.messages) line(m)
+        line("")
+        line("Leg Course  Dist nm  Notes")
         for ((k, l) in r.legs.withIndex()) {
             val notes = ArrayList<String>()
             if (l.shoalM > 0) {
@@ -143,10 +230,11 @@ object Gpx {
                 notes.add(s)
             }
             notes.addAll(l.notes)
-            sb.append(String.format(Locale.US, "%3d  %4.0fT  %6.2f  %s\n", k + 1, l.bearing, l.distM / Planner.NM, notes.joinToString("; ")))
+            line(String.format(Locale.US, "%3d  %4.0fT  %6.2f  %s", k + 1, l.bearing, l.distM / Planner.NM, notes.joinToString("; ")), legMark(l))
         }
-        sb.append("\nNot for navigation. Verify every leg against a current chart.\n")
-        return sb.toString()
+        line("")
+        line("Not for navigation. Verify every leg against a current chart.")
+        return ShownReport(sb.toString(), spans)
     }
 
     fun num(v: Double) = if (v == Math.floor(v)) v.toLong().toString() else v.toString()

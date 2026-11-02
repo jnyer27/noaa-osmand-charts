@@ -31,7 +31,7 @@ The first time you download a region, the app asks once about **Automatic chart 
 5. Check **Stay inside (avoid open ocean)** if you want bays, sounds, rivers and the ICW only. Check **Move ends to navigable water** if your dock is in water too shallow for your safe depth.
 6. Tap **Plan route**.
 
-The app shows "Planned in 0.8 s. Saved to Download/noaa-charts/routes/..." and the route report below it: one line per leg, with the course, distance and anything to check. See [Reading the route report](report.html).
+The line under **Plan route** says how many legs to check. The report under it leads with that warning (shoal water, bridges, cables, restricted areas), then where the file was saved, then one line per leg. See [Reading the route report](report.html).
 
 ## 3. Follow it in OsmAnd
 
