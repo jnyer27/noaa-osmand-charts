@@ -344,6 +344,49 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return distOut to halfOut
     }
 
+    /**
+     * Maximum of [src] within [steps] 4-connected steps, moving only through [safe]
+     * cells. Land and shoal water between two basins stay a barrier, so open sea
+     * across a beach does not count as deeper water beside a lagoon.
+     */
+    private fun dilateMax(src: ByteArray, safe: BooleanArray, w: Int, h: Int, steps: Int): ByteArray {
+        var cur = src.copyOf()
+        var nxt = ByteArray(src.size)
+        val n = w * h
+        for (step in 0 until steps) {
+            var changed = false
+            for (i in 0 until n) {
+                if (!safe[i]) continue
+                var m = cur[i].toInt() and 0xff
+                val r = i / w
+                val c = i % w
+                if (r > 0 && safe[i - w]) {
+                    val v = cur[i - w].toInt() and 0xff
+                    if (v > m) m = v
+                }
+                if (r < h - 1 && safe[i + w]) {
+                    val v = cur[i + w].toInt() and 0xff
+                    if (v > m) m = v
+                }
+                if (c > 0 && safe[i - 1]) {
+                    val v = cur[i - 1].toInt() and 0xff
+                    if (v > m) m = v
+                }
+                if (c < w - 1 && safe[i + 1]) {
+                    val v = cur[i + 1].toInt() and 0xff
+                    if (v > m) m = v
+                }
+                nxt[i] = m.toByte()
+                if (m != (cur[i].toInt() and 0xff)) changed = true
+            }
+            val t = cur
+            cur = nxt
+            nxt = t
+            if (!changed) break
+        }
+        return cur
+    }
+
     private fun buildGrid(a: Area, depthM: Double, airM: Double?, bufM: Double, optimistic: Boolean = false): Grid {
         val planes = pack.window(a.r0, a.c0, a.h, a.w, a.f, depthM, optimistic)
         val n = a.n
@@ -509,6 +552,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // something to keep off, the same way as land, except inside a dredged area or
         // fairway (a shoaled channel, not a shoal to avoid). Only safe cells take the
         // distance: the band's own cost stays the marginal cost, so a creek still leads out.
+        // The penalty is how much closer a cell is than the deepest safe water within
+        // kf steps through safe water. In open water that cell is a full kf away, so
+        // the rise matches the shore rise and the route passes a knoll on its deep side.
+        // In a strip that is already the deepest water there, the middle pays nothing
+        // extra. The steps do not cross land: a square neighborhood treated the Gulf
+        // across Santa Rosa Island as deeper water beside Big Lagoon, and Pensacola to
+        // Mobile left through the pass (75.8 nm of Gulf instead of the GIWW).
         val shoal = ByteArray(n) { kf.toByte() }
         fn = 0
         for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL && !dredged[i]) {
@@ -540,6 +590,32 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val t = frontier; frontier = next; next = t
             fn = nn
         }
+        // Pretended shore distance for the keep-off. A cell as far from the band as
+        // any safe water it can reach in kf steps keeps kf (no extra cost). A cell
+        // closer than that water is treated as nearer by the difference. Where that
+        // water is a full kf away, this is the raw shoal distance, the same rise as
+        // beside land.
+        val shoalNear = ByteArray(n) { kf.toByte() }
+        run {
+            val measured = ByteArray(n)
+            val safe = BooleanArray(n)
+            var any = false
+            for (i in 0 until n) if (ok[i] && nav[i].toInt() == SAFE) {
+                safe[i] = true
+                measured[i] = shoal[i]
+                if (shoal[i] != kf.toByte()) any = true
+            }
+            // Only the overview consults this. Full detail uses the raw distance.
+            if (any && a.f > 1) {
+                val best = dilateMax(measured, safe, w, h, kf)
+                for (i in 0 until n) if (safe[i]) {
+                    val s = shoal[i].toInt() and 0xff
+                    val b = best[i].toInt() and 0xff
+                    val gap = if (b > s) b - s else 0
+                    shoalNear[i] = (kf - gap).toByte()
+                }
+            }
+        }
         val (narrowDist, narrowHalf) = narrowChannel(a, nav, ok, dredged)
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
@@ -559,19 +635,34 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
         }
         for (i in 0 until n) if (ok[i]) {
-            // Open safe water also keeps off the 0-6 ft band, so a route does not skim a
-            // shoal and then let a straight leg cut it. A dredged channel or fairway does
-            // not: its bank is the channel edge, and charging for that sent Wrightsville
-            // to Southport out Masonboro Inlet. The band's own cost is unchanged.
+            // Open safe water keeps off the 0-6 ft band. shoalNear is the gap to deeper
+            // water reached through safe water, so a strip with no deeper side pays
+            // nothing extra. On the 20 m grid the steep shore rise applies too, and the
+            // route passes a knoll on its deep side. On a coarse overview only the gentle
+            // rise applies: the steep rise at 60 m covers a whole lagoon, and Pensacola
+            // to Mobile left through the pass. A dredged channel or fairway does not pay
+            // for its own bank: charging for that sent Wrightsville to Southport out
+            // Masonboro Inlet. The band's own cost is unchanged. prox records the shoal
+            // either way, so a straight leg cannot move closer to it than the path did.
             val inChannel = dredged[i] && nav[i].toInt() == SAFE
-            val near = if (nav[i].toInt() == SAFE && !inChannel) min(dist[i].toInt(), shoal[i].toInt()) else dist[i].toInt()
-            val p = k - min(near, k)
-            prox[i] = p.toByte()
+            val landNear = dist[i].toInt()
+            // Full detail uses the raw distance, the same steep rise as beside land, so
+            // the Bay Bridge knoll is passed well clear. The overview uses the relieved
+            // distance (no extra charge where the strip is already the deepest water)
+            // and only the gentle rise: the steep rise at 60 m covers a whole lagoon.
+            val rawShoal = shoal[i].toInt() and 0xff
+            val shoalAs = if (nav[i].toInt() == SAFE && !inChannel) {
+                if (a.f == 1) rawShoal else shoalNear[i].toInt() and 0xff
+            } else kf
+            val nearFar = min(landNear, shoalAs)
+            val nearSteep = if (a.f == 1) nearFar else landNear
+            val p = k - min(nearSteep, k)
+            prox[i] = (k - min(nearFar, k)).toByte()
             var c = 1f + pc * p * (if (inChannel) DREDGED_PROX else 1f)
             // Centering: a gentle rise over FAR_M, so in a gap narrower than twice that (between
             // shoals, in a river) the route keeps to the middle instead of the edge of the
             // steep zone (routes hugged the 100 m line around buffered shoal soundings)
-            c *= 1f + FAR_COST * (kf - near) / kf * (if (inChannel) DREDGED_PROX else 1f)
+            c *= 1f + FAR_COST * (kf - nearFar) / kf * (if (inChannel) DREDGED_PROX else 1f)
             if (nav[i].toInt() == MARGINAL) {
                 c *= 4f
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
