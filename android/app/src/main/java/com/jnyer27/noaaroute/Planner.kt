@@ -151,6 +151,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // is still reachable, never taken as a shortcut)
         private const val MARG_SHORE_M = 40.0
         private const val MARG_SHORE_COST = 10f
+        /** Extra cost on 0-6 ft water beside a channel when a nearby sounding prints at or under the safe depth. */
+        private const val BESIDE_CHANNEL_COST = 8f
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
@@ -639,6 +641,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val (narrowDist, narrowHalf) = narrowChannel(a, nav, ok, dredged)
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
+        // 0-6 ft water within eight cells of a safe dredged channel or fairway.
+        // Eight cells is 160 m at 20 m: the step off the channel at Snows Cut and
+        // Bogue Sound, not the open sound beyond that.
+        val besideChannel = BooleanArray(n)
+        if (a.f == 1) for (i in 0 until n) if (ok[i] && dredged[i] && nav[i].toInt() == SAFE) {
+            val r = i / w
+            val c = i % w
+            for (rr in max(0, r - 8)..min(h - 1, r + 8)) for (cc in max(0, c - 8)..min(w - 1, c + 8)) {
+                if (max(abs(rr - r), abs(cc - c)) <= 8) besideChannel[rr * w + cc] = true
+            }
+        }
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
         val margRing = max(1, (MARG_SHORE_M / a.res).toInt())
         // Overview only: marginal water next to a dredged channel block is that channel's
@@ -691,6 +704,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // (not in a charted dredged area or fairway: a shoaled stretch of the ICW south
                 // of Masonboro Inlet cost 141 a cell, and Wrightsville to Southport went to sea)
                 if (dist[i] <= margRing && !byChannel[i] && !dredged[i]) c *= MARG_SHORE_COST
+                // Open 0-6 ft water beside a fairway or dredged channel. At 4 ft a 3.9 ft
+                // sounding is not a wall, and Bogue Sound left the 6-12 ft fairway for that
+                // water. Stepping off the channel costs more than staying in it. A creek
+                // with no channel beside it is unchanged.
+                // Full detail only. On the overview the same rise covered Big Lagoon and
+                // Pensacola to Mobile left through the pass.
+                if (a.f == 1 && !dredged[i] && besideChannel[i]) c *= BESIDE_CHANNEL_COST
             }
             // One of: pier or seawall, passable snag, channel marker or its wrong side
             when {
@@ -1082,6 +1102,25 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return Crossing(note, land)
     }
 
+    /** The user's point is inside charted entry-prohibited water, or null when it is not. */
+    private fun entryProhibited(a: Area, g: Grid, p: LatLon): String? {
+        val i = a.cell(p)
+        if (g.planes[Pack.P_FLAGS][i].toInt() and Pack.F_PROHIB == 0) return null
+        return featureNotes("resare", p, a.res * 2.0).firstOrNull {
+            it.contains("entry prohibited") && !it.contains("may be prohibited")
+        } ?: "restricted area: entry prohibited"
+    }
+
+    /** The pin is inside an entry-prohibited area. The route stops outside it and draws no line in. */
+    private fun noteProhibited(c: Ctx, n: Int, user: LatLon, water: LatLon, note: String) {
+        c.messages.removeAll { it.startsWith("Point $n:") || it.startsWith("Point $n ") }
+        val dist = distanceM(user, water).roundToInt()
+        val msg = "Point $n is in charted water where entry is prohibited: $note. The route ends on the last water outside it, " +
+            "$dist m away, and does not draw a line into it."
+        if (msg !in c.messages) c.messages.add(msg)
+        c.moved.add(n)
+    }
+
     /** Replace the Move ends "check the way between" lines: the connector is not drawn. */
     private fun noteStopped(c: Ctx, n: Int, user: LatLon, water: LatLon, cross: Crossing) {
         c.messages.removeAll { it.startsWith("Point $n:") || it.startsWith("Point $n ") }
@@ -1226,6 +1265,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val used = HashSet<Int>(q - p + 1)
             for (k in p..q) used.add(path[k])
             if (corners.any { !g.ok[it] || marginalUnvisited(g, it, used, a.w, false) || bufferUnvisited(g, it, used, a.w) }) return false
+            if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) return false
             // Hazard-buffer cells are compared as shares, plus one: a diagonal line
             // samples more cells than the 8-direction path over the same water.
             val pn = q - p + 1
@@ -1299,6 +1339,37 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * touch a buffer cell the path did use. A leg must not cut through that
      * buffer, or pass closer to the sounding or obstruction than the path did.
      */
+    /**
+     * A straight line that spends a run of 0-6 ft cells off a dredged channel or fairway,
+     * beside a sounding the chart prints under the safe depth. The channel is within a
+     * couple of cells, so the line is a jog out of the cut (Snows Cut) or one cell off
+     * the fairway (Bogue Sound), not the one-cell corner of a narrow canal.
+     */
+    private fun shoalBesideChannel(a: Area, g: Grid, cells: IntArray, used: Set<Int>): Boolean {
+        val w = a.w
+        val h = a.h
+        var run = 0
+        for (i in cells) {
+            val depth = g.planes[Pack.P_DEPTH][i].toInt()
+            val off = i !in used && g.nav[i].toInt() == MARGINAL && depth and DREDGED == 0
+            if (!off) { run = 0; continue }
+            run++
+            if (run < 3) continue
+            val r = i / w
+            val c = i % w
+            var channel = false
+            var shoal = false
+            for (rr in max(0, r - 5)..min(h - 1, r + 5)) for (cc in max(0, c - 5)..min(w - 1, c + 5)) {
+                val j = rr * w + cc
+                if (g.ok[j] && g.nav[j].toInt() == SAFE && g.planes[Pack.P_DEPTH][j].toInt() and DREDGED != 0) channel = true
+                val sv = g.planes[Pack.P_SOUND][j].toInt() and 0xff
+                if (g.nav[j].toInt() == HAZARD && sv != 0) shoal = true
+            }
+            if (channel && shoal) return true
+        }
+        return false
+    }
+
     private fun bufferUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int): Boolean {
         if (cell !in g.soft.indices || !g.soft[cell] || cell in used) return false
         return !touchesUsed(g, cell, used, w) { g.soft[it] }
@@ -1350,6 +1421,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val used = HashSet<Int>(i1 - i0 + 1)
                 for (k in i0..i1) used.add(path[k])
                 if (!cells.all { graze(it, used) } || !corners.all { graze(it, used) }) continue
+                if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) continue
                 if (!keepsCenter(a, g, path, i0, i1)) continue
                 if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
@@ -1490,6 +1562,23 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     if (s !in seen) { seen.add(s); notes.add(s) }
                 }
             }
+            // A long channel leg that only clips an entry-prohibited area at the end is not
+            // "prohibited" for its whole length. The cells inside the area keep the note.
+            if (notes.any { it.contains("entry prohibited") && !it.contains("may be prohibited") }) {
+                var first = -1
+                var last = -1
+                for (t in lc.indices) if (g.planes[Pack.P_FLAGS][lc[t]].toInt() and Pack.F_RESNOTE != 0) {
+                    if (first < 0) first = t
+                    last = t
+                }
+                val run = if (first < 0) 0 else last - first + 1
+                val atEnd = first <= 2 || last >= lc.size - 3
+                if (atEnd && run * a.res < 150.0 && run * 2 < lc.size) {
+                    val drop = notes.filter { it.contains("entry prohibited") && !it.contains("may be prohibited") }
+                    notes.removeAll(drop)
+                    seen.removeAll(drop.toSet())
+                }
+            }
             // pier or seawall over usable-depth water (same test as noaa-route.py's report)
             val onPier = pierSteps(a, lc) { i ->
                 (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
@@ -1508,6 +1597,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             if (near && (hz == null && !prevSoft || hz != null && hz.cell != prevHazard)) notes.add(0, hz?.note(a.res) ?: SOFT_NOTE)
             prevSoft = near
             prevHazard = if (near) hz?.cell ?: prevHazard else -1
+            // A shoal leg that never steps into the hazard buffer still names how far it
+            // passes a sounding under the safe depth. The depth-area sentence alone did not.
+            if (marg > 0 && notes.none { it.startsWith("passes ") }) {
+                val wider = nearestHazard(a, g, wps[k], wps[k + 1], 100.0)
+                if (wider != null && wider.kind == HZ_SOUNDING) notes.add(0, wider.note(a.res))
+            }
             val d = distanceM(wps[k], wps[k + 1])
             val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))
@@ -1699,16 +1794,22 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 // cannot clear, or the land on the far side of one: stop on the near side.
                 val headCross = if (np != null && cp != idx.first()) connectorCrossing(a, g, idx.first(), p) else null
                 val tailCross = if (nq != null && cq != idx.last()) connectorCrossing(a, g, idx.last(), q) else null
+                val headProhib = if (np != null && headCross == null) entryProhibited(a, g, p) else null
+                val tailProhib = if (nq != null && tailCross == null) entryProhibited(a, g, q) else null
                 if (headCross != null && np != null) noteStopped(c, np, p, a.latlon(idx.first()), headCross)
                 if (tailCross != null && nq != null) noteStopped(c, nq, q, a.latlon(idx.last()), tailCross)
+                if (headProhib != null && np != null) noteProhibited(c, np, p, a.latlon(idx.first()), headProhib)
+                if (tailProhib != null && nq != null) noteProhibited(c, nq, q, a.latlon(idx.last()), tailProhib)
                 // A guide point (np/nq null) just starts or ends at the water found for it
-                val head = np != null && cp != idx.first() && headCross == null
-                val tail = nq != null && cq != idx.last() && tailCross == null
+                val head = np != null && cp != idx.first() && headCross == null && headProhib == null
+                val tail = nq != null && cq != idx.last() && tailCross == null && tailProhib == null
                 if (idx.size == 1 && !head && !tail && headCross == null && tailCross == null) {
                     wps.add(p); idx = intArrayOf(idx[0], idx[0])
                 }
-                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx } else if (headCross == null && (np != null || cp == idx.first())) wps[0] = p
-                if (tail) { wps.add(q); idx += cq } else if (tailCross == null && (nq != null || cq == idx.last())) wps[wps.size - 1] = q
+                if (head) { wps.add(0, p); idx = intArrayOf(cp) + idx }
+                else if (headCross == null && headProhib == null && (np != null || cp == idx.first())) wps[0] = p
+                if (tail) { wps.add(q); idx += cq }
+                else if (tailCross == null && tailProhib == null && (nq != null || cq == idx.last())) wps[wps.size - 1] = q
                 val ls = legs(a, g, wps, idx, c.seen, c.airFt != null).toMutableList()
                 fun offWater(l: Leg) = Leg(l.distM, l.bearing, l.shoalM, l.lowM, listOf(OFF_WATER) + l.notes)
                 if (head) ls[0] = offWater(ls[0])

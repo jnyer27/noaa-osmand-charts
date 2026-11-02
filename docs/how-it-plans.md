@@ -47,7 +47,9 @@ A point in a pocket of water walled in only by land or structures (a marina basi
 
 ## Restricted areas
 
-Entry-prohibited areas are never used. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around it. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.
+Entry-prohibited areas are never used. If your pin sits inside one, the route stops on the last water outside it and does not draw a line in. The message names the area. A channel leg that only clips the boundary is not called prohibited for its whole length. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around it. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.
+
+Open 0-6 ft water within about 160 m of a dredged channel or fairway costs more than that channel, so the route stays in the marked water when a sounding printed near your safe depth is no longer a wall. That is the 6-12 ft fairway in Bogue Sound at 4 ft, and the dredged line through the east end of Snows Cut at 2 ft and 4 ft. A straight leg also will not cut out into 0-6 ft water beside a too-shallow sounding when the channel is right there.
 
 ## Long trips
 

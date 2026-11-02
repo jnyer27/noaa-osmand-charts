@@ -4,6 +4,17 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: stay out of prohibited water, and stay in the Carolina cuts (not released yet)
+
+Planning:
+
+- **A pin inside entry-prohibited water does not get a line drawn into it.** The Snows Cut close look ends at 34.02000 N, 77.94200 W, inside Military Ocean Terminal Sunny Point, 33 CFR 334.450. The route used to stop about 80 m outside and then draw an unchecked leg back to the pin, and the channel leg before that was labeled "entry prohibited" for its whole length. The route now ends on the last water outside the area, names the area and the regulation, and does not draw that leg. A channel leg that only clips the boundary is not called prohibited for the whole leg.
+- **At 4 ft, Bogue Sound stays in the 6-12 ft fairway.** A 3.9 ft sounding is not a wall at a 4 ft safe depth, and the route left the fairway for 0-6 ft water north of buoys 10A, 11A and 12, inside the circle the 5 ft route already avoids. Open 0-6 ft water within about 160 m of a safe dredged channel or fairway now costs more than the channel, so that northern water does not win.
+- **Snows Cut at 2 ft and 4 ft stays in the dredged cut.** The line used to step east into 0-6 ft water beside charted 0.7 ft and 1.0 ft soundings, about 34.0387 N, 77.9292 W, while the fairway continued on the other side. That corner is no longer the cheaper line.
+- **A shoal leg names the distance to a sounding under your safe depth even when the leg never steps into the hazard buffer.** The Bogue Sound hop at 2 ft used to say only that the depth area may be under 2 ft. It now also says how far it passes the 1.0 ft sounding. Part of that 2 ft line still touches the north edge of the marked strip (about 34.7236 N), the same latitude a 6 ft route was already accepted on. The 4 ft route holds the 6-12 ft fairway one cell south of the old northern run.
+
+No pack rebuild. The Termux script does not have this pin stop or the extra cost beside a channel.
+
 ## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
 
 Planning:
