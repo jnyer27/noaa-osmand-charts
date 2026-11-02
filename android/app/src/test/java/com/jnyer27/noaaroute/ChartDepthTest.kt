@@ -81,11 +81,31 @@ class ChartDepthTest {
     @Test
     fun printedFeetMatchTheChartLabels() {
         assertEquals(5, Planner.printedFeet(1.5))
+        assertEquals(5, Planner.printedFeet(1.4)) // 4.6 ft, still the chart's 5
+        assertEquals(4, Planner.printedFeet(1.3)) // 4.3 ft
+        assertEquals(4, Planner.printedFeet(1.2)) // 3.9 ft
         assertEquals(6, Planner.printedFeet(1.8))
         assertEquals(0, Planner.printedFeet(0.1))
-        assertTrue(Planner.soundingShallow(1.5, 5.0))
+        // Equal to the safe depth is passable, whether stored as 1.5 m or as 5 * 0.3048 m.
+        assertFalse(Planner.soundingShallow(1.5, 5.0))
+        assertFalse(Planner.soundingShallow(1.4, 5.0))
+        assertFalse(Planner.soundingShallow(5.0 * Pack.FT, 5.0))
+        assertFalse(Planner.soundingShallow(5.0 * Pack.FT, Planner.depthFeet(5.0 * Pack.FT)))
+        // One chart label under the safe depth is a hazard. No 5 cm slack: 1.3 m is
+        // only 0.22 m under 5 ft, inside that old band, and it still blocks.
+        assertTrue(Planner.soundingShallow(1.3, 5.0))
+        assertTrue(Planner.soundingShallow(1.2, 5.0))
         assertFalse(Planner.soundingShallow(1.8, 5.0))
         assertFalse(Planner.soundingShallow(1.5, 4.0))
+        // 1.2 m prints as 4. At 4 ft that label is not shallower. At 3 ft it is over.
+        assertFalse(Planner.soundingShallow(1.2, 4.0))
+        assertFalse(Planner.soundingShallow(1.2, Planner.depthFeet(4.0 * Pack.FT)))
+        assertFalse(Planner.soundingShallow(1.2, 3.0))
+        // 0.9 m prints as 3, so it is a hazard at 4 ft and not at 3 ft.
+        assertEquals(3, Planner.printedFeet(0.9))
+        assertTrue(Planner.soundingShallow(0.9, 4.0))
+        assertFalse(Planner.soundingShallow(0.9, 3.0))
+        assertTrue(Planner.soundingShallow(0.7, 3.0)) // 2.3 ft, chart label 2
     }
 
     @Test

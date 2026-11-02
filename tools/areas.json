@@ -326,6 +326,7 @@
   ],
   "tests": [
     {"name": "Maryland Marina to Ego Alley", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 3, "air": 10, "nm": [24, 29], "resolve": true, "areas": ["ncds_04", "ncds_05"]},
+    {"name": "Maryland Marina to Ego Alley at 5 ft (slip leads out; a charted 5 ft sounding is not a wall)", "points": ["39.32371,-76.39998", "38.97731,-76.48559"], "depth": 5, "air": 10, "nm": [24, 29], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Hart-Miller to Bear Creek (opening bridges)", "points": ["39.2470,-76.3880", "39.25084,-76.48861"], "depth": 3, "air": 10, "nm": [9, 12], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to Rock Hall", "points": ["39.32371,-76.39998", "39.13276,-76.24449"], "depth": 3, "air": 10, "nm": [14, 18], "areas": ["ncds_04", "ncds_05"]},
     {"name": "Maryland Marina to upper Bush River (Amtrak swing bridge, cables with only a safe clearance)", "points": ["39.32371,-76.39998", "39.44288,-76.23491"], "depth": 3, "air": 10, "nm": [15, 20], "areas": ["ncds_04", "ncds_05"]},
@@ -375,7 +376,7 @@
     {"name": "Cocoa to Sebastian (Indian River, 07 to 08)", "points": ["28.3560,-80.7180", "27.8150,-80.4700"], "depth": 4, "air": 10, "areas": ["ncds_07", "ncds_08", "ncds_10"], "nm": [33, 40]},
     {"name": "Fort Lauderdale to Miami", "points": ["26.0930,-80.1180", "25.7780,-80.1850"], "depth": 4, "air": 10, "areas": ["ncds_08"], "nm": [22, 28]},
     {"name": "Dinner Key at 20 ft is boxed in", "points": ["25.7700,-80.1400", "25.7270,-80.2320"], "depth": 20, "air": 10, "fail": true, "areas": ["ncds_08"]},
-    {"name": "Key West to Marathon (Boot Key Harbor)", "points": ["24.5610,-81.8010", "24.7060,-81.1140"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [38, 47]},
+    {"name": "Key West to Marathon (Boot Key Harbor, 6-12 ft water at the west entrance; 24.706,-81.114 is drying)", "points": ["24.5610,-81.8010", "24.71029,-81.11838"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [38, 47]},
     {"name": "Tampa Bay: St. Petersburg to Tampa", "points": ["27.7700,-82.6250", "27.9400,-82.4550"], "depth": 4, "air": 10, "areas": ["ncds_10"], "nm": [15, 19]},
     {"name": "Clearwater to Tarpon Springs (ICW, 10 to 11)", "points": ["27.9770,-82.8280", "28.1540,-82.7600"], "depth": 3, "air": 10, "areas": ["ncds_10", "ncds_11"], "nm": [17, 22]},
     {"name": "Mobile Bay: Fairhope to the bay entrance off Fort Gaines", "points": ["30.5230,-87.9100", "30.2420,-88.0600"], "depth": 4, "air": 10, "areas": ["ncds_11"], "nm": [18, 23]},

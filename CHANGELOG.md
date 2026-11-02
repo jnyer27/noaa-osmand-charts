@@ -4,13 +4,22 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: sounding labels, narrow channels, and straight legs (not released yet)
+
+Planning:
+- **A sounding blocks only when the chart labels it shallower than your safe depth.** Whole feet, the same rounding as the chart. 1.5 m prints as 5, so at a 5 ft safe depth it is not a hazard and gets no 60 m buffer. A sounding the chart labels 4 ft still does. A label equal to your depth is not a wall, including one stored a little under the exact meter value but still printed as that foot (1.4 m is 4.6 ft and prints as 5). Depth areas are unchanged and still use the 5 cm slack, so a 1.8 m area stays the 6 ft band. The previous rule treated a label equal to your safe depth as a hazard, and that closed the Maryland Marina slip at 5 ft on a charted 5 ft sounding in the 0-6 ft exit.
+- **A one-cell channel and a 6-12 ft edge straighten.** A straight leg may cross 0-6 ft water that touches safe water, or 0-6 ft water, the path already used: the corner of a dredged channel one cell wide, or the shoal side of a 6-12 ft edge the route is following. A shoal the path went around is still not cut off. Water charted entirely under your safe depth stays forbidden.
+
+Routing and safety:
+- **A narrow deeper strip keeps its depth.** The shallow edge of a depth area is still stored when it covers more than about a quarter of a 20 m cell, so a route does not clip a shoal on the rim of a wide deep area (the 0-6 ft knoll west of the Bay Bridge). A deeper strip only a cell or two wide, at least three cells long, keeps the deeper depth at the cell center. That is the 6-12 ft ICW in Bogue Sound, charted as an ordinary depth area between 0-6 ft shoals: storing the shoal in those cells sent a 5 ft route off the track. Dredged areas, fairways and recommended tracks already kept the deeper center.
+
 ## 2026-11-01: chart crossings on the route report (not released yet)
 
 Planning:
 - **A leg is checked against the chart's depth areas, not only the 20 m grid.** After planning, each leg is compared with the depth areas (DEPARE and DRGARE) in a downloaded region chart, or the bundled Middle River chart when that is the one on the phone. A leg that crosses an area whose shoal limit is under your safe depth is flagged, with the meters crossed. When the area's deep limit is under your safe depth too, the note says the water is charted entirely under it. A leg outside every chart on the phone is unchanged. This catches a shoal that sits in the fringe of a grid cell whose center is deeper water: the line on the chart runs through the shoal and the grid never saw it.
 - **One shallow cell is enough to flag a leg.** A single 20 m cell of water that may be under your safe depth, or a single cell of a hazard buffer, used to be dropped as grid noise. It is reported now.
-- **A straightened leg may not enter 0-6 ft water the planned path did not already use.** A cell beside 0-6 ft the path did cross can still be part of a diagonal step through that same water. A shoal the path went around is not cut off by the straight line. Where the only straightening would clip that shoal, the grid steps stay.
-- **A sounding the chart labels at your safe depth is a hazard.** Whole feet, the same way the chart prints them: 1.5 m is 5 ft, so at a 5 ft safe depth it gets the 60 m buffer. Depth areas still use the 5 cm slack, so a 1.8 m area stays the 6 ft band.
+- **Straightening.** See 2026-11-02. A leg may cross 0-6 ft water beside safe water the path already used, so a one-cell channel and a 6-12 ft edge do not stay a staircase. A shoal the path went around is still not cut off, and water charted entirely under the safe depth stays forbidden.
+- **Soundings use the chart's whole-foot label, not the 5 cm slack used for depth areas.** See 2026-11-02: only a label shallower than your safe depth is a hazard. Depth areas still use the 5 cm slack, so a 1.8 m area stays the 6 ft band.
 
 Chart display:
 - **The chart legend names the three blues.** Strong blue is charted entirely under your safe depth, lighter blue is a range that straddles it, and pale blue is at or over it. Olive still dries.
