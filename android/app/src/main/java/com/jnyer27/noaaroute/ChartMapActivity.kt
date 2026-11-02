@@ -66,6 +66,7 @@ class ChartMapActivity : Activity() {
 
     private lateinit var mapView: MapView
     private lateinit var legend: TextView
+    private lateinit var picked: TextView
     private lateinit var downloadButton: Button
     private lateinit var routeToggle: CheckBox
     private lateinit var routeLegend: TextView
@@ -155,6 +156,14 @@ class ChartMapActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(4))
         }
         root.addView(legend)
+        picked = TextView(this).apply {
+            visibility = View.GONE
+            textSize = 14f
+            setTextColor(Color.BLACK)
+            setBackgroundColor(0xFFFFF3E0.toInt())
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        root.addView(picked)
         downloadButton = Button(this).apply { visibility = View.GONE }
         root.addView(downloadButton)
         root.addView(Button(this).apply {
@@ -175,6 +184,7 @@ class ChartMapActivity : Activity() {
                 legend.text = "Chart did not load: $message"
             }
             loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
+            loaded.addOnMapClickListener { latLng -> showLeg(latLng.latitude, latLng.longitude) }
             present()
             uiHandler.post(poll)
             worker.execute {
@@ -367,6 +377,18 @@ class ChartMapActivity : Activity() {
         return out
     }
 
+    /** Show the tapped leg's note under the chart. A tap away from the route clears it. */
+    private fun showLeg(lat: Double, lon: Double): Boolean {
+        val json = routeJson ?: return false
+        val text = ChartTiles.legAt(json, lat, lon) ?: run {
+            picked.visibility = View.GONE
+            return false
+        }
+        picked.text = text
+        picked.visibility = View.VISIBLE
+        return true
+    }
+
     private fun legendText(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean): String {
         val outside = routePoints().any { it.lon !in w..e || it.lat !in s..n }
         val sb = StringBuilder()
@@ -374,7 +396,7 @@ class ChartMapActivity : Activity() {
         sb.append(ChartTiles.depthLegend(depthFt))
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
         sb.append("The small dot beside a mark is its light, in that light's colour. ")
-        if (routeJson != null) sb.append("Orange dashed legs are checks. ")
+        if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg to read its note. A bridge or cable drawn for vertical clearance is not that orange. ")
         sb.append("The blue dot is your GPS position.")
         if (outside) sb.append(if (region) " Charts cover this region; past that, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")

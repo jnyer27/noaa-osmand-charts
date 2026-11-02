@@ -49,7 +49,7 @@ A narrow marked cut is planned at full detail. If the only line a coarser grid c
 
 ## Restricted areas
 
-Entry-prohibited areas are never used. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around it. Other restricted areas (no wake, anchoring rules, entry restricted, areas to be avoided by large ships) are used but reported with their rule.
+Entry-prohibited areas are never used. Coast Guard security zones (33 CFR 165) are used, but every leg through one is a check with check markers in the GPX, because the charts do not tell a zone that is always closed (the Cove Point LNG terminal, a nuclear plant, a Navy base) from one enforced only around particular vessels or when announced. Read the regulation and the Local Notice to Mariners, and if the zone applies, tap [Try to avoid checks](planning.html#try-to-avoid-checks) or add a via point to go around it. Entry restricted and entry prohibited are checks: the leg is named in the warning at the top of the report, drawn as a check, and marked in the GPX. The route does not enter water the chart marks entry prohibited. Other restricted areas (no wake, anchoring rules, areas to be avoided by large ships) are used but reported with their rule.
 
 ## Long trips
 

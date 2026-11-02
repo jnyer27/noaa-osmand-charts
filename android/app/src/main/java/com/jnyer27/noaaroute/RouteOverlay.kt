@@ -79,22 +79,23 @@ object RouteOverlay {
 
     private val RANK = IntArray(Kind.entries.size) { rank(Kind.entries[it]) }
 
-    // Alphas are part of the colour: deep water stays faint so the chart shows through,
-    // and a hazard is nearly solid so it reads as a dot on that fill.
+    // Depth areas stay clear: the chart's blue ramp is the only depth key.
+    // Red, black and the clearance colours are hazards and structures. A cable is
+    // navy, not the orange used for a check leg on the route line.
     private val COLOR = intArrayOf(
         0,                  // NONE, land or no data
-        0xB4E53935.toInt(), // SHALLOW, red
-        0xB4F9A825.toInt(), // MARGINAL, amber
-        0x381565C0,         // SAFE, faint blue
-        0xA000897B.toInt(), // DREDGED, teal
-        0xD0B8860B.toInt(), // DREDGED_MARGINAL, dark gold
-        0x903949AB.toInt(), // FAIRWAY, indigo
-        0xC07E57C2.toInt(), // FAIRWAY_MARGINAL
+        0,                  // SHALLOW, chart paints this blue
+        0,                  // MARGINAL, chart paints this blue
+        0,                  // SAFE, chart paints this blue
+        0,                  // DREDGED, not a second depth colour
+        0,                  // DREDGED_MARGINAL
+        0,                  // FAIRWAY
+        0,                  // FAIRWAY_MARGINAL
         0xF0D50000.toInt(), // HAZARD, bright red
         0xE6212121.toInt(), // PIER, near black
         0xD06A1B9A.toInt(), // PROHIBITED, purple (even pixels only)
-        0xF0880E4F.toInt(), // LOW_BRIDGE, maroon
-        0xF0FF6D00.toInt(), // LOW_CABLE, orange
+        0xF0880E4F.toInt(), // LOW_BRIDGE, maroon (vertical clearance)
+        0xF0002F6C.toInt(), // LOW_CABLE, navy (vertical clearance, not check-leg orange)
         0xF000ACC1.toInt(), // GATE, cyan
         0xF06D4C41.toInt(), // SNAG, brown
     )
@@ -332,12 +333,13 @@ object RouteOverlay {
         val zoom = if (stride > 1) {
             " Zoomed out: one pixel covers $stride by $stride cells, and a hazard or marker in that square still shows."
         } else ""
-        return "Planner grid at $depth ft. $air Drawn in $sec s, $images on screen.$zoom\n" +
-            "Red: too shallow or drying. Amber: straddles your depth. Faint blue: deep enough.\n" +
-            "Teal: dredged, deep enough. Dark gold: dredged, may be under your depth.\n" +
-            "Indigo: fairway or track, deep enough. Lighter purple: fairway that may be shoal.\n" +
+        return "Planner marks at $depth ft. $air Drawn in $sec s, $images on screen.$zoom\n" +
+            "Depth colors are the chart's blues: strong blue is entirely under your depth, " +
+            "lighter blue straddles it, pale blue is deep enough. This layer does not repaint them.\n" +
             "Bright red: hazard. Black: pier or structure. Purple hatch: entry prohibited.\n" +
-            "Maroon: bridge too low. Orange: cable too low. Cyan: wrong side of a mark. Brown: pile or snag.\n" +
-            "Clear: land or no data."
+            "Maroon: bridge, vertical clearance too low or not charted. " +
+            "Navy: cable, vertical clearance too low or not charted.\n" +
+            "Cyan: wrong side of a mark. Brown: pile or snag.\n" +
+            "Clear: land, charted depth, or no data. Orange on the route line is a leg to check, not a cable."
     }
 }

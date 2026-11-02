@@ -131,8 +131,14 @@ object ChartTiles {
         val legs = min(route.legs.size, (route.points.size - 1).coerceAtLeast(0))
         for (i in 0 until legs) {
             val flagged = if (Gpx.flagged(route.legs[i])) 1 else 0
-            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"leg\",\"flagged\":$flagged}," +
+            val note = jsonString(Gpx.legText(route, i))
+            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"leg\",\"leg\":${i + 1},\"flagged\":$flagged,\"note\":$note}," +
                 "\"geometry\":{\"type\":\"LineString\",\"coordinates\":[${coord(route.points[i])},${coord(route.points[i + 1])}]}}")
+            val a = route.points[i]
+            val b = route.points[i + 1]
+            val mid = LatLon((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)
+            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"label\",\"leg\":${i + 1}}," +
+                "\"geometry\":{\"type\":\"Point\",\"coordinates\":${coord(mid)}}}")
         }
         for (p in route.points) {
             feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"point\"}," +
@@ -140,6 +146,58 @@ object ChartTiles {
         }
         sb.append("]}")
         return sb.toString()
+    }
+
+    /**
+     * The leg under a tap, as "Leg N. <note>", or null when the tap is farther than [maxM]
+     * from every leg. [geoJson] is [routeGeoJson].
+     */
+    fun legAt(geoJson: String, lat: Double, lon: Double, maxM: Double = 300.0): String? {
+        val root = MiniJson.parse(geoJson) as? Map<*, *> ?: return null
+        val features = root["features"] as? List<*> ?: return null
+        val here = LatLon(lat, lon)
+        var best = maxM
+        var text: String? = null
+        for (f in features) {
+            val feat = f as? Map<*, *> ?: continue
+            val props = feat["properties"] as? Map<*, *> ?: continue
+            if (props["kind"] != "leg") continue
+            val coords = (feat["geometry"] as? Map<*, *>)?.get("coordinates") as? List<*> ?: continue
+            if (coords.size < 2) continue
+            val a = pair(coords[0]) ?: continue
+            val b = pair(coords[1]) ?: continue
+            val d = metersToSegment(here, a, b)
+            if (d <= best) {
+                best = d
+                val n = (props["leg"] as? Double)?.toInt() ?: continue
+                val note = props["note"] as? String ?: ""
+                text = "Leg $n. $note"
+            }
+        }
+        return text
+    }
+
+    private fun pair(v: Any?): LatLon? {
+        val c = v as? List<*> ?: return null
+        if (c.size < 2) return null
+        val lon = c[0] as? Double ?: return null
+        val lat = c[1] as? Double ?: return null
+        return LatLon(lat, lon)
+    }
+
+    /** Meters from [p] to the segment [a]-[b]. A very short leg is just the distance to [a]. */
+    private fun metersToSegment(p: LatLon, a: LatLon, b: LatLon): Double {
+        if (Planner.distanceM(a, b) < 1.0) return Planner.distanceM(p, a)
+        val kx = Pack.M_PER_DEG * kotlin.math.cos(Math.toRadians((a.lat + b.lat) / 2))
+        val ky = Pack.M_PER_DEG
+        val bx = (b.lon - a.lon) * kx
+        val by = (b.lat - a.lat) * ky
+        val px = (p.lon - a.lon) * kx
+        val py = (p.lat - a.lat) * ky
+        val l2 = bx * bx + by * by
+        if (l2 <= 0.0) return Planner.distanceM(p, a)
+        val t = ((px * bx + py * by) / l2).coerceIn(0.0, 1.0)
+        return kotlin.math.hypot(px - t * bx, py - t * by)
     }
 
     fun gpsGeoJson(lat: Double, lon: Double): String =
@@ -275,6 +333,11 @@ object ChartTiles {
     {"id": "route-point", "type": "circle", "source": "route",
       "filter": ["==", ["get", "kind"], "point"],
       "paint": {"circle-radius": 4, "circle-color": "#1565c0", "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5}},
+    {"id": "route-label", "type": "symbol", "source": "route",
+      "filter": ["==", ["get", "kind"], "label"],
+      "layout": {"text-field": ["to-string", ["get", "leg"]], "text-font": ["$FONT"], "text-size": 13,
+        "text-allow-overlap": true, "text-offset": [0, -0.9]},
+      "paint": {"text-color": "#102027", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "gps-halo", "type": "circle", "source": "gps",
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
     {"id": "gps", "type": "circle", "source": "gps",
