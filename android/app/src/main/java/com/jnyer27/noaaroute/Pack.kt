@@ -2,6 +2,7 @@ package com.jnyer27.noaaroute
 
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.Locale
 import java.util.zip.Inflater
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -69,18 +70,70 @@ class Note(
         }
     }
 
-    fun describe(): String? {
-        fun ft(m: Double) = "%.0f ft".format(m / Pack.FT)
+    /**
+     * The sentence for a leg note. [airFt] is the boat's air draft, when one was entered:
+     * an opening bridge then says whether it has to open or what it clears by when closed.
+     * Without an air draft the note still says it may need an opening.
+     */
+    fun describe(airFt: Double? = null): String? {
+        fun feet(m: Double) = "${Planner.printedFeet(m)} ft"
         return when (kind) {
-            "resare" -> "$name: ${rules.joinToString(", ")}" + (cfr?.let { " ($it)" } ?: "")
+            "resare" -> resareText()
             "bridge" -> when {
-                opening != null -> "$name: $opening bridge, may need an opening" + (closed?.let { " (closed clearance ${ft(it)})" } ?: "")
-                clr != null -> "$name span (clearance ${ft(clr)})"
+                opening != null -> openingText(airFt)
+                clr != null -> "$name span (clearance ${feet(clr)})"
                 else -> null // bridge part without clearance: blocks, nothing to report
             }
-            "cable" -> name + (clr?.let { " (clearance ${ft(it)})" } ?: " (clearance not charted)")
+            "cable" -> name + (clr?.let { " (clearance ${cableClearance(it)})" } ?: " (clearance not charted)")
             else -> null
         }
+    }
+
+    /**
+     * Whole feet, the chart's own label, and a tenth when that label rounds up by a tenth
+     * or more. 16.7 m is 54.8 ft and prints as 55; the tenth stays visible so it is not
+     * read as equal to a 55 ft air draft. 6.0 m still leads with 20 ft. The tenth is
+     * not introduced with the word "charted": that word contains "check" and would
+     * flag the leg.
+     */
+    private fun cableClearance(m: Double): String {
+        val feet = m / Pack.FT
+        val label = Planner.printedFeet(m)
+        val tenth = Math.round(feet * 10.0) / 10.0
+        return if (label - tenth >= 0.1 - 1e-9)
+            String.format(Locale.US, "%d ft (%.1f ft)", label, tenth)
+        else String.format(Locale.US, "%d ft", label)
+    }
+
+    /** 33 CFR 162.40 is the canal's traffic rule, not a ban on entering it. 334.140 is a firing danger zone. */
+    private fun resareText(): String {
+        val section = cfr
+        val cite = section?.let { " ($it)" } ?: ""
+        if (section != null && "162.40" in section) {
+            val kept = rules.filter { "entry restricted" !in it && "entry prohibited" !in it }
+            val body = (kept + listOf("canal traffic rule")).distinct().joinToString(", ")
+            return "$name: $body$cite"
+        }
+        var s = "$name: ${rules.joinToString(", ")}$cite"
+        if (section != null && "334.140" in section)
+            s += ". Firing danger zone; the ship channel south of Pooles Island is the other way"
+        return s
+    }
+
+    private fun openingText(airFt: Double?): String {
+        fun feet(m: Double) = "${Planner.printedFeet(m)} ft"
+        val base = "$name: $opening bridge"
+        val closedM = closed
+        if (closedM == null || airFt == null)
+            return "$base, may need an opening" + (closedM?.let { " (closed clearance ${feet(it)})" } ?: "")
+        val closedFt = Planner.printedFeet(closedM)
+        val air = if (airFt == Math.floor(airFt)) airFt.toInt().toString() else airFt.toString()
+        if (airFt > closedFt)
+            return "$base has to open (closed clearance $closedFt ft, under your $air ft air draft)"
+        val margin = closedFt - airFt
+        val over = if (Math.abs(margin - Math.rint(margin)) < 0.05) Math.rint(margin).toInt().toString()
+            else String.format(Locale.US, "%.1f", margin)
+        return "$base clears when closed (closed clearance $closedFt ft, $over ft over your $air ft air draft)"
     }
 }
 

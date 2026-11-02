@@ -21,14 +21,26 @@ object Gpx {
     private fun shallowLen(l: Leg, depthFt: Double) =
         String.format(Locale.US, "%.0f m where charted depth may be under %s ft", l.shoalM, num(depthFt))
 
-    /** The shallowest nearby sounding, and whether it is under the safe depth. */
+    /** The shallowest nearby sounding, and whether the chart's whole-foot label is under the safe depth. */
     private fun sounding(lowM: Double, depthFt: Double): String {
         val ft = lowM / Pack.FT
-        return String.format(Locale.US, "%.1f ft", ft) + if (ft < depthFt) ", under your ${num(depthFt)} ft" else ""
+        val under = Planner.soundingShallow(lowM, depthFt)
+        return String.format(Locale.US, "%.1f ft", ft) + if (under) ", under your ${num(depthFt)} ft" else ""
     }
+
+    /**
+     * A fairway stored as a wide depth range (0 ft to about 12 ft) straddles a 2 ft safe
+     * depth even when the soundings on it are 9 to 13 ft. Say that, instead of "under 2 ft".
+     * A sounding the chart labels under the safe depth keeps the under-your-depth wording.
+     */
+    private fun depthAreaDeeper(lowM: Double?, depthFt: Double) =
+        lowM != null && Planner.printedFeet(lowM) >= depthFt + 5.0 - 1e-6
 
     private fun shoalNote(l: Leg, depthFt: Double): String? {
         if (l.shoalM <= 0) return null
+        if (depthAreaDeeper(l.lowM, depthFt))
+            return String.format(Locale.US, "%.0f m where the depth area may include shallower water (shallowest sounding nearby %.1f ft, deeper than your %s ft)",
+                l.shoalM, l.lowM!! / Pack.FT, num(depthFt))
         var d = shallowLen(l, depthFt)
         l.lowM?.let { d += " (shallowest sounding nearby ${sounding(it, depthFt)})" }
         return d
@@ -225,8 +237,14 @@ object Gpx {
         for ((k, l) in r.legs.withIndex()) {
             val notes = ArrayList<String>()
             if (l.shoalM > 0) {
-                var s = shallowLen(l, r.depthFt)
-                s += l.lowM?.let { ", shallowest sounding within 100 m ${sounding(it, r.depthFt)}" } ?: ", no soundings within 100 m"
+                val s = if (depthAreaDeeper(l.lowM, r.depthFt))
+                    String.format(Locale.US, "%.0f m where the depth area may include shallower water, shallowest sounding within 100 m %.1f ft, deeper than your %s ft",
+                        l.shoalM, l.lowM!! / Pack.FT, num(r.depthFt))
+                else {
+                    var t = shallowLen(l, r.depthFt)
+                    t += l.lowM?.let { ", shallowest sounding within 100 m ${sounding(it, r.depthFt)}" } ?: ", no soundings within 100 m"
+                    t
+                }
                 notes.add(s)
             }
             notes.addAll(l.notes)

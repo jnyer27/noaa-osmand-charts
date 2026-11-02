@@ -79,6 +79,17 @@ class GpxTest {
         assertTrue(Gpx.report(eight).contains("40 m where charted depth may be under 8 ft, shallowest sounding within 100 m 6.6 ft, under your 8 ft"))
         val deep = Route("t", route.points.take(2), listOf(leg(0.5, 40.0, 2.0)), 6.0, null, 20.0, emptyList())
         assertTrue(Gpx.report(deep).contains("40 m where charted depth may be under 6 ft, shallowest sounding within 100 m 6.6 ft\n"))
+        // 0.60 m prints as 2 ft. It is not "under your 2 ft".
+        val two = Route("t", route.points.take(2), listOf(leg(0.5, 40.0, 0.60)), 2.0, 10.0, 20.0, emptyList())
+        val twoText = Gpx.report(two)
+        assertTrue(twoText, twoText.contains("2.0 ft"))
+        assertTrue(twoText, !twoText.contains(", under your 2 ft"))
+        // A fairway stored 0 to about 12 ft, with a 9.8 ft sounding, is not "under 2 ft".
+        val fairway = Route("t", route.points.take(2), listOf(leg(0.5, 80.0, 3.0)), 2.0, 10.0, 20.0, emptyList())
+        val fairwayText = Gpx.report(fairway)
+        assertTrue(fairwayText, fairwayText.contains("may include shallower water"))
+        assertTrue(fairwayText, fairwayText.contains("deeper than your 2 ft"))
+        assertTrue(fairwayText, !fairwayText.contains(", under your 2 ft"))
         // Written out for CI to validate against the GPX 1.1 schema
         File("build").mkdirs()
         File("build/gpx-sample.gpx").writeText(gpx)

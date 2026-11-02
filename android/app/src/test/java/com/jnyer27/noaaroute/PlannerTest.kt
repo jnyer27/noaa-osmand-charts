@@ -271,7 +271,7 @@ class PlannerTest {
             assertTrue("no shallow legs after it", r.legs.drop(1).none { it.shoalM > 0 })
             val moved = Planner.distanceM(r.points[0], r.points[1])
             assertTrue("moved %.0f m".format(moved), moved in 180.0..260.0)
-            assertTrue("message: ${r.messages}", r.messages.any { it.startsWith("Point 1 is in water charted under your 3 ft") })
+            assertTrue("message: ${r.messages}", r.messages.any { it.contains("may be under your 3 ft") })
         }
     }
 
@@ -659,7 +659,8 @@ class PlannerTest {
             val pts = listOf(cellCenter(100, 255), cellCenter(400, 255))
             val r = planner.plan("t", pts, 5.0, null)
             val zone = "Test Security Zone: security zone, entry may be prohibited: check (33 CFR 165.999)"
-            assertTrue("crosses the zone", r.legs.any { zone in it.notes })
+            assertTrue("crosses the zone", r.legs.any { l -> l.notes.any { it.startsWith(zone) } })
+            assertTrue("names how much of the leg is inside", r.legs.any { l -> l.notes.any { it.contains("m of this") && it.contains("is inside") } })
             val res = planner.resolveChecks(r, pts)
             assertEquals(res.summary, 1, res.runs)
             assertEquals(res.summary, 1, res.resolved)
@@ -776,7 +777,7 @@ class PlannerTest {
                 assertTrue("ended on the pin", r.points.last() != pin)
                 assertTrue("a point north of the cable", r.points.none { rowOf(it) < 200 })
                 val msg = r.messages.joinToString("\n")
-                assertTrue(msg, msg.contains("overhead cable (clearance 20 ft)"))
+                assertTrue(msg, msg.contains("overhead cable (clearance 20 ft"))
                 assertTrue(msg, msg.contains("near side"))
                 assertTrue(msg, msg.contains("land beyond"))
                 assertTrue("leg still names the cable", r.legs.none { l -> l.notes.any { it.contains("clearance 20 ft") } })
@@ -786,7 +787,7 @@ class PlannerTest {
                 val r = planner.plan("t", listOf(start, pin), 2.0, 10.0, moveEnds = move)
                 assertEquals(pin, r.points.last())
                 assertTrue("10 ft route did not use the cable crossing (move ends $move)", crossesCable(r))
-                assertTrue(r.legs.any { l -> l.notes.any { it.contains("overhead cable (clearance 20 ft)") && !it.contains("check") } })
+                assertTrue(r.legs.any { l -> l.notes.any { it.contains("overhead cable (clearance 20 ft") && !it.contains("check") } })
             }
         }
     }
@@ -825,5 +826,50 @@ class PlannerTest {
             assertTrue("unchecked leg into the pin", r.legs.none { l -> l.notes.any { it.contains("not checked, use your eyes") } })
             assertTrue("long leg labeled prohibited", r.legs.none { it.distM > 200.0 && it.notes.any { n0 -> n0.contains("entry prohibited") } })
         }
+    }
+
+    @Test
+    fun moveEndsOnLandStaysAtTheNearestWater() {
+        // A marginal ditch (cols 200-205) is the only way south. Deep water is a side
+        // basin to the north-east, not on the way. A land pin stays in the ditch.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 0 until size) for (c in 200..205) planes[Pack.P_DEPTH][r * size + c] = 2
+        for (r in 0..80) for (c in 206..400) planes[Pack.P_DEPTH][r * size + c] = 1
+        Pack(writePack(planes, "[]", depthTable = "[null,[2.0,3.6,0],[0.0,1.8,0]]")).use { pack ->
+            val land = cellCenter(250, 198)
+            val r = Planner(ChartSet(listOf(pack))).plan("t", listOf(land, cellCenter(400, 202)), 3.0, 10.0, moveEnds = true)
+            val landMsg = r.messages.first { it.contains("on land or a dock") }
+            assertTrue(landMsg, !landMsg.contains("charted at least"))
+            val moved = Planner.distanceM(r.points[0], r.points[1])
+            assertTrue("walked %.0f m toward deep water".format(moved), moved < 80.0)
+        }
+    }
+
+    @Test
+    fun canalRuleCableTenthAndOpeningBridge() {
+        val box = doubleArrayOf(-1.0, -1.0, 1.0, 1.0)
+        val canal = Note("resare", 5, box, "Bbox", null, "restricted area",
+            listOf("anchoring restricted", "entry restricted"), "33 CFR 162.40", null, null, null)
+        val canalText = canal.describe()!!
+        assertTrue(canalText, canalText.contains("canal traffic rule"))
+        assertTrue(canalText, !canalText.contains("entry restricted"))
+        val apg = Note("resare", 5, box, "Bbox", null, "Aberdeen Proving Ground",
+            listOf("entry restricted"), "33 CFR 334.140", null, null, null)
+        val apgText = apg.describe()!!
+        assertTrue(apgText, apgText.contains("entry restricted"))
+        assertTrue(apgText, apgText.contains("Firing danger zone"))
+        assertTrue(apgText, apgText.contains("south of Pooles Island"))
+        val cable = Note("cable", 5, box, "Bbox", null, "overhead cable", emptyList(), null, 16.7, null, null)
+        val cableText = cable.describe()!!
+        assertTrue(cableText, cableText.contains("54.8"))
+        assertTrue(cableText, !cableText.contains("check"))
+        val swing = Note("bridge", 5, box, "Bbox", null, "Bear Creek", emptyList(), null, null, "swing", 2.4)
+        val mustOpen = swing.describe(10.0)!!
+        assertTrue(mustOpen, mustOpen.contains("has to open"))
+        assertTrue(mustOpen, mustOpen.contains("8 ft"))
+        val bascule = Note("bridge", 5, box, "Bbox", null, "Bear Creek", emptyList(), null, null, "bascule", 7.6)
+        val clears = bascule.describe(10.0)!!
+        assertTrue(clears, clears.contains("clears when closed"))
+        assertTrue(clears, clears.contains("25 ft"))
     }
 }

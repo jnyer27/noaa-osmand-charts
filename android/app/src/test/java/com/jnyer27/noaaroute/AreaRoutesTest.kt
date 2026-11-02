@@ -82,6 +82,11 @@ class AreaRoutesTest {
                             failures.add("$name: no message containing \"${test["message"]}\"")
                         test["note"] != null && r.legs.none { l -> l.notes.any { it.contains(test["note"] as String) } } ->
                             failures.add("$name: no leg note containing \"${test["note"]}\"")
+                        test["noNote"] != null && r.legs.any { l -> l.notes.any { it.contains(test["noNote"] as String) } } ->
+                            failures.add("$name: a leg note contains \"${test["noNote"]}\"")
+                        test["noteLegs"] != null && test["note"] != null &&
+                            r.legs.count { l -> l.notes.any { it.contains(test["note"] as String) } } < (test["noteLegs"] as Number).toInt() ->
+                            failures.add("$name: \"${test["note"]}\" is on fewer legs than ${test["noteLegs"]}")
                         // "cleanEnd": the leg before the last (the one to your point) has no shallow water
                         test["cleanEnd"] == true && r.legs.size > 1 && r.legs[r.legs.size - 2].shoalM > 0 ->
                             failures.add("$name: the leg before the destination has %.0f m of shallow water".format(r.legs[r.legs.size - 2].shoalM))
