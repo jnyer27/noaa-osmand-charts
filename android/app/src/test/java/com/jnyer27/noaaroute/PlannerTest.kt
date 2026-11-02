@@ -423,6 +423,68 @@ class PlannerTest {
     }
 
     @Test
+    fun straightLegStaysEastOfAShoalItWouldOtherwiseClip() {
+        // The straight line from north to south clips the west edge of a small
+        // 0-6 ft knoll. Open deep water is east of it, and a wider shoal is west,
+        // so the route belongs east of the knoll. A 1.5 m sounding in the knoll
+        // prints as 5 ft and is not a hazard at 5 ft; the depth area is what
+        // the leg must stay out of. Matches the knoll north of the Bay Bridge.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 40..470) for (c in 40..470) planes[Pack.P_DEPTH][r * size + c] = 1
+        // A wide 0-6 ft shoal to the west, with a bulge the straight line clips.
+        // Deep water is only to the east of the bulge.
+        for (r in 100..360) for (c in 40..240) planes[Pack.P_DEPTH][r * size + c] = 2
+        for (r in 200..230) for (c in 241..275) planes[Pack.P_DEPTH][r * size + c] = 2
+        planes[Pack.P_SOUND][215 * size + 255] = 16 // 1.5 m, chart label 5
+        val table = "[null,[3.6,18.0,0],[0.0,1.8,0]]"
+        Pack(writePack(planes, "[]", depthTable = table)).use { pack ->
+            val route = Planner(ChartSet(listOf(pack))).plan(
+                "t", listOf(cellCenter(80, 255), cellCenter(360, 260)), 5.0, null)
+            // East of the bulge: columns past 275. Sample the band the bulge occupies.
+            var seen = 0
+            var westmost = 9999.0
+            for ((p, q) in route.points.zipWithNext()) for (k in 0..160) {
+                val t = k / 160.0
+                val lat = p.lat + (q.lat - p.lat) * t
+                val lon = p.lon + (q.lon - p.lon) * t
+                val row = (north - lat) / dlat
+                val col = (lon - west) / dlon
+                assertTrue("leg in the knoll at row %.0f col %.0f".format(row, col),
+                    !(row in 202.0..228.0 && col in 243.0..273.0))
+                if (row in 205.0..225.0) {
+                    seen++
+                    if (col < westmost) westmost = col
+                }
+            }
+            assertTrue("no sample beside the knoll", seen > 0)
+            assertTrue("westmost column beside the knoll is %.0f, want east of 276".format(westmost), westmost > 276.0)
+            assertTrue("1.5 m prints as 5", Planner.printedFeet(1.5) == 5)
+            assertTrue("a printed 5 is not shallow at 5 ft", !Planner.soundingShallow(1.5, 5.0))
+        }
+    }
+
+    @Test
+    fun straightLegDoesNotCrossAHazardBufferThePathAvoided() {
+        // A 1.2 m sounding prints as 4 ft and is a hazard at 5 ft. The straight
+        // line would pass through its buffer. The leg must stay outside that buffer.
+        val planes = Array(Pack.NPLANES) { ByteArray(size * size) }
+        for (r in 40..470) for (c in 40..470) planes[Pack.P_DEPTH][r * size + c] = 1
+        planes[Pack.P_SOUND][250 * size + 256] = 13 // 1.2 m, chart label 4
+        Pack(writePack(planes, "[]", depthTable = "[null,[3.6,18.0,0]]")).use { pack ->
+            val route = Planner(ChartSet(listOf(pack))).plan(
+                "t", listOf(cellCenter(80, 256), cellCenter(420, 256)), 5.0, null)
+            val spot = cellCenter(250, 256)
+            var best = Double.MAX_VALUE
+            for ((p, q) in route.points.zipWithNext()) for (k in 0..120) {
+                val t = k / 120.0
+                best = minOf(best, Planner.distanceM(spot, LatLon(
+                    p.lat + (q.lat - p.lat) * t, p.lon + (q.lon - p.lon) * t)))
+            }
+            assertTrue("leg is %.0f m from a printed-4 sounding".format(best), best >= 60.0)
+        }
+    }
+
+    @Test
     fun oneCellChannelAndDepthBoundaryAreNotStaircases() {
         // A stair of dredged cells in 0-6 ft water, and a route kept to the 6-12 ft
         // side of a diagonal 0-6 ft edge. Both used to stay a run of 20 m legs.

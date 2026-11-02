@@ -386,6 +386,43 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val t = frontier; frontier = next; next = t
             fn = nn
         }
+        // Water charted as a band that straddles the safe depth (the 0-6 ft area at 5 ft)
+        // is not a wall, but a route that skims its edge in the next deeper band is one
+        // cell from the shoal, and a straight leg then cuts the shoal. Count that band as
+        // something to keep off, the same way as land, except inside a dredged area or
+        // fairway (a shoaled channel, not a shoal to avoid). Only safe cells take the
+        // distance: the band's own cost stays the marginal cost, so a creek still leads out.
+        val shoal = ByteArray(n) { kf.toByte() }
+        fn = 0
+        for (i in 0 until n) if (ok[i] && nav[i].toInt() == MARGINAL && !dredged[i]) {
+            shoal[i] = 0
+            val r = i / w
+            val c = i % w
+            var edge = false
+            for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                val j = rr * w + cc
+                if (ok[j] && nav[j].toInt() == SAFE) edge = true
+            }
+            if (edge) frontier[fn++] = i
+        }
+        for (step in 1 until kf) {
+            val diag = step % 2 == 1
+            var nn = 0
+            for (f in 0 until fn) {
+                val i = frontier[f]
+                val r = i / w
+                val c = i % w
+                for (rr in max(r - 1, 0)..min(r + 1, h - 1)) for (cc in max(c - 1, 0)..min(c + 1, w - 1)) {
+                    if (!diag && rr != r && cc != c) continue
+                    val j = rr * w + cc
+                    if (ok[j] && nav[j].toInt() == SAFE && shoal[j] > step) {
+                        shoal[j] = step.toByte(); next[nn++] = j
+                    }
+                }
+            }
+            val t = frontier; frontier = next; next = t
+            fn = nn
+        }
         val cost = FloatArray(n) { Float.POSITIVE_INFINITY }
         val prox = ByteArray(n)
         val pc = 2.4f / (k - 1) // up to x3.4 next to danger
@@ -404,14 +441,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             }
         }
         for (i in 0 until n) if (ok[i]) {
-            val p = k - min(dist[i].toInt(), k)
-            prox[i] = p.toByte()
+            // Open safe water also keeps off the 0-6 ft band, so a route does not skim a
+            // shoal and then let a straight leg cut it. A dredged channel or fairway does
+            // not: its bank is the channel edge, and charging for that sent Wrightsville
+            // to Southport out Masonboro Inlet. The band's own cost is unchanged.
             val inChannel = dredged[i] && nav[i].toInt() == SAFE
+            val near = if (nav[i].toInt() == SAFE && !inChannel) min(dist[i].toInt(), shoal[i].toInt()) else dist[i].toInt()
+            val p = k - min(near, k)
+            prox[i] = p.toByte()
             var c = 1f + pc * p * (if (inChannel) DREDGED_PROX else 1f)
             // Centering: a gentle rise over FAR_M, so in a gap narrower than twice that (between
             // shoals, in a river) the route keeps to the middle instead of the edge of the
             // steep zone (routes hugged the 100 m line around buffered shoal soundings)
-            c *= 1f + FAR_COST * (kf - dist[i]) / kf * (if (inChannel) DREDGED_PROX else 1f)
+            c *= 1f + FAR_COST * (kf - near) / kf * (if (inChannel) DREDGED_PROX else 1f)
             if (nav[i].toInt() == MARGINAL) {
                 c *= 4f
                 // 0-6 ft water within MARG_SHORE_M of land, drying ground or a hazard wall: such
@@ -799,10 +841,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     /**
      * Drop path points while the straight line stays in water no shallower, no
      * closer to danger and over no more pier or seawall lines than the cells
-     * the planned path itself used. A 0-6 ft cell is allowed when it touches
-     * safe water, or 0-6 ft water, the path already used (a channel corner or
-     * the edge the path is on). A shoal the path went around still refuses the
-     * line. Water charted entirely under the safe depth stays forbidden.
+     * the planned path itself used. A 0-6 ft cell the path did not already use
+     * refuses the line, unless it touches 0-6 ft the path did use: a shoal the
+     * path went around stays off the leg, including one the path only skimmed
+     * in safe water. Touching that safe water is not enough here (a long chord
+     * would cut the shoal). The one-cell pass [straighten] may still graze the
+     * edge. A hazard buffer the path did not use refuses the line too. Water
+     * charted entirely under the safe depth stays forbidden.
      */
     private fun simplify(a: Area, g: Grid, path: IntArray): IntArray {
         fun px(i: Int) = if (g.pier[i]) 0 else g.prox[i].toInt() // a pier cell is next to danger by definition
@@ -815,13 +860,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val cells = lineCells(a, path[p], path[q], corners, g::channel)
             val used = HashSet<Int>(q - p + 1)
             for (k in p..q) used.add(path[k])
-            if (corners.any { !g.ok[it] || marginalUnvisited(g, it, used, a.w) }) return false
+            if (corners.any { !g.ok[it] || marginalUnvisited(g, it, used, a.w, false) || bufferUnvisited(g, it, used, a.w) }) return false
             // Hazard-buffer cells are compared as shares, plus one: a diagonal line
             // samples more cells than the 8-direction path over the same water.
             val pn = q - p + 1
             val n = cells.size
             for (i in cells) {
-                if (!g.ok[i] || marginalUnvisited(g, i, used, a.w)) return false
+                if (!g.ok[i] || marginalUnvisited(g, i, used, a.w, false) || bufferUnvisited(g, i, used, a.w)) return false
                 if (g.pier[i]) continue // counted below
                 if (g.prox[i] > lim) return false
                 if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
@@ -853,17 +898,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         return straighten(a, g, path, keep, pc).map { path[it] }.toIntArray()
     }
 
-    /**
-     * True when [cell] is 0-6 ft water (MARGINAL) the chord would cut through, rather
-     * than water beside the path. Allowed when it touches 0-6 ft the path already
-     * used, or safe water the path used: the diagonal corner of a one-cell dredged
-     * channel, or the 0-6 ft side of a 6-12 ft edge the path is following. A shoal
-     * the path went around is not next to those cells, so the chord still stops.
-     * Water charted entirely under the safe depth is [SHALLOW], not this, and stays
-     * forbidden.
-     */
-    private fun marginalUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int): Boolean {
-        if (cell !in g.nav.indices || g.nav[cell].toInt() != MARGINAL || cell in used) return false
+    /** True when a neighbor of [cell] is on the path and [accept] says it counts. */
+    private fun touchesUsed(g: Grid, cell: Int, used: Set<Int>, w: Int, accept: (Int) -> Boolean): Boolean {
         val r = cell / w
         val c = cell % w
         for (dr in -1..1) for (dc in -1..1) {
@@ -872,11 +908,34 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val cc = c + dc
             if (cc < 0 || cc >= w || rr < 0) continue
             val j = rr * w + cc
-            if (j !in used || j !in g.nav.indices) continue
-            val v = g.nav[j].toInt()
-            if (v == MARGINAL || v == SAFE) return false
+            if (j in used && j in g.nav.indices && accept(j)) return true
         }
+        return false
+    }
+
+    /**
+     * True when [cell] is 0-6 ft water (MARGINAL) the line would cut through.
+     * Allowed when it touches 0-6 ft the path already used. With [besideSafe],
+     * also when it touches safe water the path used: the one-cell pass only,
+     * for the corner of a dredged channel and the shoal side of an edge the
+     * path is already following. A long chord does not get that (see [simplify]).
+     * Water charted entirely under the safe depth is [SHALLOW], not this.
+     */
+    private fun marginalUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int, besideSafe: Boolean): Boolean {
+        if (cell !in g.nav.indices || g.nav[cell].toInt() != MARGINAL || cell in used) return false
+        if (touchesUsed(g, cell, used, w) { g.nav[it].toInt() == MARGINAL }) return false
+        if (besideSafe && touchesUsed(g, cell, used, w) { g.nav[it].toInt() == SAFE }) return false
         return true
+    }
+
+    /**
+     * True when [cell] is in a hazard buffer the path did not use and does not
+     * touch a buffer cell the path did use. A leg must not cut through that
+     * buffer, or pass closer to the sounding or obstruction than the path did.
+     */
+    private fun bufferUnvisited(g: Grid, cell: Int, used: Set<Int>, w: Int): Boolean {
+        if (cell !in g.soft.indices || !g.soft[cell] || cell in used) return false
+        return !touchesUsed(g, cell, used, w) { g.soft[it] }
     }
 
     /**
@@ -885,14 +944,15 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
      * join points while the line stays within one cell of the planned path and
      * crosses no more pier lines. The line may use charted water the path already
      * used, and 0-6 ft water touching that safe water (the channel's corner, or
-     * the shoal side of the edge). It may not cut across a shoal the path went
-     * around, or through water charted entirely under the safe depth. Land,
-     * hazards, piers, open ocean and a low bridge stay forbidden.
+     * the shoal side of the edge the path is on). It may not cut across a shoal
+     * the path went around, through a hazard buffer the path did not use, or
+     * through water charted entirely under the safe depth. Land, hazards, piers,
+     * open ocean and a low bridge stay forbidden.
      */
     private fun straighten(a: Area, g: Grid, path: IntArray, keep: List<Int>, pc: IntArray): List<Int> {
         val w = a.w
         fun graze(i: Int, used: Set<Int>): Boolean {
-            if (marginalUnvisited(g, i, used, w)) return false
+            if (marginalUnvisited(g, i, used, w, true) || bufferUnvisited(g, i, used, w)) return false
             if (g.ok[i]) return true
             val v = g.nav[i].toInt()
             return (v == SAFE || v == MARGINAL) && !g.nopass[i] && g.planes[Pack.P_HAZARD][i].toInt() == 0
