@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: Pensacola to Mobile stays in the GIWW (not released yet)
+
+Planning:
+- **On a long trip's coarse overview, the steep shore rise no longer applies beside a depth area that merely straddles the safe depth.** The 20 m grid is unchanged: that band still gets the same rise as land, so the route passes east of the 0-6 ft knoll north of the Bay Bridge, clear of the 120 m check. The overview was using that steep rise too. At 60 m it covers about 300 m, so a lagoon charted deep enough cost several times the open Gulf. Pensacola to Mobile at 4 ft left the GIWW through Pensacola Pass, ran the Gulf south of the beach at about 30.22 N, and came back in at the Mobile Bay entrance: 75.8 nm, outside the 58-70 nm range. The overview now uses only the gentler rise, and only as the gap to the deepest water within about 300 m through the same water, not across a beach or island. Where the strip is already the deepest water there, it keeps its ordinary cost. Pensacola to Mobile is 63.1 nm on the GIWW, through Big Lagoon, the Gulf Shores canal and the east side of Mobile Bay. No pack rebuild. The straight-leg rule is unchanged: a long leg still may not cut a shoal the path went around, a hazard buffer the path did not use, or water charted entirely under the safe depth.
+
 ## 2026-11-02: narrow channels keep to the middle (not released yet)
 
 Planning:
@@ -14,7 +19,7 @@ Planning:
 
 Planning:
 - **A long leg does not cut a shoal the path only passed beside.** Straightening a 7.9 nm leg from Maryland Marina to Ego Alley at 5 ft clipped the west edge of the 0-6 ft knoll about a mile north of the Bay Bridge (chart US5MD1ND, about 39.012 N, 76.386 W). The planned path was in safe water just west of the knoll. The straight line was allowed to cross the 0-6 ft cells because they touched that safe water. A long leg may now cross 0-6 ft water only when it touches 0-6 ft water the path already used. The one-cell pass that joins a staircase may still graze 0-6 ft water touching safe water the path used (a channel corner, or the edge the path is following). Neither pass may enter a hazard buffer the path did not use, or water charted entirely under the safe depth.
-- **Open water keeps off a depth area that straddles your safe depth.** The same knoll is a small 0-6 ft patch with 12 ft and deeper water to its east. The route now passes east of it, in that deeper water, instead of running along the 6-12 ft side and clipping the shoal. The keep-off is the same 100 m and 300 m rise used beside land. It does not apply inside a dredged channel or fairway, so the ICW is unchanged. The 4.9 ft sounding on the knoll is 1.5 m, which the chart labels 5 ft, so at a 5 ft safe depth it is not a hazard and has no buffer. The depth area is what the leg stays out of.
+- **Open water keeps off a depth area that straddles your safe depth.** The same knoll is a small 0-6 ft patch with 12 ft and deeper water to its east. The route now passes east of it, in that deeper water, instead of running along the 6-12 ft side and clipping the shoal. On the 20 m grid that keep-off is the same rise used beside land. On a long trip's overview only the gentler rise applies, because the steep rise there sent a lagoon trip out to sea (see the Pensacola note above). It does not apply inside a dredged channel or fairway, so the ICW is unchanged. The 4.9 ft sounding on the knoll is 1.5 m, which the chart labels 5 ft, so at a 5 ft safe depth it is not a hazard and has no buffer. The depth area is what the leg stays out of.
 - Maryland Marina to Ego Alley at 5 ft is 26.5 nm with Stay inside and Move ends on, and the leg at 39.012 N is about 220 m east of the knoll with no shallow-water note. Reference routes are unchanged within their ranges, including Ego Alley at 3 and 5 ft, Coinjock, Kitty Hawk, Bogue Sound, Boot Key, and the routes that are supposed to be refused.
 
 ## 2026-11-02: sounding labels, narrow channels, and straight legs (not released yet)
