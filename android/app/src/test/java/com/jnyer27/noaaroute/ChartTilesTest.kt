@@ -146,4 +146,46 @@ class ChartTilesTest {
         assertTrue(text, text.contains("pale blue is 5 ft or more"))
         assertFalse(text, text.contains("\u2014"))
     }
+
+    @Test
+    fun chartKeyHidesToOneLine() {
+        val full = "Not for navigation. NOAA ENC of Region 04, depths in feet."
+        val open = ChartTiles.keyLine(full, true)
+        assertTrue(open, open.startsWith(full))
+        assertTrue(open, open.contains("Tap to hide the key."))
+        assertEquals(ChartTiles.KEY_BAR, ChartTiles.keyLine(full, false))
+        assertTrue(ChartTiles.KEY_BAR.startsWith("Not for navigation."))
+        assertTrue(ChartTiles.KEY_BAR.contains("Show key"))
+        assertFalse(ChartTiles.keyLine(full, false).contains("Region 04"))
+    }
+
+    @Test
+    fun followAndCompass() {
+        assertEquals(0.0, ChartTiles.mapBearing(false, 90f, 3f, 40.0), 0.001)
+        assertEquals(90.0, ChartTiles.mapBearing(true, 90f, 3f, 0.0), 0.001)
+        assertEquals(350.0, ChartTiles.mapBearing(true, -10f, 1f, 0.0), 0.001)
+        // Drifting or a fix with no bearing keeps the last heading.
+        assertEquals(40.0, ChartTiles.mapBearing(true, 90f, 0.1f, 40.0), 0.001)
+        assertEquals(40.0, ChartTiles.mapBearing(true, null, 5f, 40.0), 0.001)
+        assertEquals("N 0°", ChartTiles.compassText(0.0))
+        assertEquals("N 0°", ChartTiles.compassText(360.0))
+        assertEquals("E 90°", ChartTiles.compassText(90.0))
+        assertEquals("NE 45°", ChartTiles.compassText(45.0))
+        assertEquals("N 350°", ChartTiles.compassText(-10.0))
+        assertFalse(ChartTiles.stillFollowing(true, true))
+        assertTrue(ChartTiles.stillFollowing(true, false))
+        assertTrue(ChartTiles.orientSentence(false).startsWith("North is up."))
+        assertTrue(ChartTiles.orientSentence(true).contains("turns with your course"))
+        assertFalse(ChartTiles.orientSentence(true).startsWith("North is up."))
+        val day = ChartTiles.chartChrome(false)
+        val night = ChartTiles.chartChrome(true)
+        assertTrue(day.readable())
+        assertTrue(night.readable())
+        assertTrue(ChartTiles.contrasts(day.text, day.keyBg))
+        assertTrue(ChartTiles.contrasts(night.text, night.panel))
+        assertTrue(ChartTiles.contrasts(night.text, night.pickBg))
+        assertTrue((night.pickBg and 0xffffff) < 0x808080)
+        assertTrue((day.text and 0xffffff) < 0x808080)
+        assertTrue((night.text and 0xffffff) > 0x808080)
+    }
 }

@@ -4,6 +4,17 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-02: the chart key can be hidden (not released yet)
+
+The chart:
+
+- **Tap the key under the map to hide it.** It collapses to one line, "Not for navigation. Show key". The map gets that space. Tap the line to open the key again. The choice is remembered the next time the chart opens. A chart that fails to load still shows the error in full.
+- **Follow keeps the chart on the boat.** The button recenters on the GPS fix and stays with it as you move. Pan the map and Follow turns off. If location is not allowed, or GPS is off, a message says so and the chart does not crash.
+- **A compass shows which way the chart is turned.** Tap it for north up. **Course up** turns the chart with your heading while Follow is on and the boat is moving. The key says north is up, or that the map turns with your course, matching the choice.
+- **The app follows the phone's light or dark mode.** The planning screen, the report and Regions turn dark with the phone; the report's coloured rows use lighter shades of the same colours at night. On the chart, Follow, the compass, Course up, the key, and Back use a light pair or a dark pair together. The tapped leg's note gets a dark amber bar at night. Android is told not to auto-darken the app (in its themes, where the setting takes effect; in the manifest it was ignored), which had turned the white panels dark and left the black lettering on them.
+
+No pack rebuild.
+
 ## 2026-11-02: the helm says what the buttons do (not released yet)
 
 The screen:

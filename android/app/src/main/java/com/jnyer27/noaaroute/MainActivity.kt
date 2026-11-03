@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.res.Configuration
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -660,7 +661,7 @@ class MainActivity : Activity() {
 
     /** The Regions screen: NCDS region map, automatic downloads, and the list of packs. */
     private fun showRegions() {
-        val d = Dialog(this, android.R.style.Theme_DeviceDefault_Light)
+        val d = Dialog(this, android.R.style.Theme_DeviceDefault_DayNight)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(16), dp(8), dp(8), 0) }
@@ -1482,7 +1483,16 @@ class MainActivity : Activity() {
     private fun showReport(r: Route, trip: List<String>, after: List<String>, datum: String, saved: String) {
         val shown = Gpx.shown(r, trip, after, BUF_M, datum, saved)
         val span = SpannableString(shown.text)
-        val colors = intArrayOf(
+        // Dark shades on the light theme, light shades of the same hues on the dark one.
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val colors = if (night) intArrayOf(
+            0,
+            0xFFEF9A9A.toInt(), // shoal
+            0xFF90CAF9.toInt(), // bridge
+            0xFFB39DDB.toInt(), // cable, not the orange of a check leg
+            0xFFCE93D8.toInt(), // restricted
+            0xFFFFAB91.toInt(), // checks to read first
+        ) else intArrayOf(
             0,
             0xFF8D1D1D.toInt(), // shoal
             0xFF0D47A1.toInt(), // bridge
@@ -1490,8 +1500,9 @@ class MainActivity : Activity() {
             0xFF6A1B9A.toInt(), // restricted
             0xFFBF360C.toInt(), // checks to read first
         )
+        val plain = if (night) 0xFFEEEEEE.toInt() else 0xFF212121.toInt()
         for (s in shown.spans) {
-            val color = colors.getOrElse(s.mark) { 0xFF212121.toInt() }
+            val color = colors.getOrElse(s.mark) { plain }
             span.setSpan(ForegroundColorSpan(color), s.start, (s.end).coerceAtMost(span.length), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         result.setText(span, TextView.BufferType.SPANNABLE)
