@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -34,6 +35,8 @@ import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
@@ -64,6 +67,12 @@ class ChartMapActivity : Activity() {
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
+        /** Result: a point picked on the chart, and what to do with it ([PICK_VIA] or [PICK_DEST]). */
+        const val EXTRA_PICK_LAT = "pickLat"
+        const val EXTRA_PICK_LON = "pickLon"
+        const val EXTRA_PICK_ACTION = "pickAction"
+        const val PICK_VIA = "via"
+        const val PICK_DEST = "dest"
     }
 
     private lateinit var mapView: MapView
@@ -74,7 +83,6 @@ class ChartMapActivity : Activity() {
     private var keyError = false
     /** Remembered. True shows the paragraph. False is the one-line bar. */
     private var keyOpen = true
-    private lateinit var picked: TextView
     private lateinit var downloadButton: Button
     private lateinit var routeToggle: CheckBox
     private lateinit var routeLegend: TextView
@@ -242,13 +250,6 @@ class ChartMapActivity : Activity() {
         }
         paintKey()
         root.addView(legend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        picked = TextView(this).apply {
-            visibility = View.GONE
-            textSize = 14f
-            paintControl(this, chrome, chrome.pickBg)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-        }
-        root.addView(picked)
         downloadButton = Button(this).apply {
             visibility = View.GONE
             paintControl(this, chrome, chrome.keyBg)
@@ -282,6 +283,7 @@ class ChartMapActivity : Activity() {
             }
             loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
             loaded.addOnMapClickListener { latLng -> showLeg(latLng.latitude, latLng.longitude) }
+            loaded.addOnMapLongClickListener { latLng -> showPoint(latLng.latitude, latLng.longitude); true }
             present()
             uiHandler.post(poll)
             worker.execute {
@@ -474,16 +476,63 @@ class ChartMapActivity : Activity() {
         return out
     }
 
-    /** Show the tapped leg's note under the chart. A tap away from the route clears it. */
+    /** About a fingertip (24 dp) on the map at this latitude, in meters. */
+    private fun fingerM(lat: Double): Double {
+        val mpp = try { map?.projection?.getMetersPerPixelAtLatitude(lat) } catch (_: Exception) { null } ?: return 300.0
+        return (mpp * dp(24)).coerceIn(10.0, 2000.0)
+    }
+
+    /** Draw the yellow band under leg [n], or none when n is -1. */
+    private fun highlightLeg(n: Int) {
+        val layer = style?.getLayer("route-pick") as? LineLayer ?: return
+        layer.setFilter(Expression.all(
+            Expression.eq(Expression.get("kind"), Expression.literal("leg")),
+            Expression.eq(Expression.get("leg"), Expression.literal(n))))
+    }
+
+    /**
+     * A tap on a leg opens its details: the course and distance, then each note on its own
+     * line, the check legs first in the title. The leg is highlighted while it is open.
+     * A tap away from the route does nothing.
+     */
     private fun showLeg(lat: Double, lon: Double): Boolean {
         val json = routeJson ?: return false
-        val text = ChartTiles.legAt(json, lat, lon) ?: run {
-            picked.visibility = View.GONE
-            return false
-        }
-        picked.text = text
-        picked.visibility = View.VISIBLE
+        val pick = ChartTiles.legPickAt(json, lat, lon, fingerM(lat)) ?: return false
+        val (head, lines) = ChartTiles.legDetail(pick.note)
+        val body = StringBuilder()
+        if (head.isNotEmpty()) body.append(head)
+        if (lines.isEmpty()) body.append(if (body.isEmpty()) "No notes on this leg." else "\n\nNo notes on this leg.")
+        for (l in lines) { if (body.isNotEmpty()) body.append("\n\n"); body.append("\u2022 ").append(l) }
+        if (pick.flagged) body.append("\n\nA check: look at this leg on a current chart before you go.")
+        highlightLeg(pick.leg)
+        AlertDialog.Builder(this)
+            .setTitle(if (pick.flagged) "Leg ${pick.leg}: check" else "Leg ${pick.leg}")
+            .setMessage(body.toString())
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
+            .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
+            .setOnDismissListener { if (!destroyed) highlightLeg(-1) }
+            .show()
         return true
+    }
+
+    /** Press and hold: use that spot as a via point or the destination on the planning screen. */
+    private fun showPoint(lat: Double, lon: Double) {
+        val p = LatLon(lat, lon)
+        AlertDialog.Builder(this)
+            .setTitle(Coords.format(p))
+            .setItems(arrayOf("Add as via point", "Set as destination")) { _, which ->
+                returnPick(if (which == 0) PICK_VIA else PICK_DEST, lat, lon)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Back to the planning screen with the point. It fills the field there; Plan route plans it. */
+    private fun returnPick(action: String, lat: Double, lon: Double) {
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_PICK_ACTION, action)
+            .putExtra(EXTRA_PICK_LAT, lat).putExtra(EXTRA_PICK_LON, lon))
+        finish()
     }
 
     private fun publishLegend(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean) {
@@ -520,8 +569,8 @@ class ChartMapActivity : Activity() {
         sb.append(ChartTiles.depthLegend(depthFt))
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
         sb.append("The small dot beside a mark is its light, in that light's colour. ")
-        if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg to read its note. A bridge or cable drawn for vertical clearance is not that orange. ")
-        sb.append("The blue dot is your GPS position.")
+        if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg for its details. A bridge or cable drawn for vertical clearance is not that orange. ")
+        sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
         if (outside) sb.append(if (region) " Charts cover this region; past that, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)

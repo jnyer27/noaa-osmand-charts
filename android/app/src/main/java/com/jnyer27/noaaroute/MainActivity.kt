@@ -47,6 +47,7 @@ import kotlin.math.ceil
 
 class MainActivity : Activity() {
     companion object {
+        private const val REQ_CHART = 7
         const val ROUTES_DIR = "noaa-charts/routes"
         /** From a chart map notice: open this region's card ("" = the Regions screen). */
         const val EXTRA_REGION = "region"
@@ -1322,7 +1323,7 @@ class MainActivity : Activity() {
         val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
         val i = Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d)
         formAir()?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
-        startActivity(i)
+        @Suppress("DEPRECATION") startActivityForResult(i, REQ_CHART)
     }
 
     /**
@@ -1342,10 +1343,43 @@ class MainActivity : Activity() {
             .putExtra(ChartMapActivity.EXTRA_DEPTH, r.depthFt)
             .putExtra(ChartMapActivity.EXTRA_NAME, r.name)
         r.airFt?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
-        startActivity(i)
+        @Suppress("DEPRECATION") startActivityForResult(i, REQ_CHART)
     }
 
-    private fun plan() {
+    /**
+     * A point picked on the chart (tap a leg, or press and hold): it becomes the destination,
+     * or a via point slotted into the trip where it adds the least distance. The trip is
+     * planned again and the chart reopens on the new route. A plan that fails stays here,
+     * with the reason in the report box.
+     */
+    @Deprecated("Activity result API; this app has no AndroidX")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_CHART || resultCode != RESULT_OK || data == null) return
+        if (!data.hasExtra(ChartMapActivity.EXTRA_PICK_LAT)) return
+        val p = LatLon(data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LAT, 0.0), data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LON, 0.0))
+        val pos = Coords.format(p)
+        if (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION) == ChartMapActivity.PICK_DEST) {
+            dest.setText(pos)
+            status.text = "Destination set from the chart: $pos. Planning..."
+            plan(reopenMap = true)
+            return
+        }
+        val vias = via.text.toString().split(";").map { it.trim() }.filter { it.isNotEmpty() }
+        val parsed = vias.map { Coords.parse(it) }
+        val a = Coords.parse(start.text.toString())
+        val b = Coords.parse(dest.text.toString())
+        val at = if (a != null && b != null && parsed.all { it != null })
+            ChartTiles.viaIndex(listOf(a) + parsed.filterNotNull() + listOf(b), p) - 1
+        else vias.size
+        val out = vias.toMutableList().apply { add(at, pos) }
+        via.setText(out.joinToString("; "))
+        status.text = "Via point ${at + 1} of ${out.size} added from the chart: $pos. Planning..."
+        plan(reopenMap = true)
+    }
+
+    /** [reopenMap]: a point picked on the chart replans, then shows the new route on the chart. */
+    private fun plan(reopenMap: Boolean = false) {
         val p = charts ?: run { toast("Download route data for planning first (Regions)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
         val b = Coords.parse(dest.text.toString()) ?: run { toast("Destination must be LAT, LON"); return }
@@ -1397,6 +1431,7 @@ class MainActivity : Activity() {
                     status.text = Gpx.warnings(r).first()
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
+                    if (reopenMap && !isFinishing) showOnMap()
                 }
             } catch (e: PlanException) {
                 ui.post { status.text = ""; result.text = e.message; planButton.isEnabled = true; packButton.isEnabled = true }
