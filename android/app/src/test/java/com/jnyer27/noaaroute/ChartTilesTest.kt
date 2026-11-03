@@ -46,6 +46,41 @@ class ChartTilesTest {
     }
 
     @Test
+    fun aTappedLegSaysWhetherItIsACheckAndSplitsItsNotes() {
+        val json = ChartTiles.routeGeoJson(route)
+        val bridge = ChartTiles.legPickAt(json, 39.305, -76.37)!!
+        assertEquals(2, bridge.leg)
+        assertFalse(bridge.flagged)
+        val piles = ChartTiles.legPickAt(json, 39.295, -76.35)!!
+        assertEquals(3, piles.leg)
+        assertTrue(piles.flagged)
+        // A fingertip at high zoom is a few meters: a tap 500 m off the leg is not on it
+        assertNull(ChartTiles.legPickAt(json, 39.31, -76.37, maxM = 20.0))
+
+        val (head, lines) = ChartTiles.legDetail("Next: 274 T, 0.17 nm, 257 m where charted depth may be under 2 ft (shallowest sounding nearby 1.0 ft, under your 2 ft); passes 5-30 m from a charted obstruction (depth unknown or 0 ft): check; bridge span (vertical clearance 65 ft)")
+        assertEquals("274 T, 0.17 nm", head)
+        assertEquals(3, lines.size)
+        assertEquals("257 m where charted depth may be under 2 ft (shallowest sounding nearby 1.0 ft, under your 2 ft)", lines[0])
+        assertTrue(lines[1].endsWith(": check"))
+        val (h2, l2) = ChartTiles.legDetail("Next: 081 T, 1.20 nm")
+        assertEquals("081 T, 1.20 nm", h2)
+        assertTrue(l2.isEmpty())
+    }
+
+    @Test
+    fun aViaFromTheChartGoesWhereItAddsTheLeastDistance() {
+        val start = LatLon(39.0, -76.0)
+        val via1 = LatLon(39.1, -76.0)
+        val dest = LatLon(39.3, -76.0)
+        // Between start and the first via
+        assertEquals(1, ChartTiles.viaIndex(listOf(start, via1, dest), LatLon(39.05, -76.01)))
+        // Between the first via and the destination
+        assertEquals(2, ChartTiles.viaIndex(listOf(start, via1, dest), LatLon(39.2, -76.01)))
+        // No vias yet: between start and destination
+        assertEquals(1, ChartTiles.viaIndex(listOf(start, dest), LatLon(39.15, -76.2)))
+    }
+
+    @Test
     fun styleBakesInTheSafeDepthAndParses() {
         val style = ChartTiles.style(5.0, "mbtiles:///tmp/middle_river.mbtiles",
             "file:///tmp/glyphs/{fontstack}/{range}.pbf")
@@ -183,8 +218,6 @@ class ChartTilesTest {
         assertTrue(night.readable())
         assertTrue(ChartTiles.contrasts(day.text, day.keyBg))
         assertTrue(ChartTiles.contrasts(night.text, night.panel))
-        assertTrue(ChartTiles.contrasts(night.text, night.pickBg))
-        assertTrue((night.pickBg and 0xffffff) < 0x808080)
         assertTrue((day.text and 0xffffff) < 0x808080)
         assertTrue((night.text and 0xffffff) > 0x808080)
     }

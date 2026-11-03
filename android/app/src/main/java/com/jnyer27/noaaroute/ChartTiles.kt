@@ -125,15 +125,14 @@ object ChartTiles {
      * panel are chosen as a pair so a light theme forced by the app, or Android's
      * automatic darkening, cannot leave black text on a black control.
      */
-    class ChartChrome(val text: Int, val panel: Int, val keyBg: Int, val pickBg: Int) {
-        fun readable(): Boolean = contrasts(text, panel) && contrasts(text, keyBg) && contrasts(text, pickBg)
+    class ChartChrome(val text: Int, val panel: Int, val keyBg: Int) {
+        fun readable(): Boolean = contrasts(text, panel) && contrasts(text, keyBg)
     }
 
-    /** [pickBg] is the tapped leg's note: amber, light by day and dark at night. */
     fun chartChrome(night: Boolean): ChartChrome = if (night)
-        ChartChrome(0xFFFFFFFF.toInt(), 0xF2222222.toInt(), 0xFF121212.toInt(), 0xFF4A3510.toInt())
+        ChartChrome(0xFFFFFFFF.toInt(), 0xF2222222.toInt(), 0xFF121212.toInt())
     else
-        ChartChrome(0xFF000000.toInt(), 0xF2FFFFFF.toInt(), 0xFFFFFFFF.toInt(), 0xFFFFF3E0.toInt())
+        ChartChrome(0xFF000000.toInt(), 0xF2FFFFFF.toInt(), 0xFFFFFFFF.toInt())
 
     /** True when [text] and [bg] are far enough apart to read. Alpha on [bg] is ignored. */
     fun contrasts(text: Int, bg: Int): Boolean {
@@ -236,16 +235,20 @@ object ChartTiles {
         return sb.toString()
     }
 
+    /** A tapped leg: its row in the report, whether it is a check, and its sentence. */
+    class LegPick(val leg: Int, val flagged: Boolean, val note: String)
+
     /**
-     * The leg under a tap, as "Leg N. <note>", or null when the tap is farther than [maxM]
-     * from every leg. [geoJson] is [routeGeoJson].
+     * The leg nearest a tap, or null when the tap is farther than [maxM] from every leg.
+     * [geoJson] is [routeGeoJson]. The chart passes a distance of about a fingertip at
+     * the current zoom.
      */
-    fun legAt(geoJson: String, lat: Double, lon: Double, maxM: Double = 300.0): String? {
+    fun legPickAt(geoJson: String, lat: Double, lon: Double, maxM: Double = 300.0): LegPick? {
         val root = MiniJson.parse(geoJson) as? Map<*, *> ?: return null
         val features = root["features"] as? List<*> ?: return null
         val here = LatLon(lat, lon)
         var best = maxM
-        var text: String? = null
+        var pick: LegPick? = null
         for (f in features) {
             val feat = f as? Map<*, *> ?: continue
             val props = feat["properties"] as? Map<*, *> ?: continue
@@ -256,13 +259,47 @@ object ChartTiles {
             val b = pair(coords[1]) ?: continue
             val d = metersToSegment(here, a, b)
             if (d <= best) {
-                best = d
                 val n = (props["leg"] as? Double)?.toInt() ?: continue
-                val note = props["note"] as? String ?: ""
-                text = "Leg $n. $note"
+                best = d
+                pick = LegPick(n, (props["flagged"] as? Double) == 1.0, props["note"] as? String ?: "")
             }
         }
-        return text
+        return pick
+    }
+
+    /** The leg under a tap, as "Leg N. <note>". */
+    fun legAt(geoJson: String, lat: Double, lon: Double, maxM: Double = 300.0): String? =
+        legPickAt(geoJson, lat, lon, maxM)?.let { "Leg ${it.leg}. ${it.note}" }
+
+    /**
+     * A leg sentence ("Next: 208 T, 0.77 nm, 451 m where ... (…, under your 2 ft); runs
+     * along ...: check") as the popup shows it: the course and distance, then one line
+     * per note. Commas inside a note's parentheses stay with that note.
+     */
+    fun legDetail(note: String): Pair<String, List<String>> {
+        val parts = note.removePrefix("Next: ").split("; ").map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.isEmpty()) return "" to emptyList()
+        val m = Regex("""^(\d{3} T), ([0-9.]+ nm)(?:, (.+))?$""").find(parts[0])
+            ?: return "" to parts
+        val head = "${m.groupValues[1]}, ${m.groupValues[2]}"
+        val lines = listOfNotNull(m.groups[3]?.value) + parts.drop(1)
+        return head to lines
+    }
+
+    /**
+     * Where a new via point goes in [trip] (start, vias, destination): the index that adds
+     * the least distance, between 1 and trip.size - 1. Appending would send the boat to
+     * the via last, after the other vias, wherever it is on the chart.
+     */
+    fun viaIndex(trip: List<LatLon>, p: LatLon): Int {
+        if (trip.size < 2) return trip.size
+        var best = 1
+        var bestAdd = Double.MAX_VALUE
+        for (k in 1 until trip.size) {
+            val add = Planner.distanceM(trip[k - 1], p) + Planner.distanceM(p, trip[k]) - Planner.distanceM(trip[k - 1], trip[k])
+            if (add < bestAdd) { bestAdd = add; best = k }
+        }
+        return best
     }
 
     private fun pair(v: Any?): LatLon? {
@@ -409,6 +446,9 @@ object ChartTiles {
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 10,
         "text-offset": [0.9, 0.15], "text-anchor": "left"},
       "paint": {"text-color": $LIGHT_TEXT, "text-halo-color": "#ffffff", "text-halo-width": 1}},
+    {"id": "route-pick", "type": "line", "source": "route",
+      "filter": ["all", ["==", ["get", "kind"], "leg"], ["==", ["get", "leg"], -1]],
+      "paint": {"line-color": "#ffd600", "line-width": 14, "line-opacity": 0.85}},
     {"id": "route-casing", "type": "line", "source": "route",
       "filter": ["==", ["get", "kind"], "leg"],
       "paint": {"line-color": "#ffffff", "line-width": 7}},
