@@ -114,7 +114,7 @@ class ChartTilesTest {
     @Test
     fun restrictedAreasFromThePacksAreDrawnOnceEach() {
         val box = doubleArrayOf(-76.5, 37.0, -76.0, 37.5)
-        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.0)))
+        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.5), listOf(-76.5, 37.0)))
         fun resare(name: String, rules: List<String>, cfr: String?, type: String = "Polygon", coords: Any? = ring) =
             Note("resare", 4, box, type, coords, name, rules, cfr, null, null, null)
         val notes = listOf(
@@ -143,7 +143,7 @@ class ChartTilesTest {
     @Test
     fun cablesAreDrawnAndATapNamesTheAreaOrCable() {
         val box = doubleArrayOf(-76.5, 37.0, -76.0, 37.5)
-        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.0)))
+        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.5), listOf(-76.5, 37.0)))
         val line = listOf(listOf(-76.40, 37.20), listOf(-76.38, 37.20))
         val cbox = doubleArrayOf(-76.40, 37.20, -76.38, 37.20)
         val notes = listOf(
