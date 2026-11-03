@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-02: the chart key can be hidden (not released yet)
+## 2026-11-02: the chart key can be hidden (in app 0.1.185)
 
 The chart:
 
@@ -15,7 +15,7 @@ The chart:
 
 No pack rebuild.
 
-## 2026-11-02: the helm says what the buttons do (not released yet)
+## 2026-11-02: the helm says what the buttons do (in app 0.1.185)
 
 The screen:
 
@@ -28,7 +28,7 @@ The screen:
 
 No pack rebuild.
 
-## 2026-11-02: land pins, bridge notes, and what a check covers (not released yet)
+## 2026-11-02: land pins, bridge notes, and what a check covers (in app 0.1.185)
 
 Planning:
 
@@ -44,7 +44,7 @@ Planning:
 
 No pack rebuild. The packs already store the clearances and the regulation numbers. The Termux script does not have Move ends.
 
-## 2026-11-02: stay out of prohibited water, and stay in the Carolina cuts (not released yet)
+## 2026-11-02: stay out of prohibited water, and stay in the Carolina cuts (in app 0.1.185)
 
 Planning:
 
@@ -55,7 +55,7 @@ Planning:
 
 No pack rebuild. The Termux script does not have this pin stop or the extra cost beside a channel.
 
-## 2026-11-02: Kent Narrows and the Rock Hall bar (not released yet)
+## 2026-11-02: Kent Narrows and the Rock Hall bar (in app 0.1.185)
 
 Planning:
 
@@ -64,7 +64,7 @@ Planning:
 
 No pack rebuild.
 
-## 2026-11-02: the checks lead, and the chart keeps one depth key (not released yet)
+## 2026-11-02: the checks lead, and the chart keeps one depth key (in app 0.1.185)
 
 The report and the chart:
 
@@ -76,7 +76,7 @@ The report and the chart:
 
 No pack rebuild.
 
-## 2026-11-02: air draft, and Move ends stops at a low cable (not released yet)
+## 2026-11-02: air draft, and Move ends stops at a low cable (in app 0.1.185)
 
 Planning:
 - **Move ends does not draw across a bridge or cable the boat cannot clear.** With Move ends on, a straight line from your pin to the water the route can use used to cross a charted overhead cable, and the land beyond it, and the note called that line "not checked" in the same sentence as the cable. Maryland Marina to the upper Bush River pin did this for a 55 ft air draft and a 25 ft air draft: the checked water stopped south of a charted 20 ft cable, and the last leg ran across that cable and then across land. The route now stops on the near side of the lowest cable or bridge the air draft cannot clear, names that charted clearance, and does not cross the structure or the land beyond it. A 10 ft air draft still goes under the 20 ft cable. With Move ends off, those taller boats are still refused.
@@ -85,25 +85,25 @@ Planning:
 
 No pack rebuild. The Termux script has no Move ends option. Its air draft question already says that Enter skips the bridge and cable checks.
 
-## 2026-11-02: Pensacola to Mobile stays in the GIWW (not released yet)
+## 2026-11-02: Pensacola to Mobile stays in the GIWW (in app 0.1.185)
 
 Planning:
 - **On a long trip's coarse overview, the steep shore rise no longer applies beside a depth area that merely straddles the safe depth.** The 20 m grid is unchanged: that band still gets the same rise as land, so the route passes east of the 0-6 ft knoll north of the Bay Bridge, clear of the 120 m check. The overview was using that steep rise too. At 60 m it covers about 300 m, so a lagoon charted deep enough cost several times the open Gulf. Pensacola to Mobile at 4 ft left the GIWW through Pensacola Pass, ran the Gulf south of the beach at about 30.22 N, and came back in at the Mobile Bay entrance: 75.8 nm, outside the 58-70 nm range. The overview now uses only the gentler rise, and only as the gap to the deepest water within about 300 m through the same water, not across a beach or island. Where the strip is already the deepest water there, it keeps its ordinary cost. Pensacola to Mobile is 63.1 nm on the GIWW, through Big Lagoon, the Gulf Shores canal and the east side of Mobile Bay. No pack rebuild. The straight-leg rule is unchanged: a long leg still may not cut a shoal the path went around, a hazard buffer the path did not use, or water charted entirely under the safe depth.
 
-## 2026-11-02: narrow channels keep to the middle (not released yet)
+## 2026-11-02: narrow channels keep to the middle (in app 0.1.185)
 
 Planning:
 - **A narrow dredged channel or fairway is followed down the middle.** The cost was flat across a dredged area, so the route took whichever edge made a bend shortest, and straightening then joined those edge points. In a channel no wider than about 120 m the cost now rises toward the edge. The middle keeps the old cost, so a long trip still prefers the ICW over going outside. A straightened leg in that channel has to stay at least a quarter of the local width off the edge, and no more than 30 m is required. A one-cell channel is already its own middle, so those legs still straighten. Wider dredged areas, wide fairways and open water are unchanged. The pack has no narrow flag, and the builder's narrow-strip rule (an ordinary depth area at most two cells wide) does not mark dredged areas, so the width is measured on the grid when the route is planned. No pack rebuild.
 - The dredged cut south of Middle River (about 39.23 N, 76.396 W, on the way from Maryland Marina to Ego Alley) is two or three 20 m cells wide, about 60 to 80 m, so it counts as narrow. Where that cut is wide enough to have a middle, about two thirds of the route is now at least 25 m from the edge (the middle cell is about 30 m out). The 2-cell pinches are still about 10 m from the edge, because that is the middle of the cut there. Maryland Marina to Ego Alley at 5 ft with Stay inside and Move ends stays 26.5 nm, 36 points, planned in about 1 s. The Termux script is unchanged.
 
-## 2026-11-02: east of the Bay Bridge knoll (not released yet)
+## 2026-11-02: east of the Bay Bridge knoll (in app 0.1.185)
 
 Planning:
 - **A long leg does not cut a shoal the path only passed beside.** Straightening a 7.9 nm leg from Maryland Marina to Ego Alley at 5 ft clipped the west edge of the 0-6 ft knoll about a mile north of the Bay Bridge (chart US5MD1ND, about 39.012 N, 76.386 W). The planned path was in safe water just west of the knoll. The straight line was allowed to cross the 0-6 ft cells because they touched that safe water. A long leg may now cross 0-6 ft water only when it touches 0-6 ft water the path already used. The one-cell pass that joins a staircase may still graze 0-6 ft water touching safe water the path used (a channel corner, or the edge the path is following). Neither pass may enter a hazard buffer the path did not use, or water charted entirely under the safe depth.
 - **Open water keeps off a depth area that straddles your safe depth.** The same knoll is a small 0-6 ft patch with 12 ft and deeper water to its east. The route now passes east of it, in that deeper water, instead of running along the 6-12 ft side and clipping the shoal. On the 20 m grid that keep-off is the same rise used beside land. On a long trip's overview only the gentler rise applies, because the steep rise there sent a lagoon trip out to sea (see the Pensacola note above). It does not apply inside a dredged channel or fairway, so the ICW is unchanged. The 4.9 ft sounding on the knoll is 1.5 m, which the chart labels 5 ft, so at a 5 ft safe depth it is not a hazard and has no buffer. The depth area is what the leg stays out of.
 - Maryland Marina to Ego Alley at 5 ft is 26.5 nm with Stay inside and Move ends on, and the leg at 39.012 N is about 220 m east of the knoll with no shallow-water note. Reference routes are unchanged within their ranges, including Ego Alley at 3 and 5 ft, Coinjock, Kitty Hawk, Bogue Sound, Boot Key, and the routes that are supposed to be refused.
 
-## 2026-11-02: sounding labels, narrow channels, and straight legs (not released yet)
+## 2026-11-02: sounding labels, narrow channels, and straight legs (in app 0.1.185)
 
 Planning:
 - **A sounding blocks only when the chart labels it shallower than your safe depth.** Whole feet, the same rounding as the chart. 1.5 m prints as 5, so at a 5 ft safe depth it is not a hazard and gets no 60 m buffer. A sounding the chart labels 4 ft still does. A label equal to your depth is not a wall, including one stored a little under the exact meter value but still printed as that foot (1.4 m is 4.6 ft and prints as 5). Depth areas are unchanged and still use the 5 cm slack, so a 1.8 m area stays the 6 ft band. The previous rule treated a label equal to your safe depth as a hazard, and that closed the Maryland Marina slip at 5 ft on a charted 5 ft sounding in the 0-6 ft exit.
@@ -112,7 +112,7 @@ Planning:
 Routing and safety:
 - **A narrow deeper strip keeps its depth.** The shallow edge of a depth area is still stored when it covers more than about a quarter of a 20 m cell, so a route does not clip a shoal on the rim of a wide deep area (the 0-6 ft knoll west of the Bay Bridge). A deeper strip only a cell or two wide, at least three cells long, keeps the deeper depth at the cell center. That is the 6-12 ft ICW in Bogue Sound, charted as an ordinary depth area between 0-6 ft shoals: storing the shoal in those cells sent a 5 ft route off the track. Dredged areas, fairways and recommended tracks already kept the deeper center.
 
-## 2026-11-01: chart crossings on the route report (not released yet)
+## 2026-11-01: chart crossings on the route report (in app 0.1.185)
 
 Planning:
 - **A leg is checked against the chart's depth areas, not only the 20 m grid.** After planning, each leg is compared with the depth areas (DEPARE and DRGARE) in a downloaded region chart, or the bundled Middle River chart when that is the one on the phone. A leg that crosses an area whose shoal limit is under your safe depth is flagged, with the meters crossed. When the area's deep limit is under your safe depth too, the note says the water is charted entirely under it. A leg outside every chart on the phone is unchanged. This catches a shoal that sits in the fringe of a grid cell whose center is deeper water: the line on the chart runs through the shoal and the grid never saw it.
@@ -123,25 +123,25 @@ Planning:
 Chart display:
 - **The chart legend names the three blues.** Strong blue is charted entirely under your safe depth, lighter blue is a range that straddles it, and pale blue is at or over it. Olive still dries.
 
-## 2026-11-01: route packs (not released yet)
+## 2026-11-01: route packs (in app 0.1.185)
 
 Routing and safety:
 - **Shallow edges of depth areas are stored.** Depth was recorded at the center of each 20 m cell, and where two areas overlapped the deeper one won the cell. A route at a 5 ft safe depth clipped the west edge of a 0-6 ft knoll (chart US5MD1ND, about 39.012 N, 76.386 W): the knoll covers about 8 m of the next cells, which stayed 6-12 ft. Where a shallower ordinary depth area covers more than about a quarter of a cell, the pack now stores that shallower range. Dredged areas and charted fairways still keep the deeper depth at the cell center, so a channel one cell wide stays open. The pack format is unchanged, so the current app reads the new packs.
 - **A broken chart outline no longer stops the pack build.** A restricted area whose outline contains a coordinate that is not a number (a security zone, 33 CFR 165.1183, on an overview chart in region 19a) used to abort that region, and the failure cancelled every other region. The bad coordinates are left out of the note. If the outline still cannot be simplified, the note keeps the unsimplified shape. If nothing valid is left, the note is skipped and the build log says so.
 
-## 2026-11-01: Region 04 chart on View map (not released yet)
+## 2026-11-01: Region 04 chart on View map (in app 0.1.185)
 
 Chart display:
 - **Download a region's chart.** **View map**, **View on map**, and each region card under **Regions** can download the in-app chart for any region the vector catalog lists a `tiles` entry for. The chart on screen is the downloaded one whose bounds cover the route, or the middle of the map once you pan. The button shows the progress, the file is checked, and a later checksum is **Update**. The file stays in the app, works offline, and is not an OsmAnd map. Today that catalog entry is Region 04 (about 32 MB, zooms 8 to 15). A weekly build that publishes another region's chart shows up without a new app.
 - Until a downloaded chart covers the area on screen, the bundled Middle River chart is shown.
 - **Route data** draws on whichever of those charts is showing, above the chart and under the route line. Turning the chart from Middle River to Region 04 after the download keeps the overlay on.
 
-## 2026-10-31: route data on the chart (not released yet)
+## 2026-10-31: route data on the chart (in app 0.1.185)
 
 Chart display:
 - **Route data.** On the chart (**View map** and **View on map**), a **Route data** checkbox, off by default and remembered, draws what the route planner sees from the route pack already on the phone. Red is too shallow or drying, amber straddles your safe depth, faint blue is deep enough, teal is dredged, indigo is a fairway or track, bright red is a hazard, black is a pier or structure, a purple hatch is entry prohibited, maroon is a bridge that is too low, orange is a cable that is too low, cyan is the wrong side of a channel marker, and brown is a pile or snag. Land stays clear so the chart shows through. **View map** uses the depth and air draft on the form (3 ft if the depth field is empty). **View on map** uses the depth and air draft the route was planned with. With no air draft, span and cable clearances are not marked. If no downloaded pack covers the area on screen, the checkbox says so. The bright red cell is the hazard itself; the keep-off buffer around it is not drawn. The layer is drawn on the phone and works offline. It is the planner's grid, not a chart to steer by. It sits above the chart and under the route line.
 
-## 2026-10-30: in-app chart, proof of concept (not released yet)
+## 2026-10-30: in-app chart, proof of concept (in app 0.1.185)
 
 Chart display:
 - **Light colours.** A green light (Fl G) was drawn as the same red dot as a red light, then as gray: the updated chart was the same size as the copy already stored, so the app kept the old file and the new style found no colour. An update now replaces that copy when the chart bytes change. The light is a small dot beside the buoy or daybeacon, which keeps its own green or red.
