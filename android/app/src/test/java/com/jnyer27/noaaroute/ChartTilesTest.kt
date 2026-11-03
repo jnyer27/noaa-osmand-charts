@@ -26,7 +26,13 @@ class ChartTilesTest {
     @Test
     fun routeGeoJsonFlagsTheSameLegsAsTheReport() {
         val features = arr(obj(MiniJson.parse(ChartTiles.routeGeoJson(route)))["features"])
-        assertEquals(10, features.size) // 3 legs, 3 leg numbers, 4 points
+        assertEquals(14, features.size) // 3 legs, 3 leg numbers, 2 check pins per check run, 4 points
+        // The GPX check markers: legs 1 and 3 are separate runs, each with a start and an end pin
+        val pins = features.map { obj(it) }.filter { obj(it["properties"])["kind"].toString().startsWith("check") }
+        assertEquals(listOf("checkstart", "checkend", "checkstart", "checkend"), pins.map { obj(it["properties"])["kind"] })
+        assertEquals(listOf("1", "1", "3", "3"), pins.map { obj(it["properties"])["legs"] })
+        val lastEnd = arr(obj(pins[3]["geometry"])["coordinates"])
+        assertEquals(-76.34, lastEnd[0] as Double, 1e-6) // the end of leg 3
         val first = obj(obj(features[0])["properties"])
         assertEquals(1.0, first["leg"] as Double, 0.0)
         assertTrue((first["note"] as String).contains("under 3 ft") || (first["note"] as String).isNotEmpty())
@@ -103,6 +109,66 @@ class ChartTilesTest {
         val three = ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")
         assertTrue(three.contains("[\"<\",[\"get\",\"d2\"],3]"))
         assertFalse(three.contains("[\"<\",[\"get\",\"d2\"],5]"))
+    }
+
+    @Test
+    fun restrictedAreasFromThePacksAreDrawnOnceEach() {
+        val box = doubleArrayOf(-76.5, 37.0, -76.0, 37.5)
+        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.5), listOf(-76.5, 37.0)))
+        fun resare(name: String, rules: List<String>, cfr: String?, type: String = "Polygon", coords: Any? = ring) =
+            Note("resare", 4, box, type, coords, name, rules, cfr, null, null, null)
+        val notes = listOf(
+            resare("Naval Research Laboratory Restricted Area C", listOf("entry restricted"), "33 CFR 334.170"),
+            resare("Naval Research Laboratory Restricted Area C", listOf("entry restricted"), "33 CFR 334.170"), // the other pack at a seam
+            resare("restricted area", listOf("anchoring prohibited", "fishing prohibited"), "33 CFR 334.360"),
+            resare("Cove Point", listOf("security zone, entry may be prohibited: check"), null, "Bbox", null),
+            resare("a line", listOf("entry restricted"), null, "LineString", listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0))),
+            Note("cable", 4, box, "Bbox", null, "overhead cable", emptyList(), null, 16.7, null, null),
+        )
+        val features = arr(obj(MiniJson.parse(ChartTiles.restrictedGeoJson(notes)))["features"]).map { obj(it) }
+        assertEquals(3, features.size)
+        val props = features.map { obj(it["properties"]) }
+        assertEquals("Naval Research Laboratory Restricted Area C (33 CFR 334.170)", props[0]["label"])
+        assertEquals(1.0, props[0]["limit"] as Double, 0.0)
+        assertEquals(0.0, props[1]["limit"] as Double, 0.0)
+        assertEquals(1.0, props[2]["limit"] as Double, 0.0) // security zone: a check
+        val bbox = obj(features[2]["geometry"])
+        assertEquals("Polygon", bbox["type"])
+        assertEquals(5, arr(arr(bbox["coordinates"])[0]).size)
+        val style = ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")
+        val ids = arr(obj(MiniJson.parse(style))["layers"]).map { obj(it)["id"] as String }
+        assertTrue(ids.indexOf("restricted-limit") in 0 until ids.indexOf("route-casing"))
+    }
+
+    @Test
+    fun cablesAreDrawnAndATapNamesTheAreaOrCable() {
+        val box = doubleArrayOf(-76.5, 37.0, -76.0, 37.5)
+        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.5), listOf(-76.5, 37.0)))
+        val line = listOf(listOf(-76.40, 37.20), listOf(-76.38, 37.20))
+        val cbox = doubleArrayOf(-76.40, 37.20, -76.38, 37.20)
+        val notes = listOf(
+            Note("resare", 4, box, "Polygon", ring, "Chesapeake Bay", listOf("entry restricted"), "33 CFR 165.501", null, null, null),
+            Note("cable", 4, cbox, "LineString", line, "overhead cable", emptyList(), null, 16.7, null, null),
+            Note("cable", 4, cbox, "LineString", line, "overhead cable", emptyList(), null, 2.0, null, null),
+            Note("cable", 4, cbox, "Bbox", null, "overhead cable", emptyList(), null, null, null, null),
+        )
+        val cables = arr(obj(MiniJson.parse(ChartTiles.cablesGeoJson(notes, 10.0)))["features"]).map { obj(obj(it)["properties"]) }
+        assertEquals(2, cables.size) // no line kept: not drawn
+        assertEquals("cable 55 ft", cables[0]["label"])
+        assertEquals(0.0, cables[0]["low"] as Double, 0.0)
+        assertEquals(1.0, cables[1]["low"] as Double, 0.0) // 7 ft under a 10 ft air draft
+        val noAir = arr(obj(MiniJson.parse(ChartTiles.cablesGeoJson(notes, null)))["features"]).map { obj(obj(it)["properties"]) }
+        assertTrue(noAir.all { (it["low"] as Double) == 1.0 })
+        // Inside the area and by the cable: both. Inside only, away from the cable: the area.
+        val both = ChartTiles.notesAt(notes, 37.2001, -76.39, 30.0, 10.0)
+        assertTrue(both.toString(), both.first().startsWith("Chesapeake Bay: regulated navigation area"))
+        assertTrue(both.toString(), both.any { it.contains("cable") })
+        assertEquals(1, ChartTiles.notesAt(notes, 37.10, -76.30, 30.0, 10.0).size)
+        assertTrue(ChartTiles.notesAt(notes, 38.0, -75.0, 30.0, 10.0).isEmpty())
+        val style = ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")
+        val ids = arr(obj(MiniJson.parse(style))["layers"]).map { obj(it)["id"] as String }
+        assertTrue(ids.indexOf("cable") in 0 until ids.indexOf("route-casing"))
+        assertTrue(ids.indexOf("check-start") > ids.indexOf("route-check"))
     }
 
     @Test

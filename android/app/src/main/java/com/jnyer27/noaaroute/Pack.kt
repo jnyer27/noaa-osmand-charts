@@ -105,10 +105,21 @@ class Note(
         else String.format(Locale.US, "%d ft", label)
     }
 
-    /** 33 CFR 162.40 is the canal's traffic rule, not a ban on entering it. 334.140 is a firing danger zone. */
+    /**
+     * 33 CFR 162.40 is the canal's traffic rule, not a ban on entering it. 334.140 is a firing
+     * danger zone. 165.501 is the Chesapeake Bay entrance and Hampton Roads regulated
+     * navigation area: its rules are for large and deep-draft vessels and anchoring, and it
+     * covers the bay south of about Smith Point, so as "entry restricted" it made nearly every
+     * leg there a check and buried the real ones. It is information, like a no-wake rule.
+     */
     private fun resareText(): String {
         val section = cfr
         val cite = section?.let { " ($it)" } ?: ""
+        if (section != null && "165.501" in section) {
+            val kept = rules.filter { "entry restricted" !in it && "entry prohibited" !in it }
+            val body = (listOf(Pack.RNA_RULE) + kept).distinct().joinToString(", ")
+            return "$name: $body$cite"
+        }
         if (section != null && "162.40" in section) {
             val kept = rules.filter { "entry restricted" !in it && "entry prohibited" !in it }
             val body = (kept + listOf("canal traffic rule")).distinct().joinToString(", ")
@@ -180,6 +191,8 @@ class Pack(file: File) : AutoCloseable {
         const val GATE_MARK = 254
         /** SPANCLR plane value without the SPAN flag: open sea, seaward of the territorial sea baseline */
         const val SEA_MARK = 255
+        /** 33 CFR 165.501's wording in a leg note. Not a check (see Note.resareText). */
+        const val RNA_RULE = "regulated navigation area, rules for large and deep-draft vessels and anchoring"
         const val F_STRUCT = 1
         const val F_PROHIB = 2
         const val F_DECK = 4

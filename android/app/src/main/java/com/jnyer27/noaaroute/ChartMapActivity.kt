@@ -94,6 +94,10 @@ class ChartMapActivity : Activity() {
     private var depthFt = 3.0
     private var airFt: Double? = null
     private var routeJson: String? = null
+    /** Restricted areas and overhead cables from the downloaded route packs, built once per screen. */
+    @Volatile private var restrictedJson: String? = null
+    @Volatile private var cablesJson: String? = null
+    @Volatile private var packNotes: List<Note> = emptyList()
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
     /** Region charts drawn now: every downloaded one, so panning across a seam shows both. */
@@ -284,7 +288,9 @@ class ChartMapActivity : Activity() {
                 showKey("Chart did not load: $message", error = true)
             }
             loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
-            loaded.addOnMapClickListener { latLng -> showLeg(latLng.latitude, latLng.longitude) }
+            loaded.addOnMapClickListener { latLng ->
+                showLeg(latLng.latitude, latLng.longitude) || showNotes(latLng.latitude, latLng.longitude)
+            }
             loaded.addOnMapLongClickListener { latLng -> showPoint(latLng.latitude, latLng.longitude); true }
             present()
             uiHandler.post(poll)
@@ -422,6 +428,7 @@ class ChartMapActivity : Activity() {
             generation++
             shown.clear()
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
+            showRestricted(st)
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
             if (!framed) {
@@ -584,6 +591,11 @@ class ChartMapActivity : Activity() {
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
         sb.append("The small dot beside a mark is its light, in that light's colour. ")
         if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg for its details. A bridge or cable drawn for vertical clearance is not that orange. ")
+        if (routeJson != null) sb.append("An orange pin with ! is where a run of check legs starts, a green pin where it ends, like the GPX check markers. ")
+        sb.append("A purple dashed outline is a restricted area from the route data, named along its edge: heavy where entry is restricted or prohibited or a security zone, light for anchoring, fishing or other rules. ")
+        sb.append(if (airFt == null) "Overhead cables are dashed red: no air draft is set, so none was checked. "
+            else "Overhead cables are dashed, red when the clearance is under your air draft or not charted, navy when it clears. ")
+        sb.append("Tap a restricted area or a cable for its rule or clearance. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
@@ -899,6 +911,54 @@ class ChartMapActivity : Activity() {
                 }
             }
         } catch (_: RejectedExecutionException) { }
+    }
+
+    /**
+     * Restricted areas and overhead cables named in leg notes come from the route packs,
+     * not the chart tiles, so they are drawn from the packs' own outlines whether or not
+     * Route data is on.
+     */
+    private fun showRestricted(st: Style) {
+        fun apply(target: Style?) {
+            restrictedJson?.let { (target?.getSource("restricted") as? GeoJsonSource)?.setGeoJson(it) }
+            cablesJson?.let { (target?.getSource("cables") as? GeoJsonSource)?.setGeoJson(it) }
+        }
+        if (restrictedJson != null) { apply(st); return }
+        val air = airFt
+        try {
+            worker.execute {
+                if (destroyed) return@execute
+                try {
+                    val notes = ensurePacks().flatMap { it.notes }
+                    cablesJson = ChartTiles.cablesGeoJson(notes, air)
+                    restrictedJson = ChartTiles.restrictedGeoJson(notes)
+                    packNotes = notes
+                } catch (e: Exception) {
+                    Log.w("ChartMap", "restricted areas failed", e); return@execute
+                }
+                runOnUiThread { if (!destroyed) apply(style) }
+            }
+        } catch (_: RejectedExecutionException) { }
+    }
+
+    /**
+     * A tap off the route on a restricted area or by an overhead cable: the report's
+     * sentence for each, with the same via and destination buttons as a leg.
+     */
+    private fun showNotes(lat: Double, lon: Double): Boolean {
+        val found = ChartTiles.notesAt(packNotes, lat, lon, fingerM(lat), airFt)
+        if (found.isEmpty()) return false
+        val cablesOnly = found.all { it.contains("cable") }
+        val body = found.joinToString("\n\n") { "\u2022 $it" } +
+            "\n\nFrom the route data. Read the rule on a current chart; the outline is simplified."
+        AlertDialog.Builder(this)
+            .setTitle(if (cablesOnly) "Overhead cable" else if (found.size == 1) "Restricted area" else "Restricted areas")
+            .setMessage(body)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
+            .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
+            .show()
+        return true
     }
 
     private fun showOverlayMessage(text: String) {

@@ -234,6 +234,15 @@ object ChartTiles {
             feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"label\",\"leg\":${i + 1}}," +
                 "\"geometry\":{\"type\":\"Point\",\"coordinates\":${coord(mid)}}}")
         }
+        // The GPX check markers: one where each run of check legs starts, one where it ends.
+        for (run in Gpx.checkRuns(route)) {
+            if (run.last + 1 >= route.points.size) continue
+            val legsText = if (run.first == run.last) "${run.first + 1}" else "${run.first + 1}-${run.last + 1}"
+            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"checkstart\",\"legs\":${jsonString(legsText)}}," +
+                "\"geometry\":{\"type\":\"Point\",\"coordinates\":${coord(route.points[run.first])}}}")
+            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"checkend\",\"legs\":${jsonString(legsText)}}," +
+                "\"geometry\":{\"type\":\"Point\",\"coordinates\":${coord(route.points[run.last + 1])}}}")
+        }
         for (p in route.points) {
             feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"point\"}," +
                 "\"geometry\":{\"type\":\"Point\",\"coordinates\":${coord(p)}}}")
@@ -332,6 +341,84 @@ object ChartTiles {
         return kotlin.math.hypot(px - t * bx, py - t * by)
     }
 
+    /**
+     * Restricted areas from the route packs: the outlines the leg notes come from. The
+     * chart tiles carry none, so a leg could say "entry restricted" with nothing drawn.
+     * limit 1: entry restricted or prohibited, or a security zone (the legs are checks);
+     * limit 0: anchoring, fishing, no-wake and other rules (information). An area at a
+     * region seam is in both packs and is kept once. Only areas are drawn.
+     */
+    fun restrictedGeoJson(notes: List<Note>): String {
+        val sb = StringBuilder("{\"type\":\"FeatureCollection\",\"features\":[")
+        val seen = HashSet<String>()
+        var first = true
+        for (n in notes) {
+            if (n.kind != "resare") continue
+            val text = n.describe() ?: continue
+            val geom = when {
+                (n.type == "Polygon" || n.type == "MultiPolygon") && n.coords != null ->
+                    "{\"type\":\"${n.type}\",\"coordinates\":${nested(n.coords)}}"
+                n.coords == null -> {
+                    val b = n.bbox
+                    val ring = listOf(b[0] to b[1], b[2] to b[1], b[2] to b[3], b[0] to b[3], b[0] to b[1])
+                        .joinToString(",") { String.format(Locale.US, "[%.6f,%.6f]", it.first, it.second) }
+                    "{\"type\":\"Polygon\",\"coordinates\":[[$ring]]}"
+                }
+                else -> null
+            } ?: continue
+            if (!seen.add(text + geom)) continue
+            val limit = if (Gpx.navigationLimit(text) || text.contains("check")) 1 else 0
+            val label = jsonString(n.name + (n.cfr?.let { " ($it)" } ?: ""))
+            if (!first) sb.append(',')
+            first = false
+            sb.append("{\"type\":\"Feature\",\"properties\":{\"limit\":$limit,\"label\":$label},\"geometry\":$geom}")
+        }
+        return sb.append("]}").toString()
+    }
+
+    /**
+     * Overhead cables from the route packs (the chart tiles have none), labeled with the
+     * report's sentence. low 1: the clearance is not charted, or under [airFt]; with no
+     * air draft every cable is low, as the report treats it as unchecked.
+     */
+    fun cablesGeoJson(notes: List<Note>, airFt: Double?): String {
+        val sb = StringBuilder("{\"type\":\"FeatureCollection\",\"features\":[")
+        val seen = HashSet<String>()
+        var first = true
+        for (n in notes) {
+            if (n.kind != "cable") continue
+            val type = n.type
+            if (n.coords == null || (type != "LineString" && type != "MultiLineString")) continue
+            val text = n.describe(airFt) ?: continue
+            val geom = "{\"type\":\"$type\",\"coordinates\":${nested(n.coords)}}"
+            if (!seen.add(text + geom)) continue
+            val clr = n.clr
+            val low = if (airFt == null || clr == null || clr < airFt * Pack.FT) 1 else 0
+            val label = jsonString(clr?.let { "cable ${Planner.printedFeet(it)} ft" } ?: "cable, clearance not charted")
+            if (!first) sb.append(',')
+            first = false
+            sb.append("{\"type\":\"Feature\",\"properties\":{\"low\":$low,\"label\":$label},\"geometry\":$geom}")
+        }
+        return sb.append("]}").toString()
+    }
+
+    /**
+     * What a tap off the route lands on: every restricted area the spot is inside, then
+     * every overhead cable within [tolM], as the report words them. Empty when none.
+     */
+    fun notesAt(notes: List<Note>, lat: Double, lon: Double, tolM: Double, airFt: Double?): List<String> {
+        val areas = notes.filter { it.kind == "resare" && it.type != "LineString" && it.type != "Point" && it.near(lat, lon, 0.0) }
+        val cables = notes.filter { it.kind == "cable" && it.near(lat, lon, tolM) }
+        return (areas + cables).mapNotNull { it.describe(airFt) }.distinct()
+    }
+
+    private fun nested(v: Any?): String = when (v) {
+        is List<*> -> v.joinToString(",", "[", "]") { nested(it) }
+        is Double -> String.format(Locale.US, "%.6f", v)
+        is Number -> v.toString()
+        else -> "0"
+    }
+
     fun gpsGeoJson(lat: Double, lon: Double): String =
         "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{}," +
             "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", lon, lat)}}}]} "
@@ -419,6 +506,8 @@ object ChartTiles {
   "sources": {
     "enc": {"type": "vector", "url": __MBTILES__},
     "route": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "restricted": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "cables": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
   },
   "layers": [
@@ -488,6 +577,23 @@ object ChartTiles {
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 10,
         "text-offset": [0.9, 0.15], "text-anchor": "left"},
       "paint": {"text-color": $LIGHT_TEXT, "text-halo-color": "#ffffff", "text-halo-width": 1}},
+    {"id": "restricted-info", "type": "line", "source": "restricted", "minzoom": 9,
+      "filter": ["==", ["get", "limit"], 0],
+      "paint": {"line-color": "#ab47bc", "line-width": 1.2, "line-dasharray": [2, 2]}},
+    {"id": "restricted-limit", "type": "line", "source": "restricted",
+      "filter": ["==", ["get", "limit"], 1],
+      "paint": {"line-color": "#7b1fa2", "line-width": 2.5, "line-dasharray": [3, 1.5]}},
+    {"id": "restricted-label", "type": "symbol", "source": "restricted", "minzoom": 11,
+      "layout": {"symbol-placement": "line", "text-field": ["get", "label"], "text-font": ["$FONT"],
+        "text-size": 11, "symbol-spacing": 400},
+      "paint": {"text-color": "#6a1b9a", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "cable", "type": "line", "source": "cables", "minzoom": 10,
+      "paint": {"line-color": ["case", ["==", ["get", "low"], 1], "#c62828", "#002f6c"],
+        "line-width": 2, "line-dasharray": [4, 1.5]}},
+    {"id": "cable-label", "type": "symbol", "source": "cables", "minzoom": 13,
+      "layout": {"symbol-placement": "line-center", "text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 11},
+      "paint": {"text-color": ["case", ["==", ["get", "low"], 1], "#a31515", "#002f6c"],
+        "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "route-pick", "type": "line", "source": "route",
       "filter": ["all", ["==", ["get", "kind"], "leg"], ["==", ["get", "leg"], -1]],
       "paint": {"line-color": "#ffd600", "line-width": 14, "line-opacity": 0.85}},
@@ -508,6 +614,17 @@ object ChartTiles {
       "layout": {"text-field": ["to-string", ["get", "leg"]], "text-font": ["$FONT"], "text-size": 13,
         "text-allow-overlap": true, "text-offset": [0, -0.9]},
       "paint": {"text-color": "#102027", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "check-end", "type": "circle", "source": "route",
+      "filter": ["==", ["get", "kind"], "checkend"],
+      "paint": {"circle-radius": 8, "circle-color": "#2e7d32", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}},
+    {"id": "check-start", "type": "circle", "source": "route",
+      "filter": ["==", ["get", "kind"], "checkstart"],
+      "paint": {"circle-radius": 9, "circle-color": "#e65100", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}},
+    {"id": "check-mark", "type": "symbol", "source": "route",
+      "filter": ["==", ["get", "kind"], "checkstart"],
+      "layout": {"text-field": "!", "text-font": ["$FONT"],
+        "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true},
+      "paint": {"text-color": "#ffffff"}},
     {"id": "gps-halo", "type": "circle", "source": "gps",
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
     {"id": "gps", "type": "circle", "source": "gps",

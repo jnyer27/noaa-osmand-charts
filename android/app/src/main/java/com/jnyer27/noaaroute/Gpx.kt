@@ -95,7 +95,7 @@ object Gpx {
         if (bridges.isNotEmpty()) lines.add("${bridges.size} ${if (bridges.size == 1) "bridge" else "bridges"}: ${bridges.joinToString("; ")}")
         val cables = named { it.contains("cable") }
         if (cables.isNotEmpty()) lines.add("${cables.size} ${if (cables.size == 1) "cable" else "cables"}: ${cables.joinToString("; ")}")
-        val areas = named { navigationLimit(it) || it.contains("restricted area") || it.contains("security zone") || it.contains("anchoring") || it.contains("fishing") || it.contains("no wake") }
+        val areas = named { navigationLimit(it) || it.contains("restricted area") || it.contains("regulated navigation area") || it.contains("security zone") || it.contains("anchoring") || it.contains("fishing") || it.contains("no wake") }
         if (areas.isNotEmpty()) lines.add("${areas.size} restricted ${if (areas.size == 1) "area" else "areas"}: ${areas.joinToString("; ")}")
         lines.add("Not for navigation. Verify every leg against a current chart.")
         return lines
