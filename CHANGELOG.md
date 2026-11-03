@@ -4,6 +4,13 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-03: the chart draws every downloaded region (not released yet)
+
+The chart:
+- **Downloaded regions are drawn together.** The chart showed only the region under the middle of the screen, so panning from Region 04 toward 05 left a blank band south of 38.23 N, which looked like a chart that was not downloaded, until the middle crossed the edge and the whole chart reloaded as the other region. Every downloaded region chart is now drawn at once, depth shading under contours and marks across the edge, with no reload while panning. The title names the regions drawn ("Regions 04 and 05"). **Download** still offers the region in the middle of the map when you do not have it.
+
+No pack rebuild.
+
 ## 2026-11-03: tap a leg for its details, add a via from the chart (app 0.1.199, route packs build 153 unchanged)
 
 The chart:
