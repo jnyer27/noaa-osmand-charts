@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased: restricted areas, cables and check pins on the chart
+## 2026-11-03: restricted areas, cables and check pins on the chart (app 0.1.206, route packs build 153 unchanged)
 
 The report:
 - **The lower Chesapeake Bay regulated navigation area is information, not a check.** 33 CFR 165.501 (Chesapeake Bay entrance and Hampton Roads) covers the bay south of about Smith Point, and as "entry restricted" it made nearly every leg there a check, which buried the real ones (legs 33-64 of a Maryland Marina to Currituck trip). Its rules are for large and deep-draft vessels and anchoring; the note now says so, the leg is not a check, and the GPX has no check marker for it. Its area is still listed under restricted areas at the top of the report.
