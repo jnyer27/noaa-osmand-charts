@@ -4,6 +4,18 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-03: Move ends keeps a 0-6 ft slip, Coinjock and Oak Island notes (not released yet)
+
+Planning:
+- **Move ends to navigable water keeps a point in water that may be under your safe depth.** A marina in a 0-6 ft creek at 3 ft starts where you put it, and its legs are flagged (orange on the chart, check markers in the GPX), the same as with the option off. The option now moves only a point on land, in water charted entirely under your safe depth, in the buffer around a charted hazard, or boxed in, and only to the nearest usable water clear of hazards. This reverses the 2026-10-22 behavior, which walked such a point out to water charted at least your safe depth (issue #27).
+- **A pin on land or a dock ends at the nearest usable water.** With Move ends on, it was walked on to water charted at least your safe depth: at Ego Alley at 2 ft the route stopped 158 m out instead of in the alley, 56 m from the pin, and at Oriental the last leg crossed a pier.
+- **The Coinjock bridge leg keeps to the dredged cut.** The straight line south of the 65 ft span drifted a cell west of the cut's staircase and crossed the pier cell beside it, with "runs along or across charted piers or seawalls: check" for every boat. The fender cells in the span are part of the opening; the bridge note names the span (issue #34).
+
+The report:
+- **A fairway leg is not "under your depth" for a shoal outside the fairway.** On a leg mostly in a charted fairway or dredged channel, a sounding outside the channel is named only within the hazard buffer of the line. The Oak Island fairway at 2 ft said "under your 2 ft" for a 1.0 ft sounding 93 m off the line, outside the fairway; it now leads with the fairway's own soundings. The 0 ft obstruction in the fairway is still a check (issue #41).
+
+No pack rebuild.
+
 ## 2026-11-02: the chart key can be hidden (in app 0.1.185)
 
 The chart:
