@@ -183,6 +183,8 @@ class ChartTilesTest {
         assertTrue(night.readable())
         assertTrue(ChartTiles.contrasts(day.text, day.keyBg))
         assertTrue(ChartTiles.contrasts(night.text, night.panel))
+        assertTrue(ChartTiles.contrasts(night.text, night.pickBg))
+        assertTrue((night.pickBg and 0xffffff) < 0x808080)
         assertTrue((day.text and 0xffffff) < 0x808080)
         assertTrue((night.text and 0xffffff) > 0x808080)
     }

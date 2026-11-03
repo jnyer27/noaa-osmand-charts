@@ -125,14 +125,15 @@ object ChartTiles {
      * panel are chosen as a pair so a light theme forced by the app, or Android's
      * automatic darkening, cannot leave black text on a black control.
      */
-    class ChartChrome(val text: Int, val panel: Int, val keyBg: Int) {
-        fun readable(): Boolean = contrasts(text, panel) && contrasts(text, keyBg)
+    class ChartChrome(val text: Int, val panel: Int, val keyBg: Int, val pickBg: Int) {
+        fun readable(): Boolean = contrasts(text, panel) && contrasts(text, keyBg) && contrasts(text, pickBg)
     }
 
+    /** [pickBg] is the tapped leg's note: amber, light by day and dark at night. */
     fun chartChrome(night: Boolean): ChartChrome = if (night)
-        ChartChrome(0xFFFFFFFF.toInt(), 0xF2222222.toInt(), 0xFF121212.toInt())
+        ChartChrome(0xFFFFFFFF.toInt(), 0xF2222222.toInt(), 0xFF121212.toInt(), 0xFF4A3510.toInt())
     else
-        ChartChrome(0xFF000000.toInt(), 0xF2FFFFFF.toInt(), 0xFFFFFFFF.toInt())
+        ChartChrome(0xFF000000.toInt(), 0xF2FFFFFF.toInt(), 0xFFFFFFFF.toInt(), 0xFFFFF3E0.toInt())
 
     /** True when [text] and [bg] are far enough apart to read. Alpha on [bg] is ignored. */
     fun contrasts(text: Int, bg: Int): Boolean {

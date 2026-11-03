@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    forceDarkAllowed only takes effect as a theme attribute. Set on <application> or
+    <activity> in the manifest, Android ignores it, and the phone's auto-darkening
+    (Samsung "Dark mode for apps", Android's "make more apps dark") still repaints
+    the panels while leaving the lettering we chose.
+    -->
+    <style name="Theme.NoaaRoute" parent="@android:style/Theme.DeviceDefault.Light">
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+
+    <!-- The chart follows the phone's light or dark setting and paints its own controls. -->
+    <style name="Theme.NoaaRoute.Chart" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

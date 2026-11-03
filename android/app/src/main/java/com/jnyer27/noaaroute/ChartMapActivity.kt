@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.database.sqlite.SQLiteDatabase
-import android.graphics.Color
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -246,8 +245,7 @@ class ChartMapActivity : Activity() {
         picked = TextView(this).apply {
             visibility = View.GONE
             textSize = 14f
-            setTextColor(Color.BLACK)
-            setBackgroundColor(0xFFFFF3E0.toInt())
+            paintControl(this, chrome, chrome.pickBg)
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         root.addView(picked)
