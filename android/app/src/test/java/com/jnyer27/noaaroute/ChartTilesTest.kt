@@ -105,6 +105,42 @@ class ChartTilesTest {
         assertFalse(three.contains("[\"<\",[\"get\",\"d2\"],5]"))
     }
 
+    @Test
+    fun severalRegionChartsAreOneStyleWithASourceEach() {
+        val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_05.mbtiles"),
+            "file:///g/{fontstack}/{range}.pbf")
+        val json = obj(MiniJson.parse(style))
+        val sources = obj(json["sources"])
+        assertEquals("mbtiles:///a/Ncds_04.mbtiles", obj(sources["enc"])["url"])
+        assertEquals("mbtiles:///a/Ncds_05.mbtiles", obj(sources["enc1"])["url"])
+        val layers = arr(json["layers"]).map { obj(it) }
+        val ids = layers.map { it["id"] as String }
+        assertEquals("ids unique", ids.size, ids.toSet().size)
+        // Each chart layer once per region, the copies together, in the one-region order
+        val one = arr(obj(MiniJson.parse(ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")))["layers"])
+            .map { obj(it)["id"] as String }
+        val expected = one.flatMap { id ->
+            val l = arr(obj(MiniJson.parse(ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")))["layers"])
+                .map { obj(it) }.first { it["id"] == id }
+            if (l["source"] == "enc") listOf(id, "$id~1") else listOf(id)
+        }
+        assertEquals(expected, ids)
+        assertEquals("enc1", layers.first { it["id"] == "soundg~1" }["source"])
+        assertEquals("enc", layers.first { it["id"] == "soundg" }["source"])
+        // Shading of both regions comes before either region's soundings
+        assertTrue(ids.indexOf("depare~1") < ids.indexOf("soundg"))
+        assertTrue(style.contains("[\"<\",[\"get\",\"d2\"],3]"))
+        assertFalse(style.contains("__"))
+        assertEquals(1, layers.count { it["id"] == "route-ok" })
+    }
+
+    @Test
+    fun theChartTitleNamesEveryRegionDrawn() {
+        val sets = ChartTiles.tileSets(catalog)
+        assertEquals("Region 04", ChartTiles.regionsHeading(sets.drop(1)))
+        assertEquals("Regions 03 and 04", ChartTiles.regionsHeading(sets))
+    }
+
     private val catalog = """{"version":1,"regions":[
       {"ncds":"03","name":"Region 03: New York Harbor","files":[],
        "tiles":{"file":"Ncds_03.mbtiles","size":1000,"sha256":"aaa","bounds":[-76.68,39.73,-73.4,41.1],"minzoom":8,"maxzoom":15}},

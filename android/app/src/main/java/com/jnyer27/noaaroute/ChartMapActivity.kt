@@ -96,6 +96,8 @@ class ChartMapActivity : Activity() {
     private var routeJson: String? = null
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
+    /** Region charts drawn now: every downloaded one, so panning across a seam shows both. */
+    private var drawnSets: List<ChartTiles.TileSet> = emptyList()
     private var loadError = false
     private var chartNote = ""
     /** The first chart frames the route or Middle River. Later switches keep the camera. */
@@ -348,27 +350,38 @@ class ChartMapActivity : Activity() {
             entry?.error != null -> " ${entry.error}."
             else -> ""
         }
-        val fallback = if (chosen == null && offer != null && status.isEmpty())
-            " This view is in ${offer.shortName}. The Middle River chart is shown until that chart is downloaded."
-        else ""
+        // Every downloaded region chart is drawn at once, each its own source. Only the
+        // one under the screen's center was, so the next region stayed blank while panning.
+        val drawn = ready.filter { set -> tiles.file(set)?.isFile == true }.sortedBy { it.ncds }
+        val fallback = when {
+            chosen != null || offer == null || status.isNotEmpty() -> ""
+            drawn.isEmpty() -> " This view is in ${offer.shortName}. The Middle River chart is shown until that chart is downloaded."
+            else -> " This view is in ${offer.shortName}, which is not downloaded."
+        }
         chartNote = status + fallback
-        val file = chosen?.let { tiles.file(it) }?.takeIf { it.isFile }
-        if (chosen != null && file != null) {
-            val key = chosen.ncds + ":" + chosen.sha256
+        if (drawn.isNotEmpty()) {
+            val key = drawn.joinToString(",") { it.ncds + ":" + it.sha256 }
+            val w = drawn.minOf { it.bounds[0] }
+            val so = drawn.minOf { it.bounds[1] }
+            val e = drawn.maxOf { it.bounds[2] }
+            val n = drawn.maxOf { it.bounds[3] }
+            val heading = ChartTiles.regionsHeading(drawn)
+            drawnSets = drawn
             if (shownKey != key) {
                 loadError = false
-                openFile(loaded, file, chosen.bounds, chosen.shortName, region = true)
+                openFiles(loaded, drawn.map { tiles.file(it)!! }, doubleArrayOf(w, so, e, n), heading, region = true)
             } else if (!loadError) {
-                publishLegend(chosen.bounds[0], chosen.bounds[1], chosen.bounds[2], chosen.bounds[3], chosen.shortName, region = true)
+                publishLegend(w, so, e, n, heading, region = true)
             }
             shownKey = key
         } else {
+            drawnSets = emptyList()
             val key = "bundled"
             if (shownKey != key) {
                 loadError = false
                 val mb = bundled()
                 val bounds = readBounds(mb) ?: doubleArrayOf(ChartTiles.WEST, ChartTiles.SOUTH, ChartTiles.EAST, ChartTiles.NORTH)
-                openFile(loaded, mb, bounds, "Middle River", region = false)
+                openFiles(loaded, listOf(mb), bounds, "Middle River", region = false)
             } else if (!loadError) {
                 publishLegend(ChartTiles.WEST, ChartTiles.SOUTH, ChartTiles.EAST, ChartTiles.NORTH, "Middle River", region = false)
             }
@@ -397,9 +410,9 @@ class ChartMapActivity : Activity() {
             .setNegativeButton("Cancel", null).show()
     }
 
-    private fun openFile(loaded: MapLibreMap, mb: File, bounds: DoubleArray, heading: String, region: Boolean) {
+    private fun openFiles(loaded: MapLibreMap, files: List<File>, bounds: DoubleArray, heading: String, region: Boolean) {
         val glyphs = glyphDir()
-        val json = ChartTiles.style(depthFt, "mbtiles://${mb.absolutePath}", "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf")
+        val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf")
         title = "$heading chart"
         val w = bounds[0]; val s = bounds[1]; val e = bounds[2]; val n = bounds[3]
         publishLegend(w, s, e, n, heading, region)
@@ -560,7 +573,8 @@ class ChartMapActivity : Activity() {
     }
 
     private fun legendText(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean): String {
-        val outside = routePoints().any { it.lon !in w..e || it.lat !in s..n }
+        val sets = drawnSets
+        val outside = routePoints().any { p -> if (sets.isEmpty()) p.lon !in w..e || p.lat !in s..n else sets.none { it.contains(p) } }
         val sb = StringBuilder()
         sb.append("Not for navigation. ")
         sb.append("NOAA ENC of $heading, depths in feet. ")
@@ -571,7 +585,7 @@ class ChartMapActivity : Activity() {
         sb.append("The small dot beside a mark is its light, in that light's colour. ")
         if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg for its details. A bridge or cable drawn for vertical clearance is not that orange. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
-        if (outside) sb.append(if (region) " Charts cover this region; past that, the route is the line alone."
+        if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
         return sb.toString()
