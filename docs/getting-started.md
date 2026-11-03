@@ -28,7 +28,7 @@ The first time you download a region, the app asks once about **Automatic chart 
 2. **Destination**: the same, with **Places** or typed coordinates.
 3. **Safe operating depth (ft)**: the shallowest charted depth you are willing to use, which is your draft plus a margin. A boat with a 1.8 ft draft might use 3 ft.
 4. **Air draft (ft)**: the height of your boat above the water, so the route avoids low bridges and power lines. **Plan route** needs a height. Leave the field empty only with **Don't check bridges and cables** turned on, and read the report's first line before you go.
-5. Check **Stay inside (avoid open ocean)** if you want bays, sounds, rivers and the ICW only. Check **Move ends to navigable water** if your dock is in water too shallow for your safe depth.
+5. Check **Stay inside (avoid open ocean)** if you want bays, sounds, rivers and the ICW only. Check **Move ends to navigable water** if your dock is in water charted entirely under your safe depth, near a charted hazard, or boxed in (behind a low bridge). A dock in a 0-6 ft creek stays where it is, with its legs flagged.
 6. Tap **Plan route**.
 
 The line under **Plan route** says how many legs to check. The report under it leads with that warning (shoal water, bridges, cables, restricted areas), then where the file was saved, then one line per leg. See [Reading the route report](report.html).

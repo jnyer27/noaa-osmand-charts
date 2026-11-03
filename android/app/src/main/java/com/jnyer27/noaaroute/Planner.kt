@@ -778,14 +778,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     /**
      * Move ends to navigable water: the nearest cell, along usable water from [start]
-     * (so not across a point of land into the next creek), charted at least the safe
-     * depth and clear of hazard buffers, piers, snags and channel markers, within maxM
-     * of the way there; with its straight distance from p. Null if start already is one
-     * or none is that close.
+     * (so not across a point of land into the next creek), that is [clearWater], within
+     * maxM of the way there; with its straight distance from p. Null if start already is
+     * one or none is that close.
      */
-    /** Water charted at least the safe depth, clear of hazard buffers, piers and markers. */
+    /**
+     * Where Move ends may leave a point: usable water, 0-6 ft style bands included, clear of
+     * charted hazards and their buffers, piers, snags and channel-mark lines. Jason chose
+     * (2026-11-03, issue #27) to keep a point in water that may be under the safe depth and
+     * flag its legs, rather than walk it out to water charted at least that depth.
+     */
     private fun clearWater(g: Grid, i: Int) =
-        g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
+        g.ok[i] && g.nav[i].toInt().let { it == SAFE || it == MARGINAL } &&
+            !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
 
     /**
      * Nearest clear water along usable water from start, at most maxM along the way
@@ -1928,7 +1933,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun landMessage(n: Int, distM: Double) =
         "Point $n is on land or a dock. The route uses the nearest usable water, ${distM.roundToInt()} m away. Check the way between on a chart."
 
-    /** Why Move ends is walking this point to water charted at least the safe depth. */
+    /** Why Move ends is moving this point to usable water clear of hazards. */
     private fun moveWhy(g: Grid, userCell: Int, depthFt: Double): String {
         val v = g.nav[userCell].toInt()
         val d = fmt(depthFt)
@@ -1946,29 +1951,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     private fun moveMessage(n: Int, why: String, depthFt: Double, distM: Double) =
-        "Point $n is $why; with Move ends to navigable water on, the route uses the nearest water charted at least " +
-            "${fmt(depthFt)} ft, ${distM.roundToInt()} m away. Check the way between on a chart."
-
-    /**
-     * The first cell on the way from [from] to [goal], within [MOVE_ENDS_M], that is
-     * charted at least the safe depth. Null when the way out stays shallower than
-     * that for the whole distance: the ICW at Wrightsville is that ditch, and the
-     * deep water off to the east is not the way out.
-     */
-    private fun clearOnPath(a: Area, g: Grid, from: Int, goal: Int, user: LatLon): Pair<Int, Double>? {
-        val path = astar(a, g, from, goal) ?: return null
-        var walked = 0.0
-        for (k in 1 until path.size) {
-            val step = if (path[k] / a.w != path[k - 1] / a.w && path[k] % a.w != path[k - 1] % a.w) 1.4142135 else 1.0
-            walked += step * a.res
-            if (walked > MOVE_ENDS_M) return null
-            if (clearWater(g, path[k])) return path[k] to distanceM(user, a.latlon(path[k]))
-        }
-        return null
-    }
+        "Point $n is $why; with Move ends to navigable water on, the route uses the nearest usable water clear of charted hazards, " +
+            "${distM.roundToInt()} m away. Check the way between on a chart."
 
     private fun moveLeftMessage(n: Int, why: String, depthFt: Double) =
-        "Point $n is $why, and no water charted at least ${fmt(depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, " +
+        "Point $n is $why, and no usable water clear of charted hazards is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, " +
             "so Move ends to navigable water left it; the legs there are flagged."
 
     /** Route a to b on the full-detail grid (its window must fit without coarsening). */
@@ -1980,10 +1967,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             var (sp, mp) = snap(a, g, p)
             var (sq, mq) = snap(a, g, q)
             if (moveEnds) {
-                // Water charted under the safe depth, or in a hazard buffer, starts or ends
-                // at the nearest water that is not. A pin on land or a dock stays at the
-                // snap: walking on to the nearest deep cell sent Wrightsville east out of
-                // the ICW, and the Alligator-Pungo end across a 2 ft sounding.
+                // A point in water charted entirely under the safe depth, or in a hazard
+                // buffer, starts or ends at the nearest usable water clear of hazards. Water
+                // that may be under the safe depth (a 0-6 ft creek) is kept, its legs flagged.
                 for (e in 0..1) {
                     val n = (if (e == 0) np else nq) ?: continue
                     if (n in c.moved) continue
@@ -1991,25 +1977,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val s0 = if (e == 0) sp else sq
                     val userCell = a.cell(pt)
                     if (!chartedWater(g, userCell)) {
-                        // Walk only to clear water that the way out already uses, and
-                        // only within Move ends' distance. The nearest deep cell in
-                        // any direction is what left the ICW at Wrightsville. A dock
-                        // at the head of a creek walks out along that creek.
-                        val other = if (e == 0) sq else sp
-                        val along = clearOnPath(a, g, s0, other, pt)
-                        if (along != null) {
-                            val (cell, dist) = along
+                        // A pin on land or a dock ends at the nearest usable water: the snap,
+                        // or, when that cell is in a hazard buffer, the nearest clear water
+                        // from it. Walking on to deeper water skipped water the boat can use
+                        // (Ego Alley at 2 ft: 158 m out instead of 45 m up the alley).
+                        var dist = if (e == 0) mp else mq
+                        nearestNavigable(a, g, pt, s0)?.let { (cell, d) ->
                             if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
-                            val msg = moveMessage(n, moveWhy(g, s0, c.depthFt), c.depthFt, dist)
+                            dist = d
+                        }
+                        if (dist + 1e-6 >= a.res) {
+                            val msg = landMessage(n, dist)
                             if (msg !in c.messages) c.messages.add(msg)
                             c.moved.add(n)
-                        } else {
-                            val dist = if (e == 0) mp else mq
-                            if (dist + 1e-6 >= a.res) {
-                                val msg = landMessage(n, dist)
-                                if (msg !in c.messages) c.messages.add(msg)
-                                c.moved.add(n)
-                            }
                         }
                         continue
                     }
@@ -2103,7 +2083,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             if (path != null && moveEnds) {
-                // One distance. The "nearest water charted at least D ft" line is an earlier
+                // One distance. The "nearest usable water clear of charted hazards" line is an earlier
                 // try that did not lead out; the move above is the one that did.
                 for (n in listOfNotNull(np, nq)) {
                     val lead = c.messages.filter { it.startsWith("Point $n:") && it.contains("leads out") }
