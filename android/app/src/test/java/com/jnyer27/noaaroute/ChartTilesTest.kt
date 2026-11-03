@@ -106,6 +106,35 @@ class ChartTilesTest {
     }
 
     @Test
+    fun restrictedAreasFromThePacksAreDrawnOnceEach() {
+        val box = doubleArrayOf(-76.5, 37.0, -76.0, 37.5)
+        val ring = listOf(listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0), listOf(-76.0, 37.5), listOf(-76.5, 37.0)))
+        fun resare(name: String, rules: List<String>, cfr: String?, type: String = "Polygon", coords: Any? = ring) =
+            Note("resare", 4, box, type, coords, name, rules, cfr, null, null, null)
+        val notes = listOf(
+            resare("Chesapeake Bay", listOf("entry restricted"), "33 CFR 165.501"),
+            resare("Chesapeake Bay", listOf("entry restricted"), "33 CFR 165.501"), // the other pack at a seam
+            resare("restricted area", listOf("anchoring prohibited", "fishing prohibited"), "33 CFR 334.360"),
+            resare("Cove Point", listOf("security zone, entry may be prohibited: check"), null, "Bbox", null),
+            resare("a line", listOf("entry restricted"), null, "LineString", listOf(listOf(-76.5, 37.0), listOf(-76.0, 37.0))),
+            Note("cable", 4, box, "Bbox", null, "overhead cable", emptyList(), null, 16.7, null, null),
+        )
+        val features = arr(obj(MiniJson.parse(ChartTiles.restrictedGeoJson(notes)))["features"]).map { obj(it) }
+        assertEquals(3, features.size)
+        val props = features.map { obj(it["properties"]) }
+        assertEquals("Chesapeake Bay (33 CFR 165.501)", props[0]["label"])
+        assertEquals(1.0, props[0]["limit"] as Double, 0.0)
+        assertEquals(0.0, props[1]["limit"] as Double, 0.0)
+        assertEquals(1.0, props[2]["limit"] as Double, 0.0) // security zone: a check
+        val bbox = obj(features[2]["geometry"])
+        assertEquals("Polygon", bbox["type"])
+        assertEquals(5, arr(arr(bbox["coordinates"])[0]).size)
+        val style = ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")
+        val ids = arr(obj(MiniJson.parse(style))["layers"]).map { obj(it)["id"] as String }
+        assertTrue(ids.indexOf("restricted-limit") in 0 until ids.indexOf("route-casing"))
+    }
+
+    @Test
     fun severalRegionChartsAreOneStyleWithASourceEach() {
         val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_05.mbtiles"),
             "file:///g/{fontstack}/{range}.pbf")

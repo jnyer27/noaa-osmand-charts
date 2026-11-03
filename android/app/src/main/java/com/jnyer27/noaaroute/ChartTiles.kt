@@ -332,6 +332,48 @@ object ChartTiles {
         return kotlin.math.hypot(px - t * bx, py - t * by)
     }
 
+    /**
+     * Restricted areas from the route packs: the outlines the leg notes come from. The
+     * chart tiles carry none, so a leg could say "entry restricted" with nothing drawn.
+     * limit 1: entry restricted or prohibited, or a security zone (the legs are checks);
+     * limit 0: anchoring, fishing, no-wake and other rules (information). An area at a
+     * region seam is in both packs and is kept once. Only areas are drawn.
+     */
+    fun restrictedGeoJson(notes: List<Note>): String {
+        val sb = StringBuilder("{\"type\":\"FeatureCollection\",\"features\":[")
+        val seen = HashSet<String>()
+        var first = true
+        for (n in notes) {
+            if (n.kind != "resare") continue
+            val text = n.describe() ?: continue
+            val geom = when {
+                (n.type == "Polygon" || n.type == "MultiPolygon") && n.coords != null ->
+                    "{\"type\":\"${n.type}\",\"coordinates\":${nested(n.coords)}}"
+                n.coords == null -> {
+                    val b = n.bbox
+                    val ring = listOf(b[0] to b[1], b[2] to b[1], b[2] to b[3], b[0] to b[3], b[0] to b[1])
+                        .joinToString(",") { String.format(Locale.US, "[%.6f,%.6f]", it.first, it.second) }
+                    "{\"type\":\"Polygon\",\"coordinates\":[[$ring]]}"
+                }
+                else -> null
+            } ?: continue
+            if (!seen.add(text + geom)) continue
+            val limit = if (Gpx.navigationLimit(text) || text.contains("check")) 1 else 0
+            val label = jsonString(n.name + (n.cfr?.let { " ($it)" } ?: ""))
+            if (!first) sb.append(',')
+            first = false
+            sb.append("{\"type\":\"Feature\",\"properties\":{\"limit\":$limit,\"label\":$label},\"geometry\":$geom}")
+        }
+        return sb.append("]}").toString()
+    }
+
+    private fun nested(v: Any?): String = when (v) {
+        is List<*> -> v.joinToString(",", "[", "]") { nested(it) }
+        is Double -> String.format(Locale.US, "%.6f", v)
+        is Number -> v.toString()
+        else -> "0"
+    }
+
     fun gpsGeoJson(lat: Double, lon: Double): String =
         "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{}," +
             "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", lon, lat)}}}]} "
@@ -419,6 +461,7 @@ object ChartTiles {
   "sources": {
     "enc": {"type": "vector", "url": __MBTILES__},
     "route": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "restricted": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
   },
   "layers": [
@@ -488,6 +531,16 @@ object ChartTiles {
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 10,
         "text-offset": [0.9, 0.15], "text-anchor": "left"},
       "paint": {"text-color": $LIGHT_TEXT, "text-halo-color": "#ffffff", "text-halo-width": 1}},
+    {"id": "restricted-info", "type": "line", "source": "restricted", "minzoom": 9,
+      "filter": ["==", ["get", "limit"], 0],
+      "paint": {"line-color": "#ab47bc", "line-width": 1.2, "line-dasharray": [2, 2]}},
+    {"id": "restricted-limit", "type": "line", "source": "restricted",
+      "filter": ["==", ["get", "limit"], 1],
+      "paint": {"line-color": "#7b1fa2", "line-width": 2.5, "line-dasharray": [3, 1.5]}},
+    {"id": "restricted-label", "type": "symbol", "source": "restricted", "minzoom": 11,
+      "layout": {"symbol-placement": "line", "text-field": ["get", "label"], "text-font": ["$FONT"],
+        "text-size": 11, "symbol-spacing": 400},
+      "paint": {"text-color": "#6a1b9a", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "route-pick", "type": "line", "source": "route",
       "filter": ["all", ["==", ["get", "kind"], "leg"], ["==", ["get", "leg"], -1]],
       "paint": {"line-color": "#ffd600", "line-width": 14, "line-opacity": 0.85}},

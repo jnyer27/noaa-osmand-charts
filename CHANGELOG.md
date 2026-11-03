@@ -4,6 +4,13 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: restricted areas on the chart
+
+The chart:
+- **Restricted areas are drawn.** The report named restricted areas on many legs (entry restricted, anchoring prohibited, security zones), but the chart showed none of them: they are in the route data, not the chart tiles, and Route data drew only entry-prohibited water. Every restricted area from your downloaded regions is now outlined in purple dashes with its name and CFR section along the edge, heavy where entry is restricted or prohibited or for a security zone, light for other rules. Route data on or off.
+
+No pack rebuild.
+
 ## 2026-11-03: the chart draws every downloaded region (app 0.1.201, route packs build 153 unchanged)
 
 The chart:

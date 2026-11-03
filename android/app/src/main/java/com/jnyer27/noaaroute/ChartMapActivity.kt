@@ -94,6 +94,8 @@ class ChartMapActivity : Activity() {
     private var depthFt = 3.0
     private var airFt: Double? = null
     private var routeJson: String? = null
+    /** Restricted areas from the downloaded route packs, built once per screen. */
+    @Volatile private var restrictedJson: String? = null
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
     /** Region charts drawn now: every downloaded one, so panning across a seam shows both. */
@@ -422,6 +424,7 @@ class ChartMapActivity : Activity() {
             generation++
             shown.clear()
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
+            showRestricted(st)
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
             if (!framed) {
@@ -584,6 +587,7 @@ class ChartMapActivity : Activity() {
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
         sb.append("The small dot beside a mark is its light, in that light's colour. ")
         if (routeJson != null) sb.append("Orange dashed legs are checks. The number on a leg is its row in the report. Tap a leg for its details. A bridge or cable drawn for vertical clearance is not that orange. ")
+        sb.append("A purple dashed outline is a restricted area from the route data, named along its edge: heavy where entry is restricted or prohibited or a security zone, light for anchoring, fishing or other rules. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
@@ -896,6 +900,29 @@ class ChartMapActivity : Activity() {
                             showOverlayMessage("Route data: ${e.message ?: "could not read the route pack"}")
                         }
                     }
+                }
+            }
+        } catch (_: RejectedExecutionException) { }
+    }
+
+    /**
+     * Restricted areas named in leg notes come from the route packs, not the chart tiles,
+     * so they are drawn from the packs' own outlines whether or not Route data is on.
+     */
+    private fun showRestricted(st: Style) {
+        restrictedJson?.let { (st.getSource("restricted") as? GeoJsonSource)?.setGeoJson(it); return }
+        try {
+            worker.execute {
+                if (destroyed) return@execute
+                val json = try {
+                    ChartTiles.restrictedGeoJson(ensurePacks().flatMap { it.notes })
+                } catch (e: Exception) {
+                    Log.w("ChartMap", "restricted areas failed", e); return@execute
+                }
+                restrictedJson = json
+                runOnUiThread {
+                    if (destroyed) return@runOnUiThread
+                    (style?.getSource("restricted") as? GeoJsonSource)?.setGeoJson(json)
                 }
             }
         } catch (_: RejectedExecutionException) { }
