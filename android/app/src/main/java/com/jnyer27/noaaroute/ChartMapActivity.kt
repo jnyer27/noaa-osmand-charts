@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -66,6 +67,12 @@ class ChartMapActivity : Activity() {
 
     private lateinit var mapView: MapView
     private lateinit var legend: TextView
+    /** The full key. The view shows [ChartTiles.keyLine] of this, or the load error. */
+    private var fullKey = "Opening the chart..."
+    /** A load failure stays in full even when the key is hidden. */
+    private var keyError = false
+    /** Remembered. True shows the paragraph. False is the one-line bar. */
+    private var keyOpen = true
     private lateinit var picked: TextView
     private lateinit var downloadButton: Button
     private lateinit var routeToggle: CheckBox
@@ -92,6 +99,17 @@ class ChartMapActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { loc -> showFix(loc) }
+    private var followButton: Button? = null
+    private var compassArrow: TextView? = null
+    private var compassLabel: TextView? = null
+    private var courseButton: Button? = null
+    private var following = false
+    private var courseUp = false
+    private var heldCourse = 0.0
+    private var lastFix: Location? = null
+    private var wantFollow = false
+    /** Our own camera moves must not turn Follow off. */
+    private var movingCamera = false
     private val poll = object : Runnable {
         override fun run() {
             if (destroyed) return
@@ -149,13 +167,67 @@ class ChartMapActivity : Activity() {
             gravity = Gravity.TOP
             setMargins(dp(8), dp(8), dp(8), 0)
         })
-        root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        legend = TextView(this).apply {
-            text = "Opening the chart..."
-            textSize = 13f
-            setPadding(dp(12), dp(8), dp(12), dp(4))
+        courseUp = prefs.getBoolean(ChartTiles.COURSE_PREF, false)
+        followButton = Button(this).apply {
+            text = "Follow"
+            isAllCaps = false
+            textSize = 14f
+            setOnClickListener { onFollowTapped() }
         }
-        root.addView(legend)
+        compassArrow = TextView(this).apply {
+            text = "▲"
+            textSize = 18f
+            setTextColor(Color.BLACK)
+            gravity = Gravity.CENTER
+        }
+        compassLabel = TextView(this).apply {
+            text = ChartTiles.compassText(0.0)
+            textSize = 14f
+            setTextColor(Color.BLACK)
+            setPadding(dp(4), 0, 0, 0)
+        }
+        val compass = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xF2FFFFFF.toInt())
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            minimumHeight = dp(48)
+            isClickable = true
+            addView(compassArrow)
+            addView(compassLabel)
+            setOnClickListener { resetNorth() }
+        }
+        courseButton = Button(this).apply {
+            isAllCaps = false
+            textSize = 14f
+            text = if (courseUp) "Course up" else "North up"
+            setOnClickListener { toggleCourse() }
+        }
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(followButton)
+            addView(compass)
+            addView(courseButton)
+        }
+        frame.addView(controls, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            setMargins(0, 0, dp(8), dp(8))
+        })
+        root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        keyOpen = prefs.getBoolean(ChartTiles.KEY_PREF, true)
+        legend = TextView(this).apply {
+            textSize = 13f
+            minimumHeight = dp(48)
+            setPadding(dp(12), dp(8), dp(12), dp(4))
+            isClickable = true
+            setOnClickListener {
+                keyOpen = !keyOpen
+                prefs.edit().putBoolean(ChartTiles.KEY_PREF, keyOpen).apply()
+                paintKey()
+            }
+        }
+        paintKey()
+        root.addView(legend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         picked = TextView(this).apply {
             visibility = View.GONE
             textSize = 14f
@@ -178,10 +250,18 @@ class ChartMapActivity : Activity() {
             loaded.uiSettings.isRotateGesturesEnabled = false
             loaded.uiSettings.isTiltGesturesEnabled = false
             loaded.uiSettings.isCompassEnabled = false
+            loaded.addOnCameraMoveStartedListener { reason ->
+                val gesture = reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
+                if (gesture && !movingCamera) {
+                    following = ChartTiles.stillFollowing(following, true)
+                    paintFollow()
+                }
+            }
+            loaded.addOnCameraMoveListener { paintCompass() }
             mapView.addOnDidFailLoadingMapListener { message ->
                 if (destroyed) return@addOnDidFailLoadingMapListener
                 loadError = true
-                legend.text = "Chart did not load: $message"
+                showKey("Chart did not load: $message", error = true)
             }
             loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
             loaded.addOnMapClickListener { latLng -> showLeg(latLng.latitude, latLng.longitude) }
@@ -260,7 +340,7 @@ class ChartMapActivity : Activity() {
                 loadError = false
                 openFile(loaded, file, chosen.bounds, chosen.shortName, region = true)
             } else if (!loadError) {
-                legend.text = legendText(chosen.bounds[0], chosen.bounds[1], chosen.bounds[2], chosen.bounds[3], chosen.shortName, region = true)
+                publishLegend(chosen.bounds[0], chosen.bounds[1], chosen.bounds[2], chosen.bounds[3], chosen.shortName, region = true)
             }
             shownKey = key
         } else {
@@ -271,7 +351,7 @@ class ChartMapActivity : Activity() {
                 val bounds = readBounds(mb) ?: doubleArrayOf(ChartTiles.WEST, ChartTiles.SOUTH, ChartTiles.EAST, ChartTiles.NORTH)
                 openFile(loaded, mb, bounds, "Middle River", region = false)
             } else if (!loadError) {
-                legend.text = legendText(ChartTiles.WEST, ChartTiles.SOUTH, ChartTiles.EAST, ChartTiles.NORTH, "Middle River", region = false)
+                publishLegend(ChartTiles.WEST, ChartTiles.SOUTH, ChartTiles.EAST, ChartTiles.NORTH, "Middle River", region = false)
             }
             shownKey = key
         }
@@ -303,7 +383,7 @@ class ChartMapActivity : Activity() {
         val json = ChartTiles.style(depthFt, "mbtiles://${mb.absolutePath}", "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf")
         title = "$heading chart"
         val w = bounds[0]; val s = bounds[1]; val e = bounds[2]; val n = bounds[3]
-        legend.text = legendText(w, s, e, n, heading, region)
+        publishLegend(w, s, e, n, heading, region)
         loaded.setStyle(Style.Builder().fromJson(json)) { st ->
             style = st
             // A new style drops the previous image layers. Drop any build still aimed at the old one.
@@ -389,11 +469,36 @@ class ChartMapActivity : Activity() {
         return true
     }
 
+    private fun publishLegend(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean) {
+        keyW = w
+        keyS = s
+        keyE = e
+        keyN = n
+        keyHeading = heading
+        keyRegion = region
+        keyReady = true
+        showKey(legendText(w, s, e, n, heading, region))
+    }
+
+    /** Put the remembered key (or a load error) into the line under the map. */
+    private fun showKey(text: String, error: Boolean = false) {
+        fullKey = text
+        keyError = error
+        paintKey()
+    }
+
+    private fun paintKey() {
+        val open = keyOpen || keyError
+        legend.maxLines = if (open) Int.MAX_VALUE else 1
+        legend.text = if (keyError) fullKey else ChartTiles.keyLine(fullKey, keyOpen)
+    }
+
     private fun legendText(w: Double, s: Double, e: Double, n: Double, heading: String, region: Boolean): String {
         val outside = routePoints().any { it.lon !in w..e || it.lat !in s..n }
         val sb = StringBuilder()
         sb.append("Not for navigation. ")
-        sb.append("NOAA ENC of $heading, depths in feet. North is up. ")
+        sb.append("NOAA ENC of $heading, depths in feet. ")
+        sb.append(ChartTiles.orientSentence(courseUp))
         sb.append(ChartTiles.spanText(w, e, (s + n) / 2))
         sb.append(ChartTiles.depthLegend(depthFt))
         sb.append("Green and red marks are port and starboard (IALA-B); a dark ring is a daybeacon. ")
@@ -464,26 +569,164 @@ class ChartMapActivity : Activity() {
     } catch (_: Exception) { null }
 
     private fun listen() {
-        val lm = getSystemService(LocationManager::class.java)
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val lm = getSystemService(LocationManager::class.java) ?: return
         try { lm.removeUpdates(listener) } catch (_: Exception) { }
         for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
             try {
                 if (!lm.isProviderEnabled(p)) continue
                 lm.getLastKnownLocation(p)?.let { showFix(it) }
                 lm.requestLocationUpdates(p, 2000L, 2f, listener, Looper.getMainLooper())
+            } catch (_: SecurityException) {
+                // Permission was withdrawn between the check and the request.
             } catch (_: Exception) { }
         }
     }
 
     private fun showFix(loc: Location) {
-        val st = style ?: return
+        lastFix = loc
+        val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
+        if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
+            heldCourse = bearing
+        val st = style
+        if (st != null && !destroyed)
+            (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude))
+        if (following) moveToFix(loc, bearing)
+        paintFollow()
+    }
+
+    private fun onFollowTapped() {
+        if (!locationAllowed()) {
+            wantFollow = true
+            if (shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                AlertDialog.Builder(this).setTitle("Location")
+                    .setMessage("Follow uses the phone's GPS to keep the chart on the boat. The chart works without it. Allow location to turn Follow on.")
+                    .setPositiveButton("Allow") { _, _ ->
+                        requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
+                    }
+                    .setNegativeButton("Not now") { _, _ -> wantFollow = false }
+                    .show()
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
+            }
+            return
+        }
+        if (!locationEnabled()) {
+            following = false
+            paintFollow()
+            AlertDialog.Builder(this).setTitle("GPS is off")
+                .setMessage("The phone's location is turned off, so NOAA Route cannot follow the boat. Turn location on in the phone's settings. The chart still works.")
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        following = true
+        paintFollow()
+        val fix = lastFix
+        if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse))
+        else followButton?.text = "Waiting for GPS"
+    }
+
+    private fun locationAllowed() =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun locationEnabled(): Boolean {
+        val lm = getSystemService(LocationManager::class.java) ?: return false
+        return try {
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        } catch (_: Exception) { false }
+    }
+
+    private fun moveToFix(loc: Location, bearing: Double) {
+        val loaded = map ?: return
         if (destroyed) return
-        (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude))
+        val z = loaded.cameraPosition.zoom
+        val zoom = if (z < 13.0) 15.0 else z
+        val pos = CameraPosition.Builder()
+            .target(LatLng(loc.latitude, loc.longitude))
+            .zoom(zoom)
+            .bearing(bearing)
+            .tilt(0.0)
+            .build()
+        movingCamera = true
+        loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
+        mapView.postDelayed({ movingCamera = false }, 500)
+    }
+
+    private fun resetNorth() {
+        courseUp = false
+        heldCourse = 0.0
+        prefs.edit().putBoolean(ChartTiles.COURSE_PREF, false).apply()
+        courseButton?.text = "North up"
+        val loaded = map ?: return
+        val cam = loaded.cameraPosition
+        movingCamera = true
+        loaded.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).bearing(0.0).tilt(0.0).build()), 300)
+        mapView.postDelayed({ movingCamera = false }, 400)
+        paintCompass()
+        refreshKeySentence()
+    }
+
+    private fun toggleCourse() {
+        courseUp = !courseUp
+        prefs.edit().putBoolean(ChartTiles.COURSE_PREF, courseUp).apply()
+        courseButton?.text = if (courseUp) "Course up" else "North up"
+        if (!courseUp) heldCourse = 0.0
+        refreshKeySentence()
+        if (following) {
+            val fix = lastFix
+            if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse))
+            else if (!courseUp) resetNorth()
+        } else if (!courseUp) {
+            resetNorth()
+        }
+    }
+
+    private fun paintFollow() {
+        followButton?.text = when {
+            following && lastFix == null -> "Waiting for GPS"
+            following -> "Following"
+            else -> "Follow"
+        }
+    }
+
+    private fun paintCompass() {
+        val b = map?.cameraPosition?.bearing ?: 0.0
+        compassLabel?.text = ChartTiles.compassText(b)
+        compassArrow?.rotation = (-b).toFloat()
+    }
+
+    private var keyW = 0.0
+    private var keyS = 0.0
+    private var keyE = 0.0
+    private var keyN = 0.0
+    private var keyHeading = ""
+    private var keyRegion = false
+    private var keyReady = false
+
+    private fun refreshKeySentence() {
+        if (!keyReady || keyError) return
+        showKey(legendText(keyW, keyS, keyE, keyN, keyHeading, keyRegion))
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) listen()
+        if (requestCode != 1) return
+        val askedFollow = wantFollow
+        wantFollow = false
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            listen()
+            if (askedFollow) onFollowTapped()
+        } else if (askedFollow) {
+            following = false
+            paintFollow()
+            if (!isFinishing) {
+                AlertDialog.Builder(this).setTitle("Location not allowed")
+                    .setMessage("NOAA Route cannot follow the boat without location. The chart still works. To turn Follow on later, allow location for NOAA Route in the phone's settings.")
+                    .setPositiveButton("OK", null).show()
+            }
+        }
     }
 
     private fun insetPadding(v: View) {

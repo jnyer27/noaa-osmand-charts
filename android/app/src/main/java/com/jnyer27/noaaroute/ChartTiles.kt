@@ -107,17 +107,71 @@ object ChartTiles {
     fun depthText(ft: Double): String =
         if (ft.isFinite() && ft % 1.0 == 0.0) ft.toInt().toString() else String.format(Locale.US, "%.2f", ft)
 
+    /** Preference: the chart key under the map is open. Hidden, it is one line. */
+    const val KEY_PREF = "chartKeyOpen"
+
+    /** One line when the key is hidden. The navigation warning stays visible. */
+    const val KEY_BAR = "Not for navigation. Show key"
+
     /**
-     * The depth sentence of the chart legend. Strong blue is a depth area whose
-     * deep limit is under the safe depth, lighter blue is one whose range straddles
-     * it, pale blue is at or over it.
+     * Text under the chart. Open, the full key plus a hint that a tap hides it.
+     * Hidden, one line: the warning and "Show key".
      */
+    fun keyLine(full: String, open: Boolean): String =
+        if (open) "$full Tap to hide the key." else KEY_BAR
+
+    /** Preference: while Follow is on, turn the map with the boat's course. */
+    const val COURSE_PREF = "chartCourseUp"
+
+    /** Below this speed a GPS bearing is noise. Course-up keeps the last heading. */
+    const val COURSE_SPEED_MPS = 0.5f
+
+    /** Degrees clockwise from north, in 0..360. */
+    fun normalizeBearing(deg: Double): Double {
+        val d = deg % 360.0
+        return if (d < 0) d + 360.0 else d
+    }
+
+    /**
+     * Map bearing while following. North-up is 0. Course-up uses the GPS bearing
+     * when the boat is moving; otherwise it keeps [heldDeg] so a stop does not spin the chart.
+     */
+    fun mapBearing(courseUp: Boolean, gpsBearingDeg: Float?, speedMps: Float, heldDeg: Double): Double {
+        if (!courseUp) return 0.0
+        if (gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMps >= COURSE_SPEED_MPS)
+            return normalizeBearing(gpsBearingDeg.toDouble())
+        return normalizeBearing(heldDeg)
+    }
+
+    /** Compass label for a map bearing. 0 is north. */
+    fun compassText(bearingDeg: Double): String {
+        val b = normalizeBearing(bearingDeg)
+        val names = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+        val i = ((b + 22.5) / 45.0).toInt() % 8
+        return String.format(Locale.US, "%s %.0f°", names[i], b)
+    }
+
+    /** A finger pan ends Follow. The app's own camera moves do not. */
+    fun stillFollowing(following: Boolean, userPanned: Boolean) = following && !userPanned
+
+    /**
+     * The key's orientation sentence. It says north is up only while that is the mode.
+     */
+    fun orientSentence(courseUp: Boolean): String =
+        if (courseUp) "The map turns with your course while Follow is on. Tap the compass for north up. "
+        else "North is up. Follow can turn the map with your course. Tap the compass for north up. "
+
     /** About how wide the chart on screen is, from its west and east edges. */
     fun spanText(west: Double, east: Double, lat: Double): String {
         val km = (east - west) * Pack.M_PER_DEG * kotlin.math.cos(Math.toRadians(lat)) / 1000.0
         return "Across this chart is about %.0f km. ".format(kotlin.math.abs(km))
     }
 
+    /**
+     * The depth sentence of the chart legend. Strong blue is a depth area whose
+     * deep limit is under the safe depth, lighter blue may be under it, pale blue
+     * is at or over it.
+     */
     fun depthLegend(depthFt: Double): String {
         val depth = depthText(depthFt)
         return "Safe operating depth $depth ft: strong blue is charted entirely under it, " +
