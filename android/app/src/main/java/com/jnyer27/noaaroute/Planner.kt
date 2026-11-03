@@ -1339,7 +1339,14 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /** Pier crossings along a chain of cells: pier cells entered, plus diagonal steps that slip past a pier corner. */
-    private fun pierSteps(a: Area, cells: IntArray, pier: (Int) -> Boolean): Int {
+    /**
+     * Pier (or snag, gate) steps along [cells]: a cell itself, or the corner of a diagonal
+     * step. A diagonal step between two channel cells does not count its corners: A* takes
+     * it without the corner price. Counted, the Coinjock cut's staircase south of the span
+     * gave the path one pier step, and simplify spent it on a line through the real pier
+     * cell beside the channel (issue #34).
+     */
+    private fun pierSteps(a: Area, g: Grid, cells: IntArray, pier: (Int) -> Boolean): Int {
         val w = a.w
         var n = 0
         for (k in cells.indices) {
@@ -1350,7 +1357,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val c0 = cells[k - 1] % w
                 val r1 = i / w
                 val c1 = i % w
-                if (r0 != r1 && c0 != c1 && (pier(r0 * w + c1) || pier(r1 * w + c0))) n++
+                if (r0 != r1 && c0 != c1 && !(g.channel(cells[k - 1]) && g.channel(i)) &&
+                    (pier(r0 * w + c1) || pier(r1 * w + c0))) n++
             }
         }
         return n
@@ -1392,11 +1400,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
             if (!keepsCenter(a, g, path, p, q)) return false
-            return pierSteps(a, cells) { g.pier[it] } <= npier
+            return pierSteps(a, g, cells) { g.pier[it] } <= npier
         }
         // pier crossings of the planned path up to each point
         val pc = IntArray(path.size)
-        for (k in 1 until path.size) pc[k] = pc[k - 1] + pierSteps(a, intArrayOf(path[k - 1], path[k])) { g.pier[it] }
+        for (k in 1 until path.size) pc[k] = pc[k - 1] + pierSteps(a, g, intArrayOf(path[k - 1], path[k])) { g.pier[it] }
         val keep = ArrayList<Int>()
         keep.add(0)
         var s = 0
@@ -1596,7 +1604,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) continue
                 if (leavesSpanOpening(a, g, path[i0], path[i1])) continue
                 if (!keepsCenter(a, g, path, i0, i1)) continue
-                if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
+                if (pierSteps(a, g, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
             }
             out.add(keep[best])
@@ -1607,7 +1615,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     // ------------------------------------------------------------ report
 
-    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0): Double? {
+    /**
+     * Shallowest sounding within [withinM] of the leg p-q. With [channelOnly], only soundings
+     * in fairway or dredged cells count: the Oak Island fairway leg at 2 ft said "under your
+     * 2 ft" for a 1.0 ft sounding 93 m off the line, outside the fairway (issue #41).
+     */
+    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0, channelOnly: Boolean = false): Double? {
         val kx = Pack.M_PER_DEG * cos(Math.toRadians((p.lat + q.lat) / 2))
         val ky = Pack.M_PER_DEG
         val ax = p.lon * kx
@@ -1627,6 +1640,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val i = r * a.w + c
             val v = g.planes[Pack.P_SOUND][i].toInt() and 0xff
             if (v == 0 || (best != 0 && v >= best)) continue
+            if (channelOnly && g.planes[Pack.P_DEPTH][i].toInt() and DREDGED == 0) continue
             val ll = a.latlon(i)
             val px = ll.lon * kx
             val py = ll.lat * ky
@@ -1819,15 +1833,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             // pier or seawall over usable-depth water (same test as noaa-route.py's report)
-            val onPier = pierSteps(a, lc) { i ->
-                (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
+            // A fender cell in a dredged span is channel (buildGrid), and the bridge note names the span
+            val onPier = pierSteps(a, g, lc) { i ->
+                (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !g.channel(i) &&
+                    g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
             } > 0
             if (onPier && !prevPier) notes.add(0, PIER_NOTE) // once per stretch of such legs
             prevPier = onPier
-            val onSnag = pierSteps(a, lc) { g.snag[it] } > 0
+            val onSnag = pierSteps(a, g, lc) { g.snag[it] } > 0
             if (onSnag && !prevSnag) notes.add(0, SNAG_NOTE)
             prevSnag = onSnag
-            val onGate = pierSteps(a, lc) { g.gate[it] } > 0
+            val onGate = pierSteps(a, g, lc) { g.gate[it] } > 0
             if (onGate && !prevGate) notes.add(0, GATE_NOTE)
             prevGate = onGate
             val near = lc.any { g.soft[it] }
@@ -1838,12 +1854,16 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             prevHazard = if (near) hz?.cell ?: prevHazard else -1
             // A shoal leg that never steps into the hazard buffer still names how far it
             // passes a sounding under the safe depth. The depth-area sentence alone did not.
+            // A leg wholly in a fairway or dredged channel looks only at soundings in it.
+            // A shoal outside the channel, beyond the hazard buffer, is not on the leg.
+            val inChannel = lc.isNotEmpty() && lc.all { g.planes[Pack.P_DEPTH][it].toInt() and DREDGED != 0 }
             if (marg > 0 && notes.none { it.startsWith("passes ") }) {
                 val wider = nearestHazard(a, g, wps[k], wps[k + 1], 100.0)
-                if (wider != null && wider.kind == HZ_SOUNDING) notes.add(0, wider.note(a.res))
+                if (wider != null && wider.kind == HZ_SOUNDING &&
+                    !(inChannel && g.planes[Pack.P_DEPTH][wider.cell].toInt() and DREDGED == 0)) notes.add(0, wider.note(a.res))
             }
             val d = distanceM(wps[k], wps[k + 1])
-            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
+            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1], channelOnly = inChannel) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))
         }
         return out
