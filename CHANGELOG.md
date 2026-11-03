@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-03: Move ends keeps a 0-6 ft slip, Coinjock and Oak Island notes (not released yet)
+## 2026-11-03: Move ends keeps a 0-6 ft slip, Coinjock and Oak Island notes (app 0.1.195, route packs build 153 unchanged)
 
 Planning:
 - **Move ends to navigable water keeps a point in water that may be under your safe depth.** A marina in a 0-6 ft creek at 3 ft starts where you put it, and its legs are flagged (orange on the chart, check markers in the GPX), the same as with the option off. The option now moves only a point on land, in water charted entirely under your safe depth, in the buffer around a charted hazard, or boxed in, and only to the nearest usable water clear of hazards. This reverses the 2026-10-22 behavior, which walked such a point out to water charted at least your safe depth (issue #27).
