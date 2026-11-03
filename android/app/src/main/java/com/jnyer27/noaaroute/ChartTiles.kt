@@ -9,9 +9,9 @@ import kotlin.math.min
  * Depth colors follow that depth, so the same tiles serve a 3 ft boat and an 8 ft one.
  *
  * A region chart (Ncds_04.mbtiles and, later, the other regions) is one MapLibre
- * source, same layers as the bundled Middle River file. [pick] chooses which
- * downloaded set to draw. Several sets can be returned as separate sources once
- * more than one region is on screen; today the choice is a single set.
+ * source, same layers as the bundled Middle River file. Every downloaded set is drawn
+ * at once, each its own source ([style] with a list). [pick] chooses the region under
+ * the view, for the download and update offers.
  */
 object ChartTiles {
     const val ASSET = "middle_river.mbtiles"
@@ -96,6 +96,13 @@ object ChartTiles {
         if (points.isEmpty()) return null
         return sets.maxWithOrNull(compareBy<TileSet> { it.countInside(points) }.thenBy { -it.span() }.thenBy { it.ncds })
             ?.takeIf { it.countInside(points) > 0 }
+    }
+
+    /** "Region 04", or "Regions 04 and 05", or "Regions 03, 04 and 05" for the charts drawn. */
+    fun regionsHeading(sets: List<TileSet>): String {
+        if (sets.size == 1) return sets[0].shortName
+        val codes = sets.map { it.ncds }
+        return "Regions " + codes.dropLast(1).joinToString(", ") + " and " + codes.last()
     }
 
     /** A catalog chart that covers this view and is not downloaded yet. */
@@ -337,10 +344,45 @@ object ChartTiles {
      * Water whose deep limit is under the safe depth is the strong blue; a depth area that
      * straddles it (the 0-6 ft band for a 3 ft boat) is the lighter blue; deeper water is pale.
      */
-    fun style(depthFt: Double, mbtilesUrl: String, glyphsUrl: String): String {
+    fun style(depthFt: Double, mbtilesUrl: String, glyphsUrl: String): String =
+        style(depthFt, listOf(mbtilesUrl), glyphsUrl)
+
+    /**
+     * One style for several region charts at once: each file is its own source ("enc",
+     * "enc1", ...), and each chart layer is repeated per source, all copies of a layer
+     * together, so depth shading stays under contours and marks across a seam. The
+     * first source keeps the plain layer ids. Drawing only the region under the screen's
+     * center left the next region blank while panning across 38.23 N (04 and 05).
+     */
+    fun style(depthFt: Double, mbtilesUrls: List<String>, glyphsUrl: String): String {
+        require(mbtilesUrls.isNotEmpty())
         val depth = depthText(depthFt)
-        return STYLE.trim().replace("__DEPTH__", depth)
-            .replace("__MBTILES__", jsonString(mbtilesUrl))
+        fun src(k: Int) = if (k == 0) "enc" else "enc$k"
+        val sources = mbtilesUrls.indices.joinToString(",\n") { k ->
+            "    \"${src(k)}\": {\"type\": \"vector\", \"url\": ${jsonString(mbtilesUrls[k])}}"
+        }
+        val text = STYLE.trim()
+        val open = text.indexOf("  \"layers\": [\n") + "  \"layers\": [\n".length
+        val close = text.lastIndexOf("\n  ]")
+        // One layer per block: each starts on a line beginning with {"id":
+        val blocks = ArrayList<String>()
+        for (line in text.substring(open, close).lines()) {
+            if (line.trimStart().startsWith("{\"id\":")) blocks.add(line) else blocks[blocks.size - 1] += "\n" + line
+        }
+        val layers = ArrayList<String>()
+        for (b in blocks) {
+            val body = b.trimEnd().removeSuffix(",")
+            if (!body.contains("\"source\": \"enc\"")) { layers.add(body); continue }
+            val id = Regex("""\{"id": "([^"]+)"""").find(body)!!.groupValues[1]
+            for (k in mbtilesUrls.indices) {
+                layers.add(if (k == 0) body else body
+                    .replaceFirst("{\"id\": \"$id\"", "{\"id\": \"$id~$k\"")
+                    .replace("\"source\": \"enc\"", "\"source\": \"${src(k)}\""))
+            }
+        }
+        return (text.substring(0, open) + layers.joinToString(",\n") + text.substring(close))
+            .replace("    \"enc\": {\"type\": \"vector\", \"url\": __MBTILES__}", sources)
+            .replace("__DEPTH__", depth)
             .replace("__GLYPHS__", jsonString(glyphsUrl))
     }
 
