@@ -778,14 +778,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     /**
      * Move ends to navigable water: the nearest cell, along usable water from [start]
-     * (so not across a point of land into the next creek), charted at least the safe
-     * depth and clear of hazard buffers, piers, snags and channel markers, within maxM
-     * of the way there; with its straight distance from p. Null if start already is one
-     * or none is that close.
+     * (so not across a point of land into the next creek), that is [clearWater], within
+     * maxM of the way there; with its straight distance from p. Null if start already is
+     * one or none is that close.
      */
-    /** Water charted at least the safe depth, clear of hazard buffers, piers and markers. */
+    /**
+     * Where Move ends may leave a point: usable water, 0-6 ft style bands included, clear of
+     * charted hazards and their buffers, piers, snags and channel-mark lines. Jason chose
+     * (2026-11-03, issue #27) to keep a point in water that may be under the safe depth and
+     * flag its legs, rather than walk it out to water charted at least that depth.
+     */
     private fun clearWater(g: Grid, i: Int) =
-        g.ok[i] && g.nav[i].toInt() == SAFE && !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
+        g.ok[i] && g.nav[i].toInt().let { it == SAFE || it == MARGINAL } &&
+            !g.soft[i] && !g.pier[i] && !g.snag[i] && !g.gate[i]
 
     /**
      * Nearest clear water along usable water from start, at most maxM along the way
@@ -1334,7 +1339,14 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     /** Pier crossings along a chain of cells: pier cells entered, plus diagonal steps that slip past a pier corner. */
-    private fun pierSteps(a: Area, cells: IntArray, pier: (Int) -> Boolean): Int {
+    /**
+     * Pier (or snag, gate) steps along [cells]: a cell itself, or the corner of a diagonal
+     * step. A diagonal step between two channel cells does not count its corners: A* takes
+     * it without the corner price. Counted, the Coinjock cut's staircase south of the span
+     * gave the path one pier step, and simplify spent it on a line through the real pier
+     * cell beside the channel (issue #34).
+     */
+    private fun pierSteps(a: Area, g: Grid, cells: IntArray, pier: (Int) -> Boolean): Int {
         val w = a.w
         var n = 0
         for (k in cells.indices) {
@@ -1345,7 +1357,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val c0 = cells[k - 1] % w
                 val r1 = i / w
                 val c1 = i % w
-                if (r0 != r1 && c0 != c1 && (pier(r0 * w + c1) || pier(r1 * w + c0))) n++
+                if (r0 != r1 && c0 != c1 && !(g.channel(cells[k - 1]) && g.channel(i)) &&
+                    (pier(r0 * w + c1) || pier(r1 * w + c0))) n++
             }
         }
         return n
@@ -1387,11 +1400,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (g.soft[i]) { sf++; if (sf * pn > (nsoft + 1) * n) return false }
             }
             if (!keepsCenter(a, g, path, p, q)) return false
-            return pierSteps(a, cells) { g.pier[it] } <= npier
+            return pierSteps(a, g, cells) { g.pier[it] } <= npier
         }
         // pier crossings of the planned path up to each point
         val pc = IntArray(path.size)
-        for (k in 1 until path.size) pc[k] = pc[k - 1] + pierSteps(a, intArrayOf(path[k - 1], path[k])) { g.pier[it] }
+        for (k in 1 until path.size) pc[k] = pc[k - 1] + pierSteps(a, g, intArrayOf(path[k - 1], path[k])) { g.pier[it] }
         val keep = ArrayList<Int>()
         keep.add(0)
         var s = 0
@@ -1591,7 +1604,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (shoalBesideChannel(a, g, cells, used) || shoalBesideChannel(a, g, corners.toIntArray(), used)) continue
                 if (leavesSpanOpening(a, g, path[i0], path[i1])) continue
                 if (!keepsCenter(a, g, path, i0, i1)) continue
-                if (pierSteps(a, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
+                if (pierSteps(a, g, cells) { g.pier[it] } > pc[i1] - pc[i0] + (if (g.pier[path[i0]]) 1 else 0)) continue
                 best = e
             }
             out.add(keep[best])
@@ -1602,7 +1615,14 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
 
     // ------------------------------------------------------------ report
 
-    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0): Double? {
+    /**
+     * Shallowest sounding within [withinM] of the leg p-q. A sounding outside fairway and
+     * dredged cells counts only within [offChannelM]: on a leg mostly in a fairway that is
+     * the hazard buffer, the distance the planner already passes a shoal sounding at. The
+     * Oak Island fairway leg at 2 ft said "under your 2 ft" for a 1.0 ft sounding 93 m off
+     * the line, outside the fairway (issue #41).
+     */
+    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0, offChannelM: Double = withinM): Double? {
         val kx = Pack.M_PER_DEG * cos(Math.toRadians((p.lat + q.lat) / 2))
         val ky = Pack.M_PER_DEG
         val ax = p.lon * kx
@@ -1626,7 +1646,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val px = ll.lon * kx
             val py = ll.lat * ky
             val t = (((px - ax) * dx + (py - ay) * dy) / l2).coerceIn(0.0, 1.0)
-            if (hypot(px - ax - t * dx, py - ay - t * dy) <= withinM) best = v
+            val lim = if (g.planes[Pack.P_DEPTH][i].toInt() and DREDGED != 0) withinM else offChannelM
+            if (hypot(px - ax - t * dx, py - ay - t * dy) <= lim) best = v
         }
         return if (best == 0) null else (best - 1) / 10.0
     }
@@ -1814,15 +1835,17 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             // pier or seawall over usable-depth water (same test as noaa-route.py's report)
-            val onPier = pierSteps(a, lc) { i ->
-                (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
+            // A fender cell in a dredged span is channel (buildGrid), and the bridge note names the span
+            val onPier = pierSteps(a, g, lc) { i ->
+                (g.planes[Pack.P_HAZARD][i].toInt() and 0xff) == Pack.HZ_PIER && !g.channel(i) &&
+                    g.nav[i].toInt().let { it == SAFE || it == MARGINAL }
             } > 0
             if (onPier && !prevPier) notes.add(0, PIER_NOTE) // once per stretch of such legs
             prevPier = onPier
-            val onSnag = pierSteps(a, lc) { g.snag[it] } > 0
+            val onSnag = pierSteps(a, g, lc) { g.snag[it] } > 0
             if (onSnag && !prevSnag) notes.add(0, SNAG_NOTE)
             prevSnag = onSnag
-            val onGate = pierSteps(a, lc) { g.gate[it] } > 0
+            val onGate = pierSteps(a, g, lc) { g.gate[it] } > 0
             if (onGate && !prevGate) notes.add(0, GATE_NOTE)
             prevGate = onGate
             val near = lc.any { g.soft[it] }
@@ -1833,12 +1856,18 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             prevHazard = if (near) hz?.cell ?: prevHazard else -1
             // A shoal leg that never steps into the hazard buffer still names how far it
             // passes a sounding under the safe depth. The depth-area sentence alone did not.
+            // A leg mostly in a fairway or dredged channel: a shoal sounding outside the
+            // channel and beyond the hazard buffer is not on the leg (issue #41).
+            val chan = lc.count { g.planes[Pack.P_DEPTH][it].toInt() and DREDGED != 0 }
+            val bufM = g.rad * a.res
+            val offM = if (lc.isNotEmpty() && chan * 2 >= lc.size) bufM else 100.0
             if (marg > 0 && notes.none { it.startsWith("passes ") }) {
                 val wider = nearestHazard(a, g, wps[k], wps[k + 1], 100.0)
-                if (wider != null && wider.kind == HZ_SOUNDING) notes.add(0, wider.note(a.res))
+                if (wider != null && wider.kind == HZ_SOUNDING &&
+                    (g.planes[Pack.P_DEPTH][wider.cell].toInt() and DREDGED != 0 || wider.distM <= offM)) notes.add(0, wider.note(a.res))
             }
             val d = distanceM(wps[k], wps[k + 1])
-            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1]) else null
+            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1], offChannelM = offM) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))
         }
         return out
@@ -1928,7 +1957,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     private fun landMessage(n: Int, distM: Double) =
         "Point $n is on land or a dock. The route uses the nearest usable water, ${distM.roundToInt()} m away. Check the way between on a chart."
 
-    /** Why Move ends is walking this point to water charted at least the safe depth. */
+    /** Why Move ends is moving this point to usable water clear of hazards. */
     private fun moveWhy(g: Grid, userCell: Int, depthFt: Double): String {
         val v = g.nav[userCell].toInt()
         val d = fmt(depthFt)
@@ -1946,29 +1975,11 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     }
 
     private fun moveMessage(n: Int, why: String, depthFt: Double, distM: Double) =
-        "Point $n is $why; with Move ends to navigable water on, the route uses the nearest water charted at least " +
-            "${fmt(depthFt)} ft, ${distM.roundToInt()} m away. Check the way between on a chart."
-
-    /**
-     * The first cell on the way from [from] to [goal], within [MOVE_ENDS_M], that is
-     * charted at least the safe depth. Null when the way out stays shallower than
-     * that for the whole distance: the ICW at Wrightsville is that ditch, and the
-     * deep water off to the east is not the way out.
-     */
-    private fun clearOnPath(a: Area, g: Grid, from: Int, goal: Int, user: LatLon): Pair<Int, Double>? {
-        val path = astar(a, g, from, goal) ?: return null
-        var walked = 0.0
-        for (k in 1 until path.size) {
-            val step = if (path[k] / a.w != path[k - 1] / a.w && path[k] % a.w != path[k - 1] % a.w) 1.4142135 else 1.0
-            walked += step * a.res
-            if (walked > MOVE_ENDS_M) return null
-            if (clearWater(g, path[k])) return path[k] to distanceM(user, a.latlon(path[k]))
-        }
-        return null
-    }
+        "Point $n is $why; with Move ends to navigable water on, the route uses the nearest usable water clear of charted hazards, " +
+            "${distM.roundToInt()} m away. Check the way between on a chart."
 
     private fun moveLeftMessage(n: Int, why: String, depthFt: Double) =
-        "Point $n is $why, and no water charted at least ${fmt(depthFt)} ft is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, " +
+        "Point $n is $why, and no usable water clear of charted hazards is within ${fmt(MOVE_ENDS_M / NM)} nm along the water, " +
             "so Move ends to navigable water left it; the legs there are flagged."
 
     /** Route a to b on the full-detail grid (its window must fit without coarsening). */
@@ -1980,10 +1991,9 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             var (sp, mp) = snap(a, g, p)
             var (sq, mq) = snap(a, g, q)
             if (moveEnds) {
-                // Water charted under the safe depth, or in a hazard buffer, starts or ends
-                // at the nearest water that is not. A pin on land or a dock stays at the
-                // snap: walking on to the nearest deep cell sent Wrightsville east out of
-                // the ICW, and the Alligator-Pungo end across a 2 ft sounding.
+                // A point in water charted entirely under the safe depth, or in a hazard
+                // buffer, starts or ends at the nearest usable water clear of hazards. Water
+                // that may be under the safe depth (a 0-6 ft creek) is kept, its legs flagged.
                 for (e in 0..1) {
                     val n = (if (e == 0) np else nq) ?: continue
                     if (n in c.moved) continue
@@ -1991,25 +2001,19 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                     val s0 = if (e == 0) sp else sq
                     val userCell = a.cell(pt)
                     if (!chartedWater(g, userCell)) {
-                        // Walk only to clear water that the way out already uses, and
-                        // only within Move ends' distance. The nearest deep cell in
-                        // any direction is what left the ICW at Wrightsville. A dock
-                        // at the head of a creek walks out along that creek.
-                        val other = if (e == 0) sq else sp
-                        val along = clearOnPath(a, g, s0, other, pt)
-                        if (along != null) {
-                            val (cell, dist) = along
+                        // A pin on land or a dock ends at the nearest usable water: the snap,
+                        // or, when that cell is in a hazard buffer, the nearest clear water
+                        // from it. Walking on to deeper water skipped water the boat can use
+                        // (Ego Alley at 2 ft: 158 m out instead of 45 m up the alley).
+                        var dist = if (e == 0) mp else mq
+                        nearestNavigable(a, g, pt, s0)?.let { (cell, d) ->
                             if (e == 0) { sp = cell; mp = 0.0 } else { sq = cell; mq = 0.0 }
-                            val msg = moveMessage(n, moveWhy(g, s0, c.depthFt), c.depthFt, dist)
+                            dist = d
+                        }
+                        if (dist + 1e-6 >= a.res) {
+                            val msg = landMessage(n, dist)
                             if (msg !in c.messages) c.messages.add(msg)
                             c.moved.add(n)
-                        } else {
-                            val dist = if (e == 0) mp else mq
-                            if (dist + 1e-6 >= a.res) {
-                                val msg = landMessage(n, dist)
-                                if (msg !in c.messages) c.messages.add(msg)
-                                c.moved.add(n)
-                            }
                         }
                         continue
                     }
@@ -2103,7 +2107,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 }
             }
             if (path != null && moveEnds) {
-                // One distance. The "nearest water charted at least D ft" line is an earlier
+                // One distance. The "nearest usable water clear of charted hazards" line is an earlier
                 // try that did not lead out; the move above is the one that did.
                 for (n in listOfNotNull(np, nq)) {
                     val lead = c.messages.filter { it.startsWith("Point $n:") && it.contains("leads out") }

@@ -194,7 +194,7 @@ class MainActivity : Activity() {
         moveEnds = CheckBox(this).apply { text = "Move ends to navigable water" }
         col.addView(moveEnds)
         col.addView(TextView(this).apply {
-            text = "When the start or destination is in water charted under your safe depth, near charted hazards, or boxed in, the route starts or ends at the nearest water (up to 0.5 nm away) charted at least your safe depth that leads on. The leg to your point is marked to check."
+            text = "When the start or destination is on land, in water charted entirely under your safe depth, near charted hazards, or boxed in, the route starts or ends at the nearest usable water (up to 0.5 nm away) that is clear of hazards and leads on. Water that may be under your safe depth, like a 0-6 ft creek, is kept and its legs are flagged. The leg to your point is marked to check."
             textSize = 12f
         })
         checks = CheckBox(this).apply { text = "Check markers in the GPX" }

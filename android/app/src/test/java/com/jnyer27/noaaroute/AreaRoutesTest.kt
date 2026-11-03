@@ -80,10 +80,16 @@ class AreaRoutesTest {
                         // "message": text one of the route's messages must contain
                         test["message"] != null && r.messages.none { it.contains(test["message"] as String) } ->
                             failures.add("$name: no message containing \"${test["message"]}\"")
+                        // "noMessage": no message contains this (a point Move ends must leave alone)
+                        test["noMessage"] != null && r.messages.any { it.contains(test["noMessage"] as String) } ->
+                            failures.add("$name: a message contains \"${test["noMessage"]}\"")
                         test["note"] != null && r.legs.none { l -> l.notes.any { it.contains(test["note"] as String) } } ->
                             failures.add("$name: no leg note containing \"${test["note"]}\"")
                         test["noNote"] != null && r.legs.any { l -> l.notes.any { it.contains(test["noNote"] as String) } } ->
                             failures.add("$name: a leg note contains \"${test["noNote"]}\"")
+                        // "noText": no leg's full sentence, as the report and GPX show it, contains this
+                        test["noText"] != null && r.legs.indices.any { Gpx.legText(r, it).contains(test["noText"] as String) } ->
+                            failures.add("$name: a leg's text contains \"${test["noText"]}\"")
                         test["noteLegs"] != null && test["note"] != null &&
                             r.legs.count { l -> l.notes.any { it.contains(test["note"] as String) } } < (test["noteLegs"] as Number).toInt() ->
                             failures.add("$name: \"${test["note"]}\" is on fewer legs than ${test["noteLegs"]}")
