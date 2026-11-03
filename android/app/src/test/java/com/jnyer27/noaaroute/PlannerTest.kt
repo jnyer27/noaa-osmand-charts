@@ -863,6 +863,14 @@ class PlannerTest {
         assertTrue(apgText, apgText.contains("entry restricted"))
         assertTrue(apgText, apgText.contains("Firing danger zone"))
         assertTrue(apgText, apgText.contains("south of Pooles Island"))
+        val rna = Note("resare", 5, box, "Bbox", null, "Chesapeake Bay",
+            listOf("entry restricted"), "33 CFR 165.501", null, null, null)
+        val rnaText = rna.describe()!!
+        assertTrue(rnaText, rnaText.contains("regulated navigation area"))
+        assertTrue(rnaText, rnaText.endsWith("(33 CFR 165.501)"))
+        assertTrue(rnaText, !Gpx.navigationLimit(rnaText) && !rnaText.contains("check"))
+        val rnaLeg = Leg(1000.0, 180.0, 0.0, null, listOf(rnaText))
+        assertTrue(!Gpx.flagged(rnaLeg))
         val cable = Note("cable", 5, box, "Bbox", null, "overhead cable", emptyList(), null, 16.7, null, null)
         val cableText = cable.describe()!!
         assertTrue(cableText, cableText.contains("54.8"))

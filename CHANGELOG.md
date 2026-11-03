@@ -4,10 +4,16 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased: restricted areas on the chart
+## Unreleased: restricted areas, cables and check pins on the chart
+
+The report:
+- **The lower Chesapeake Bay regulated navigation area is information, not a check.** 33 CFR 165.501 (Chesapeake Bay entrance and Hampton Roads) covers the bay south of about Smith Point, and as "entry restricted" it made nearly every leg there a check, which buried the real ones (legs 33-64 of a Maryland Marina to Currituck trip). Its rules are for large and deep-draft vessels and anchoring; the note now says so, the leg is not a check, and the GPX has no check marker for it. Its area is still listed under restricted areas at the top of the report.
 
 The chart:
 - **Restricted areas are drawn.** The report named restricted areas on many legs (entry restricted, anchoring prohibited, security zones), but the chart showed none of them: they are in the route data, not the chart tiles, and Route data drew only entry-prohibited water. Every restricted area from your downloaded regions is now outlined in purple dashes with its name and CFR section along the edge, heavy where entry is restricted or prohibited or for a security zone, light for other rules. Route data on or off.
+- **Overhead cables are drawn** from the route data with their clearance ("cable 55 ft"): red when it is under your air draft or not charted (or no air draft is set), navy when it clears. The chart tiles had no cables.
+- **Tap a restricted area or a cable** away from the route for its rule or clearance, in the report's words, with **Add via here** and **Destination here**.
+- **Check pins on the route.** An orange pin with ! where each run of check legs starts and a green pin where it ends, like the GPX check markers, so the checks are easy to find zoomed out.
 
 No pack rebuild.
 
