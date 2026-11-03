@@ -1348,8 +1348,9 @@ class MainActivity : Activity() {
 
     /**
      * A point picked on the chart (tap a leg, or press and hold): it becomes the destination,
-     * or a via point slotted into the trip where it adds the least distance. Plan route
-     * plans the new trip; nothing is replanned on its own.
+     * or a via point slotted into the trip where it adds the least distance. The trip is
+     * planned again and the chart reopens on the new route. A plan that fails stays here,
+     * with the reason in the report box.
      */
     @Deprecated("Activity result API; this app has no AndroidX")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -1360,7 +1361,8 @@ class MainActivity : Activity() {
         val pos = Coords.format(p)
         if (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION) == ChartMapActivity.PICK_DEST) {
             dest.setText(pos)
-            status.text = "Destination set from the chart: $pos. Tap Plan route."
+            status.text = "Destination set from the chart: $pos. Planning..."
+            plan(reopenMap = true)
             return
         }
         val vias = via.text.toString().split(";").map { it.trim() }.filter { it.isNotEmpty() }
@@ -1372,10 +1374,12 @@ class MainActivity : Activity() {
         else vias.size
         val out = vias.toMutableList().apply { add(at, pos) }
         via.setText(out.joinToString("; "))
-        status.text = "Via point ${at + 1} of ${out.size} added from the chart: $pos. Tap Plan route."
+        status.text = "Via point ${at + 1} of ${out.size} added from the chart: $pos. Planning..."
+        plan(reopenMap = true)
     }
 
-    private fun plan() {
+    /** [reopenMap]: a point picked on the chart replans, then shows the new route on the chart. */
+    private fun plan(reopenMap: Boolean = false) {
         val p = charts ?: run { toast("Download route data for planning first (Regions)."); return }
         val a = Coords.parse(start.text.toString()) ?: run { toast("Start must be LAT, LON"); return }
         val b = Coords.parse(dest.text.toString()) ?: run { toast("Destination must be LAT, LON"); return }
@@ -1427,6 +1431,7 @@ class MainActivity : Activity() {
                     status.text = Gpx.warnings(r).first()
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
+                    if (reopenMap && !isFinishing) showOnMap()
                 }
             } catch (e: PlanException) {
                 ui.post { status.text = ""; result.text = e.message; planButton.isEnabled = true; packButton.isEnabled = true }

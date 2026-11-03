@@ -8,7 +8,7 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 
 The chart:
 - **Tap a leg for its details.** A box opens with the leg's number in the title ("Leg 12: check" for a leg to check), its course and distance, and each note on its own line, instead of one long line under the map. The leg is highlighted in yellow while the box is open. How close a tap has to be follows the zoom, about a fingertip, so neighboring legs are easier to pick apart.
-- **Add a via point or set the destination from the chart.** Press and hold anywhere on the chart for **Add as via point** or **Set as destination**; a leg's details box has **Add via here** and **Destination here** for the spot you tapped. The planning screen gets that position. A via point goes between the trip points where it adds the least distance, not at the end of the list. Tap **Plan route** to plan it.
+- **Add a via point or set the destination from the chart.** Press and hold anywhere on the chart for **Add as via point** or **Set as destination**; a leg's details box has **Add via here** and **Destination here** for the spot you tapped. The planning screen gets that position. A via point goes between the trip points where it adds the least distance, not at the end of the list. The trip is planned again and the chart reopens on the new route; if it cannot be planned, the planning screen says why.
 
 No pack rebuild.
 
