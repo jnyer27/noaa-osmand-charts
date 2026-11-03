@@ -5,6 +5,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.database.sqlite.SQLiteDatabase
 import android.graphics.Color
 import android.location.Location
@@ -120,6 +122,16 @@ class ChartMapActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    private fun systemNight(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    /** Paint a control with the day or night pair. Hard-coded black on white goes black on black when the phone darkens a light theme. */
+    private fun paintControl(v: TextView, chrome: ChartTiles.ChartChrome, bg: Int = chrome.panel) {
+        v.setTextColor(chrome.text)
+        v.setBackgroundColor(bg)
+        if (v is CheckBox) v.buttonTintList = ColorStateList.valueOf(chrome.text)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
@@ -133,6 +145,8 @@ class ChartMapActivity : Activity() {
         title = "Chart"
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val chrome = ChartTiles.chartChrome(systemNight())
+        root.setBackgroundColor(chrome.keyBg)
         mapView = MapView(this)
         mapView.onCreate(savedInstanceState)
         val frame = FrameLayout(this)
@@ -140,16 +154,14 @@ class ChartMapActivity : Activity() {
         routeLegend = TextView(this).apply {
             visibility = View.GONE
             textSize = 11f
-            setTextColor(Color.BLACK)
-            setBackgroundColor(0xF2FFFFFF.toInt())
             setPadding(dp(8), dp(4), dp(8), dp(6))
+            paintControl(this, chrome)
         }
         routeToggle = CheckBox(this).apply {
             text = RouteOverlay.TOGGLE
             textSize = 13f
-            setTextColor(Color.BLACK)
-            setBackgroundColor(0xF2FFFFFF.toInt())
             setPadding(dp(8), dp(2), dp(8), dp(2))
+            paintControl(this, chrome)
             isChecked = prefs.getBoolean(RouteOverlay.PREF, false)
             overlayOn = isChecked
             setOnCheckedChangeListener { _, on ->
@@ -172,24 +184,25 @@ class ChartMapActivity : Activity() {
             text = "Follow"
             isAllCaps = false
             textSize = 14f
+            paintControl(this, chrome)
             setOnClickListener { onFollowTapped() }
         }
         compassArrow = TextView(this).apply {
             text = "▲"
             textSize = 18f
-            setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
+            setTextColor(chrome.text)
         }
         compassLabel = TextView(this).apply {
             text = ChartTiles.compassText(0.0)
             textSize = 14f
-            setTextColor(Color.BLACK)
+            setTextColor(chrome.text)
             setPadding(dp(4), 0, 0, 0)
         }
         val compass = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xF2FFFFFF.toInt())
+            setBackgroundColor(chrome.panel)
             setPadding(dp(8), dp(4), dp(8), dp(4))
             minimumHeight = dp(48)
             isClickable = true
@@ -201,6 +214,7 @@ class ChartMapActivity : Activity() {
             isAllCaps = false
             textSize = 14f
             text = if (courseUp) "Course up" else "North up"
+            paintControl(this, chrome)
             setOnClickListener { toggleCourse() }
         }
         val controls = LinearLayout(this).apply {
@@ -219,6 +233,7 @@ class ChartMapActivity : Activity() {
             textSize = 13f
             minimumHeight = dp(48)
             setPadding(dp(12), dp(8), dp(12), dp(4))
+            paintControl(this, chrome, chrome.keyBg)
             isClickable = true
             setOnClickListener {
                 keyOpen = !keyOpen
@@ -236,10 +251,14 @@ class ChartMapActivity : Activity() {
             setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         root.addView(picked)
-        downloadButton = Button(this).apply { visibility = View.GONE }
+        downloadButton = Button(this).apply {
+            visibility = View.GONE
+            paintControl(this, chrome, chrome.keyBg)
+        }
         root.addView(downloadButton)
         root.addView(Button(this).apply {
             text = "Back"
+            paintControl(this, chrome, chrome.keyBg)
             setOnClickListener { finish() }
         })
         setContentView(root)

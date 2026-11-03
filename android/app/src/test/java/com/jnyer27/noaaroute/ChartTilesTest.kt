@@ -177,5 +177,13 @@ class ChartTilesTest {
         assertTrue(ChartTiles.orientSentence(false).startsWith("North is up."))
         assertTrue(ChartTiles.orientSentence(true).contains("turns with your course"))
         assertFalse(ChartTiles.orientSentence(true).startsWith("North is up."))
+        val day = ChartTiles.chartChrome(false)
+        val night = ChartTiles.chartChrome(true)
+        assertTrue(day.readable())
+        assertTrue(night.readable())
+        assertTrue(ChartTiles.contrasts(day.text, day.keyBg))
+        assertTrue(ChartTiles.contrasts(night.text, night.panel))
+        assertTrue((day.text and 0xffffff) < 0x808080)
+        assertTrue((night.text and 0xffffff) > 0x808080)
     }
 }

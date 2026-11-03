@@ -120,6 +120,32 @@ object ChartTiles {
     fun keyLine(full: String, open: Boolean): String =
         if (open) "$full Tap to hide the key." else KEY_BAR
 
+    /**
+     * Colors for the chart screen. Night is the phone's dark mode. Text and
+     * panel are chosen as a pair so a light theme forced by the app, or Android's
+     * automatic darkening, cannot leave black text on a black control.
+     */
+    class ChartChrome(val text: Int, val panel: Int, val keyBg: Int) {
+        fun readable(): Boolean = contrasts(text, panel) && contrasts(text, keyBg)
+    }
+
+    fun chartChrome(night: Boolean): ChartChrome = if (night)
+        ChartChrome(0xFFFFFFFF.toInt(), 0xF2222222.toInt(), 0xFF121212.toInt())
+    else
+        ChartChrome(0xFF000000.toInt(), 0xF2FFFFFF.toInt(), 0xFFFFFFFF.toInt())
+
+    /** True when [text] and [bg] are far enough apart to read. Alpha on [bg] is ignored. */
+    fun contrasts(text: Int, bg: Int): Boolean {
+        fun y(c: Int): Int {
+            val rgb = c and 0xffffff
+            val r = (rgb shr 16) and 0xff
+            val g = (rgb shr 8) and 0xff
+            val b = rgb and 0xff
+            return r * 3 + g * 6 + b
+        }
+        return kotlin.math.abs(y(text) - y(bg)) > 800
+    }
+
     /** Preference: while Follow is on, turn the map with the boat's course. */
     const val COURSE_PREF = "chartCourseUp"
 

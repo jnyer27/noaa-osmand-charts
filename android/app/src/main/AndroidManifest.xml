@@ -20,6 +20,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="NOAA Route"
         android:largeHeap="true"
+        android:forceDarkAllowed="false"
         android:theme="@android:style/Theme.DeviceDefault.Light">
         <activity
             android:name=".MainActivity"
@@ -66,7 +67,9 @@
         <activity
             android:name=".ChartMapActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
-            android:exported="false" />
+            android:exported="false"
+            android:forceDarkAllowed="false"
+            android:theme="@android:style/Theme.DeviceDefault.DayNight" />
         <!-- Chart maps: a finished DownloadManager download starts the conversion job -->
         <receiver
             android:name=".ChartDownloadReceiver"
