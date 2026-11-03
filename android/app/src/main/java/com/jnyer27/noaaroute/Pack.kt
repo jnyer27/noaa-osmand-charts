@@ -117,7 +117,7 @@ class Note(
         val cite = section?.let { " ($it)" } ?: ""
         if (section != null && "165.501" in section) {
             val kept = rules.filter { "entry restricted" !in it && "entry prohibited" !in it }
-            val body = (listOf(RNA_RULE) + kept).distinct().joinToString(", ")
+            val body = (listOf(Pack.RNA_RULE) + kept).distinct().joinToString(", ")
             return "$name: $body$cite"
         }
         if (section != null && "162.40" in section) {
