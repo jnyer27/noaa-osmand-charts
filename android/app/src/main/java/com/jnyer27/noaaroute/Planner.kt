@@ -1616,11 +1616,13 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
     // ------------------------------------------------------------ report
 
     /**
-     * Shallowest sounding within [withinM] of the leg p-q. With [channelOnly], only soundings
-     * in fairway or dredged cells count: the Oak Island fairway leg at 2 ft said "under your
-     * 2 ft" for a 1.0 ft sounding 93 m off the line, outside the fairway (issue #41).
+     * Shallowest sounding within [withinM] of the leg p-q. A sounding outside fairway and
+     * dredged cells counts only within [offChannelM]: on a leg mostly in a fairway that is
+     * the hazard buffer, the distance the planner already passes a shoal sounding at. The
+     * Oak Island fairway leg at 2 ft said "under your 2 ft" for a 1.0 ft sounding 93 m off
+     * the line, outside the fairway (issue #41).
      */
-    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0, channelOnly: Boolean = false): Double? {
+    private fun shallowestNear(a: Area, g: Grid, p: LatLon, q: LatLon, withinM: Double = 100.0, offChannelM: Double = withinM): Double? {
         val kx = Pack.M_PER_DEG * cos(Math.toRadians((p.lat + q.lat) / 2))
         val ky = Pack.M_PER_DEG
         val ax = p.lon * kx
@@ -1640,12 +1642,12 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             val i = r * a.w + c
             val v = g.planes[Pack.P_SOUND][i].toInt() and 0xff
             if (v == 0 || (best != 0 && v >= best)) continue
-            if (channelOnly && g.planes[Pack.P_DEPTH][i].toInt() and DREDGED == 0) continue
             val ll = a.latlon(i)
             val px = ll.lon * kx
             val py = ll.lat * ky
             val t = (((px - ax) * dx + (py - ay) * dy) / l2).coerceIn(0.0, 1.0)
-            if (hypot(px - ax - t * dx, py - ay - t * dy) <= withinM) best = v
+            val lim = if (g.planes[Pack.P_DEPTH][i].toInt() and DREDGED != 0) withinM else offChannelM
+            if (hypot(px - ax - t * dx, py - ay - t * dy) <= lim) best = v
         }
         return if (best == 0) null else (best - 1) / 10.0
     }
@@ -1854,16 +1856,18 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             prevHazard = if (near) hz?.cell ?: prevHazard else -1
             // A shoal leg that never steps into the hazard buffer still names how far it
             // passes a sounding under the safe depth. The depth-area sentence alone did not.
-            // A leg wholly in a fairway or dredged channel looks only at soundings in it.
-            // A shoal outside the channel, beyond the hazard buffer, is not on the leg.
-            val inChannel = lc.isNotEmpty() && lc.all { g.planes[Pack.P_DEPTH][it].toInt() and DREDGED != 0 }
+            // A leg mostly in a fairway or dredged channel: a shoal sounding outside the
+            // channel and beyond the hazard buffer is not on the leg (issue #41).
+            val chan = lc.count { g.planes[Pack.P_DEPTH][it].toInt() and DREDGED != 0 }
+            val bufM = g.rad * a.res
+            val offM = if (lc.isNotEmpty() && chan * 2 >= lc.size) bufM else 100.0
             if (marg > 0 && notes.none { it.startsWith("passes ") }) {
                 val wider = nearestHazard(a, g, wps[k], wps[k + 1], 100.0)
                 if (wider != null && wider.kind == HZ_SOUNDING &&
-                    !(inChannel && g.planes[Pack.P_DEPTH][wider.cell].toInt() and DREDGED == 0)) notes.add(0, wider.note(a.res))
+                    (g.planes[Pack.P_DEPTH][wider.cell].toInt() and DREDGED != 0 || wider.distM <= offM)) notes.add(0, wider.note(a.res))
             }
             val d = distanceM(wps[k], wps[k + 1])
-            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1], channelOnly = inChannel) else null
+            val low = if (marg > 0) shallowestNear(a, g, wps[k], wps[k + 1], offChannelM = offM) else null
             out.add(Leg(d, bearing(wps[k], wps[k + 1]), marg * d / max(lc.size, 1), low, notes))
         }
         return out
