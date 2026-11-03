@@ -153,6 +153,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val MARG_SHORE_COST = 10f
         /** Extra cost on 0-6 ft water beside a channel when a nearby sounding prints at or under the safe depth. */
         private const val BESIDE_CHANNEL_COST = 8f
+        /** How far, in cells, a line that tidies a via point may stray from the legs it replaces. */
+        private const val VIA_TIDY = 0.75
         private const val OFF_WATER = "connects your point to usable water: not checked, use your eyes"
         // Piers and seawalls (pack HAZARD plane value Pack.HZ_PIER) are lines over charted
         // water, often between a slip and open water. As walls they sealed marinas and
@@ -2569,6 +2571,7 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 if (wps.isEmpty()) wps.addAll(piece.wps) else wps.addAll(piece.wps.drop(1))
                 legs.addAll(piece.legs)
                 if (atGuide && join > 0) tidyJoin(wps, legs, join, max(res, piece.res), first)
+                else if (!atGuide && join > 0) tidyVia(wps, legs, join, max(res, piece.res), pts)
                 res = max(res, piece.res)
                 progress("$what: %.1f nm at %.0f m".format(piece.legs.sumOf { it.distM } / NM, piece.res))
             }
@@ -2702,6 +2705,54 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
                 val l2 = legs[j]
                 val lows = listOfNotNull(l1.lowM, l2.lowM)
                 legs[j - 1] = Leg(distanceM(wps[j - 1], wps[j + 1]), bearing(wps[j - 1], wps[j + 1]), l1.shoalM + l2.shoalM,
+                    lows.minOrNull(), (l1.notes + l2.notes).distinct())
+                legs.removeAt(j)
+                wps.removeAt(j)
+                changed = true
+                break
+            }
+        }
+    }
+
+    /**
+     * The legs either side of a via point are planned on their own grids, so each snaps the
+     * via to a different 20 m cell and keeps cell centers by it: a via added from the chart
+     * at 39.30342,-76.40564 drew five legs of 0.01 nm (two in line with the leg before, an
+     * out-and-back between the two snaps). Drop points within two cells of the via while
+     * the line replacing a point's two legs stays within [VIA_TIDY] of a cell of them. Your
+     * own points stay, and a leg that connects your point to water is never merged.
+     */
+    private fun tidyVia(wps: MutableList<LatLon>, legs: MutableList<Leg>, join: Int, resM: Double, pts: List<LatLon>) {
+        val at = wps[join]
+        val mine = pts.toHashSet()
+        fun off(p: LatLon, a: LatLon, b: LatLon): Double {
+            val kx = Pack.M_PER_DEG * cos(Math.toRadians(p.lat))
+            val ky = Pack.M_PER_DEG
+            val dx = (b.lon - a.lon) * kx
+            val dy = (b.lat - a.lat) * ky
+            val px = (p.lon - a.lon) * kx
+            val py = (p.lat - a.lat) * ky
+            val l2 = (dx * dx + dy * dy).takeIf { it > 0 } ?: 1.0
+            val t = ((px * dx + py * dy) / l2).coerceIn(0.0, 1.0)
+            return hypot(px - t * dx, py - t * dy)
+        }
+        var changed = true
+        while (changed) {
+            changed = false
+            for (j in 1 until wps.size - 1) {
+                if (wps[j] in mine || distanceM(wps[j], at) > 2 * resM + 1) continue
+                val l1 = legs[j - 1]
+                val l2 = legs[j]
+                if (OFF_WATER in l1.notes || OFF_WATER in l2.notes) continue
+                val a = wps[j - 1]
+                val b = wps[j + 1]
+                val stray = (0..10).maxOf { t ->
+                    val p = LatLon(a.lat + (b.lat - a.lat) * t / 10, a.lon + (b.lon - a.lon) * t / 10)
+                    min(off(p, a, wps[j]), off(p, wps[j], b))
+                }
+                if (stray > resM * VIA_TIDY) continue
+                val lows = listOfNotNull(l1.lowM, l2.lowM)
+                legs[j - 1] = Leg(distanceM(a, b), bearing(a, b), l1.shoalM + l2.shoalM,
                     lows.minOrNull(), (l1.notes + l2.notes).distinct())
                 legs.removeAt(j)
                 wps.removeAt(j)
