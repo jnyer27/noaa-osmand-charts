@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-03: tap a leg for its details, add a via from the chart (not released yet)
+## 2026-11-03: tap a leg for its details, add a via from the chart (app 0.1.199, route packs build 153 unchanged)
 
 The chart:
 - **Tap a leg for its details.** A box opens with the leg's number in the title ("Leg 12: check" for a leg to check), its course and distance, and each note on its own line, instead of one long line under the map. The leg is highlighted in yellow while the box is open. How close a tap has to be follows the zoom, about a fingertip, so neighboring legs are easier to pick apart.
