@@ -49,14 +49,17 @@ object ChartTiles {
         fun url(base: String) = base + file
     }
 
-    /** Region charts listed in a vector-maps catalog. Regions with no `tiles` object are skipped. */
-    fun tileSets(catalogJson: String): List<TileSet> {
+    /**
+     * Region charts listed in a vector-maps catalog. Regions with no `tiles` object are skipped.
+     * [key] "basemap" reads the OpenStreetMap base map entries instead.
+     */
+    fun tileSets(catalogJson: String, key: String = "tiles"): List<TileSet> {
         val root = MiniJson.parse(catalogJson) as? Map<*, *> ?: return emptyList()
         val regions = root["regions"] as? List<*> ?: return emptyList()
         val out = ArrayList<TileSet>()
         for (raw in regions) {
             val reg = raw as? Map<*, *> ?: continue
-            val tiles = reg["tiles"] as? Map<*, *> ?: continue
+            val tiles = reg[key] as? Map<*, *> ?: continue
             val file = tiles["file"] as? String ?: continue
             val sha = tiles["sha256"] as? String ?: continue
             if (sha.isEmpty()) continue
@@ -441,13 +444,16 @@ object ChartTiles {
      * first source keeps the plain layer ids. Drawing only the region under the screen's
      * center left the next region blank while panning across 38.23 N (04 and 05).
      */
-    fun style(depthFt: Double, mbtilesUrls: List<String>, glyphsUrl: String): String {
+    fun style(depthFt: Double, mbtilesUrls: List<String>, glyphsUrl: String, baseUrls: List<String> = emptyList()): String {
         require(mbtilesUrls.isNotEmpty())
         val depth = depthText(depthFt)
         fun src(k: Int) = if (k == 0) "enc" else "enc$k"
-        val sources = mbtilesUrls.indices.joinToString(",\n") { k ->
+        val sources = (mbtilesUrls.indices.map { k ->
             "    \"${src(k)}\": {\"type\": \"vector\", \"url\": ${jsonString(mbtilesUrls[k])}}"
-        }
+        } + baseUrls.indices.map { k ->
+            "    \"osm$k\": {\"type\": \"vector\", \"url\": ${jsonString(baseUrls[k])}, " +
+                "\"attribution\": \"\u00a9 OpenStreetMap contributors\"}"
+        }).joinToString(",\n")
         val text = STYLE.trim()
         val open = text.indexOf("  \"layers\": [\n") + "  \"layers\": [\n".length
         val close = text.lastIndexOf("\n  ]")
@@ -457,6 +463,15 @@ object ChartTiles {
             if (line.trimStart().startsWith("{\"id\":")) blocks.add(line) else blocks[blocks.size - 1] += "\n" + line
         }
         val layers = ArrayList<String>()
+        // OpenStreetMap base map layers, once per region file, all copies of a layer together
+        val base = ArrayList<String>()
+        if (baseUrls.isNotEmpty()) for (b in BASE_LAYERS.trim().split(Regex(""",\n(?=\s*\{"id":)"""))) {
+            val body = b.trim().removeSuffix(",")
+            val id = Regex("""\{"id": "([^"]+)"""").find(body)!!.groupValues[1]
+            for (k in baseUrls.indices) base.add("    " + body
+                .replaceFirst("{\"id\": \"$id\"", "{\"id\": \"$id~$k\"")
+                .replace("\"source\": \"osm\"", "\"source\": \"osm$k\""))
+        }
         for (b in blocks) {
             val body = b.trimEnd().removeSuffix(",")
             if (!body.contains("\"source\": \"enc\"")) { layers.add(body); continue }
@@ -466,6 +481,11 @@ object ChartTiles {
                     .replaceFirst("{\"id\": \"$id\"", "{\"id\": \"$id~$k\"")
                     .replace("\"source\": \"enc\"", "\"source\": \"${src(k)}\""))
             }
+        }
+        // Above the chart's land fill, under its contours, marks, soundings and the route
+        if (base.isNotEmpty()) {
+            val at = layers.indexOfLast { Regex("""\{"id": "lndare(~\d+)?"""").containsMatchIn(it) } + 1
+            layers.addAll(at, base)
         }
         return (text.substring(0, open) + layers.joinToString(",\n") + text.substring(close))
             .replace("    \"enc\": {\"type\": \"vector\", \"url\": __MBTILES__}", sources)
@@ -497,6 +517,49 @@ object ChartTiles {
 
     private const val LIGHT_TEXT =
         """["match",["get","col"],"G","#146b28","R","#a81414","Y","#8a6a00","W","#222222","Bu","#0d47a1","Or","#a85a12","#222222"]"""
+
+    /**
+     * OpenStreetMap base map (Protomaps basemap layers v4, trimmed by tools/build_basemap.sh
+     * to roads, places, boundaries and boating pois). No water or land fill: the chart's own.
+     */
+    private const val BASE_LAYERS = """
+    {"id": "osm-boundary", "type": "line", "source": "osm", "source-layer": "boundaries",
+      "filter": ["match", ["get", "kind"], ["country", "region", "county"], true, false],
+      "paint": {"line-color": "#7e57c2", "line-opacity": 0.7, "line-dasharray": [3, 2],
+        "line-width": ["match", ["get", "kind"], "county", 1.0, 1.6]}},
+    {"id": "osm-rail", "type": "line", "source": "osm", "source-layer": "roads", "minzoom": 11,
+      "filter": ["==", ["get", "kind"], "rail"],
+      "paint": {"line-color": "#8d8d8d", "line-width": 1, "line-dasharray": [3, 2]}},
+    {"id": "osm-ferry", "type": "line", "source": "osm", "source-layer": "roads", "minzoom": 10,
+      "filter": ["==", ["get", "kind"], "ferry"],
+      "paint": {"line-color": "#3f6fb5", "line-width": 1.2, "line-dasharray": [4, 2]}},
+    {"id": "osm-minor", "type": "line", "source": "osm", "source-layer": "roads", "minzoom": 12,
+      "filter": ["==", ["get", "kind"], "minor_road"],
+      "paint": {"line-color": "#fdfcf7", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.6, 16, 4]}},
+    {"id": "osm-major", "type": "line", "source": "osm", "source-layer": "roads", "minzoom": 9,
+      "filter": ["==", ["get", "kind"], "major_road"],
+      "paint": {"line-color": "#f2cf7e", "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.7, 16, 5]}},
+    {"id": "osm-highway", "type": "line", "source": "osm", "source-layer": "roads",
+      "filter": ["==", ["get", "kind"], "highway"],
+      "paint": {"line-color": "#e0913f", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 16, 6]}},
+    {"id": "osm-road-label", "type": "symbol", "source": "osm", "source-layer": "roads", "minzoom": 13,
+      "filter": ["match", ["get", "kind"], ["highway", "major_road", "minor_road"], true, false],
+      "layout": {"symbol-placement": "line", "text-field": ["coalesce", ["get", "name"], ["get", "ref"], ""],
+        "text-font": ["$FONT"], "text-size": 10},
+      "paint": {"text-color": "#5d4a2a", "text-halo-color": "#ffffff", "text-halo-width": 1.2}},
+    {"id": "osm-poi", "type": "symbol", "source": "osm", "source-layer": "pois", "minzoom": 12,
+      "layout": {"text-field": ["coalesce", ["get", "name"], ""], "text-font": ["$FONT"], "text-size": 11},
+      "paint": {"text-color": "#0d47a1", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "osm-place-minor", "type": "symbol", "source": "osm", "source-layer": "places", "minzoom": 12,
+      "filter": ["match", ["get", "kind_detail"], ["village", "hamlet", "suburb", "neighbourhood", "quarter"], true, false],
+      "layout": {"text-field": ["coalesce", ["get", "name"], ""], "text-font": ["$FONT"], "text-size": 11},
+      "paint": {"text-color": "#4e342e", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "osm-place", "type": "symbol", "source": "osm", "source-layer": "places",
+      "filter": ["match", ["get", "kind_detail"], ["city", "town"], true, false],
+      "layout": {"text-field": ["coalesce", ["get", "name"], ""], "text-font": ["$FONT"],
+        "text-size": ["match", ["get", "kind_detail"], "city", 15, 13]},
+      "paint": {"text-color": "#3e2723", "text-halo-color": "#ffffff", "text-halo-width": 1.8}}
+"""
 
     private const val STYLE = """
 {

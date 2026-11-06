@@ -172,6 +172,35 @@ class ChartTilesTest {
     }
 
     @Test
+    fun theBaseMapIsItsOwnCatalogEntryAndDrawsUnderTheChartMarks() {
+        val catalog = """{"version":1,"regions":[{"ncds":"04","name":"Region 04: Upper Chesapeake",
+            "tiles":{"file":"Ncds_04.mbtiles","size":63000000,"sha256":"aa","bounds":[-77.8,38.23,-73.4,39.73],"minzoom":8,"maxzoom":15},
+            "basemap":{"file":"Ncds_04_basemap.pmtiles","size":40000000,"sha256":"bb","bounds":[-77.8,38.23,-73.4,39.73],"minzoom":0,"maxzoom":14}},
+            {"ncds":"05","name":"Region 05","tiles":{"file":"Ncds_05.mbtiles","size":1,"sha256":"cc","bounds":[-77.8,35.5,-74.6,38.23],"minzoom":8,"maxzoom":15}}]}"""
+        assertEquals(listOf("Ncds_04.mbtiles", "Ncds_05.mbtiles"), ChartTiles.tileSets(catalog).map { it.file })
+        val base = ChartTiles.tileSets(catalog, "basemap")
+        assertEquals(listOf("Ncds_04_basemap.pmtiles"), base.map { it.file })
+        assertEquals(14, base[0].maxZoom)
+        val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_05.mbtiles"),
+            "file:///g/{fontstack}/{range}.pbf", listOf("pmtiles://file:///b/Ncds_04_basemap.pmtiles", "pmtiles://file:///b/Ncds_05_basemap.pmtiles"))
+        val json = obj(MiniJson.parse(style))
+        val sources = obj(json["sources"])
+        assertEquals("pmtiles://file:///b/Ncds_04_basemap.pmtiles", obj(sources["osm0"])["url"])
+        assertEquals("pmtiles://file:///b/Ncds_05_basemap.pmtiles", obj(sources["osm1"])["url"])
+        val layers = arr(json["layers"]).map { obj(it) }
+        val ids = layers.map { it["id"] as String }
+        assertEquals("ids unique", ids.size, ids.toSet().size)
+        assertEquals("osm1", layers.first { it["id"] == "osm-highway~1" }["source"])
+        // Above every region's land fill, under contours, soundings, marks and the route
+        assertTrue(ids.indexOf("lndare~1") < ids.indexOf("osm-boundary~0"))
+        assertTrue(ids.indexOf("osm-place~1") < ids.indexOf("depcnt"))
+        assertTrue(ids.indexOf("osm-place~1") < ids.indexOf("soundg"))
+        assertFalse(style.contains("__"))
+        // Without a base map the style has no OpenStreetMap layer
+        assertFalse(ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf").contains("osm-"))
+    }
+
+    @Test
     fun severalRegionChartsAreOneStyleWithASourceEach() {
         val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_05.mbtiles"),
             "file:///g/{fontstack}/{range}.pbf")

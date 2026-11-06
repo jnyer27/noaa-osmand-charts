@@ -278,6 +278,9 @@ jobs:
                   prev = regions.get(e["ncds"])
                   if "tiles" not in e and prev and prev.get("tiles"):
                       e["tiles"] = prev["tiles"]
+                  # The OpenStreetMap base map is published by basemap.yml
+                  if prev and prev.get("basemap"):
+                      e["basemap"] = prev["basemap"]
                   regions[e["ncds"]] = e
                   built.append(e["ncds"])
           if not built:

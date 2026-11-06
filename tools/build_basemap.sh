@@ -2,9 +2,11 @@
 # OpenStreetMap base map for the app's chart screen, one NCDS region per file.
 # Cuts the region out of the latest Protomaps daily build (OSM data, basemap layers v4)
 # with go-pmtiles (HTTP range requests, no planet download), then keeps only the layers
-# the chart needs: roads, places, boundaries, pois (marinas) and transit (ferries,
-# rail). OSM water, earth, landuse and landcover are dropped: the NOAA chart paints
-# land, shoreline and depth, and OSM's shoreline does not match it.
+# the chart needs: roads (with rail and ferries), places, boundaries, and pois of
+# boating kinds only (marinas, ramps, ferry terminals, lighthouses, boatyards,
+# beaches; the other 99% are shops and restaurants). OSM water, earth, landuse and
+# landcover are dropped: the NOAA chart paints land, shoreline and depth, and OSM's
+# shoreline does not match it.
 #
 #   tools/build_basemap.sh <name> <west,south,east,north> <maxzoom> [outdir]
 #
@@ -19,7 +21,8 @@ echo "Protomaps build $build"
 full="$out/${name}_basemap_full.pmtiles"
 pmtiles extract "https://build.protomaps.com/$build" "$full" --bbox="$bbox" --maxzoom="$maxzoom" --download-threads=8
 tile-join --force --no-tile-size-limit \
-  -l roads -l places -l boundaries -l pois -l transit \
+  -l roads -l places -l boundaries -l pois \
+  -j '{"pois": ["in", "kind", "marina", "slipway", "ferry_terminal", "lighthouse", "boat_rental", "boat_storage", "boatyard", "harbour", "beach"]}' \
   -n "${name} base map (OpenStreetMap)" \
   -A '<a href="https://openstreetmap.org/copyright">&copy; OpenStreetMap contributors</a>, Protomaps' \
   -o "$out/${name}_basemap.pmtiles" "$full"

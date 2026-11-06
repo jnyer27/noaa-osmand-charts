@@ -64,6 +64,7 @@ class ChartMapActivity : Activity() {
     companion object {
         const val EXTRA_ROUTE = "route"
         const val EXTRA_ROUTE_JSON = "routeJson"
+        private const val BASE_PREF = "baseMap"
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
@@ -87,6 +88,10 @@ class ChartMapActivity : Activity() {
     private lateinit var routeToggle: CheckBox
     private lateinit var routeLegend: TextView
     private val tiles by lazy { ChartTileStore(this) }
+    private val baseTiles by lazy { ChartTileStore(this, ChartTileStore.Kind.BASEMAP) }
+    private lateinit var baseToggle: CheckBox
+    /** OpenStreetMap base map files drawn now (empty when none is downloaded or it is off). */
+    private var baseDrawn: List<File> = emptyList()
     private val uiHandler = Handler(Looper.getMainLooper())
     private var map: MapLibreMap? = null
     private var style: Style? = null
@@ -183,8 +188,21 @@ class ChartMapActivity : Activity() {
                 if (style != null) refreshOverlay()
             }
         }
+        baseToggle = CheckBox(this).apply {
+            text = "Base map (OpenStreetMap)"
+            textSize = 13f
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            paintControl(this, chrome)
+            isChecked = prefs.getBoolean(BASE_PREF, true)
+            visibility = View.GONE
+            setOnCheckedChangeListener { _, on ->
+                prefs.edit().putBoolean(BASE_PREF, on).apply()
+                present()
+            }
+        }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(baseToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
@@ -365,8 +383,14 @@ class ChartMapActivity : Activity() {
             else -> " This view is in ${offer.shortName}, which is not downloaded."
         }
         chartNote = status + fallback
+        // The OpenStreetMap base map: every downloaded region's file, under the chart's marks
+        val baseReady = baseTiles.readySets().filter { baseTiles.file(it).isFile }.sortedBy { it.ncds }
+        baseToggle.visibility = if (baseReady.isEmpty()) View.GONE else View.VISIBLE
+        val baseSets = if (baseToggle.isChecked) baseReady else emptyList()
+        baseDrawn = baseSets.map { baseTiles.file(it) }
+        val baseKey = "|osm:" + baseSets.joinToString(",") { it.ncds + ":" + it.sha256 }
         if (drawn.isNotEmpty()) {
-            val key = drawn.joinToString(",") { it.ncds + ":" + it.sha256 }
+            val key = drawn.joinToString(",") { it.ncds + ":" + it.sha256 } + baseKey
             val w = drawn.minOf { it.bounds[0] }
             val so = drawn.minOf { it.bounds[1] }
             val e = drawn.maxOf { it.bounds[2] }
@@ -382,7 +406,7 @@ class ChartMapActivity : Activity() {
             shownKey = key
         } else {
             drawnSets = emptyList()
-            val key = "bundled"
+            val key = "bundled$baseKey"
             if (shownKey != key) {
                 loadError = false
                 val mb = bundled()
@@ -418,7 +442,8 @@ class ChartMapActivity : Activity() {
 
     private fun openFiles(loaded: MapLibreMap, files: List<File>, bounds: DoubleArray, heading: String, region: Boolean) {
         val glyphs = glyphDir()
-        val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf")
+        val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf",
+            baseDrawn.map { "pmtiles://file://${it.absolutePath}" })
         title = "$heading chart"
         val w = bounds[0]; val s = bounds[1]; val e = bounds[2]; val n = bounds[3]
         publishLegend(w, s, e, n, heading, region)
@@ -596,6 +621,7 @@ class ChartMapActivity : Activity() {
         sb.append(if (airFt == null) "Overhead cables are dashed red: no air draft is set, so none was checked. "
             else "Overhead cables are dashed, red when the clearance is under your air draft or not charted, navy when it clears. ")
         sb.append("Tap a restricted area or a cable for its rule or clearance. ")
+        if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
