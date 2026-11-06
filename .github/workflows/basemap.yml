@@ -45,7 +45,8 @@ jobs:
           MESSAGE: ${{ github.event.head_commit.message }}
           REGIONS: ${{ inputs.regions }}
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          mkdir -p enc-work
+          python3 - <<'PY'
           import json, os, re, sys
           sys.path.insert(0, "tools")
           import build_route_pack as brp
@@ -77,8 +78,9 @@ jobs:
               e = min(e, 180.0)
               out.append({"ncds": a["ncds"], "bbox": f"{w},{s},{e},{n}"})
           print(f"{len(out)} regions: {[o['ncds'] for o in out]}", file=sys.stderr)
-          print("matrix=" + json.dumps({"include": out}))
+          json.dump({"include": out}, open("matrix.json", "w"))
           PY
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
