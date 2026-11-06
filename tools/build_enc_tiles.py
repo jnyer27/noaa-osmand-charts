@@ -480,15 +480,17 @@ def write_search(mbtiles, col):
     for layer, _zoom, props, x, y in col.points:
         if layer == "lights" and props.get("label"):
             lights.setdefault((round(y, 4), round(x, 4)), props["label"])
-    # Channels, fairways and bridges come in pieces: one row per name every ~3 km
-    rows, seen = [], set()
+    # Channels, fairways and bridges come in pieces (reaches, quarters, spans): a row is
+    # kept only when no kept row of the same name is within ~5 km
+    rows, kept = [], {}
     for row in sorted(col.search.values()):
         name, kind, lat, lon = row[:4]
         if kind in ("channel", "fairway", "bridge"):
-            k = (name, kind, round(lat / 0.03), round(lon / 0.03))
-            if k in seen:
+            near = kept.setdefault((name, kind), [])
+            kx = math.cos(math.radians(lat))
+            if any(math.hypot(lat - a, (lon - b) * kx) < 0.045 for a, b in near):
                 continue
-            seen.add(k)
+            near.append((lat, lon))
         if kind in ("buoy", "beacon") and len(row) == 4:
             label = lights.get((round(lat, 4), round(lon, 4)))
             if label:
