@@ -15,11 +15,11 @@ corrections are in. Each object is kept from the most detailed chart that covers
 Depths are whole feet, the way US charts print them (NOAA stores 6 ft as 1.8 m).
 
 A region is far larger than the Middle River box, so each usage band stops at a zoom
-that matches its chart scale (see BAND_MAXZOOM). Finer charts still go to zoom 15
-(harbor) or 16 (berthing). The app style is unchanged: MapLibre overzooms the last
-tile that holds a feature, so a sounding stored at zoom 13 still draws at the style's
-zoom 14. Water, land and the coastline are also copied into a one-tile halo around
-any finer chart, because a high-zoom tile is drawn instead of its parent and would
+that matches its chart scale (see BAND_MAXZOOM): below that zoom it is simplified.
+Every band is still written through zoom 15 (FILL_ZOOM), because MapLibre only
+overzooms past the file's max zoom and draws a missing tile inside it as blank.
+Berthing charts go to 16; water, land and the coastline are copied into a one-tile
+halo around them, because a zoom 16 tile is drawn instead of its parent and would
 otherwise be blank along that edge.
 
 Layers: depare, drgare, lndare, depcnt, coalne, fairwy, slcons, slcons_area, bridge,
@@ -81,6 +81,11 @@ POINT_LAYERS = {"soundg", "buoy", "beacon", "lights", "wreck", "rock", "obstrn"}
 # finer band covers those, and the rest is overzoomed. The Middle River box does not
 # use this table: every layer there is stored through zoom 16, as before.
 BAND_MAXZOOM = {1: 8, 2: 9, 3: 11, 4: 13, 5: 15, 6: 16}
+# Every band is still written through this zoom, unsimplified past its own cap. A
+# client only overzooms past the file's max zoom: inside it, a missing tile draws
+# blank, so water covered only by an approach chart vanished at zoom 14 and 15.
+# Coarser objects are already clipped away where a finer chart covers them.
+FILL_ZOOM = 15
 # These fill the chart. A high-zoom tile has to contain them or the water/land along
 # the edge of a finer chart disappears (the client does not also draw the parent tile).
 BASE_LAYERS = {"depare", "drgare", "lndare", "coalne"}
@@ -695,7 +700,8 @@ def write_gpkg(col, path, halos=None, region=False):
             if zoom is None or layer not in BASE_LAYERS:
                 continue
             for hz, halo in halos.items():
-                if hz <= zoom:
+                # The layer already reaches FILL_ZOOM; only a berthing chart's zoom 16 needs a strip
+                if hz <= max(zoom, FILL_ZOOM):
                     continue
                 try:
                     if not geom.Intersects(halo):
@@ -767,19 +773,20 @@ def write_mbtiles(gpkg, out, layer_names, bounds, title, description, region):
         # Layer settings sit at the root of the CONF. GDAL looks up the OGR layer
         # name there (not under a "layers" key) and writes target_name into the tile.
         # Several source layers (depare_z13, depare_z15) become one MVT layer.
-        file_max = 8
+        def cap(name):
+            _head, sep, tail = name.rpartition("_z")
+            return int(tail) if sep and tail.isdigit() else 16
+        file_max = max([8] + [cap(n) for n in layer_names])
         conf = {}
         for name in layer_names:
             public = public_layer(name)
-            _head, sep, tail = name.rpartition("_z")
-            z = int(tail) if sep and tail.isdigit() else 16
-            file_max = max(file_max, z)
-            # A band whose cap is below the style's minzoom (approach soundings stop
-            # at 13, the style draws them from 14) is stored at its cap and overzoomed.
+            z = cap(name)
+            # A coarse band goes on through FILL_ZOOM (see there); past its cap the
+            # tiles hold the same geometry, unsimplified.
             conf[name] = {
                 "target_name": public,
                 "minzoom": min(MINZOOM.get(public, 8), z),
-                "maxzoom": z,
+                "maxzoom": max(z, min(FILL_ZOOM, file_max)),
             }
         # 4 tile units below a layer's own max zoom; that max zoom stays unsmoothed.
         simplify = ["SIMPLIFICATION=4", "SIMPLIFICATION_MAX_ZOOM=0"]
