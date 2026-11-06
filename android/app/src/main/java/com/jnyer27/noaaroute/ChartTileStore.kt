@@ -17,9 +17,18 @@ import java.security.MessageDigest
  *
  * A newer catalog sha replaces the file only after the new download checks out.
  * Until then the chart already on the phone keeps working.
+ *
+ * [Kind.BASEMAP] is the same store for the OpenStreetMap base map (Ncds_04_basemap.pmtiles,
+ * the catalog's `basemap` entry): its own folder and saved state, the same download and check.
  */
-class ChartTileStore(private val ctx: Context) {
+class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
     enum class State { DOWNLOADING, DOWNLOADED, SAVING, READY, FAILED }
+
+    /** [key]: the catalog object; [what]: the word in messages ("chart", "base map"). */
+    enum class Kind(val key: String, val prefs: String, val folder: String, val what: String, val title: String) {
+        CHART("tiles", "charttiles", "chart-tiles", "chart", "NOAA chart"),
+        BASEMAP("basemap", "basemap", "basemap", "base map", "Base map"),
+    }
 
     class Entry(
         val ncds: String, val state: State, val name: String, val file: String,
@@ -39,18 +48,33 @@ class ChartTileStore(private val ctx: Context) {
 
     private val prefs = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE)
     private val dm = ctx.getSystemService(DownloadManager::class.java)
-    val dir: File = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "chart-tiles").apply { mkdirs() }
-    private val catalogFile = File(ctx.filesDir, "vector-catalog.json")
+    val dir: File = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, kind.folder).apply { mkdirs() }
+    /** The chart uses the vector chart catalog; the base map its own copy, from [base]. */
+    private val catalogFile = File(ctx.filesDir, if (kind == Kind.CHART) "vector-catalog.json" else "basemap-catalog.json")
+    val base: String = if (kind == Kind.CHART) VectorMaps.BASE else BuildConfig.BASEMAP_BASE
 
     fun catalogSets(): List<ChartTiles.TileSet> =
-        try { ChartTiles.tileSets(catalogFile.readText()) } catch (_: Exception) { emptyList() }
+        try { ChartTiles.tileSets(catalogFile.readText(), kind.key) } catch (_: Exception) { emptyList() }
 
     /** Fetch the vector catalog (branch builds read vector-maps-beta) and return its tile sets. */
     fun refreshCatalog(): List<ChartTiles.TileSet> {
         try {
-            VectorMaps(ctx).fetchCatalog()
+            if (kind == Kind.CHART) VectorMaps(ctx).fetchCatalog() else fetchBaseCatalog()
         } catch (_: Exception) { }
         return catalogSets()
+    }
+
+    private fun fetchBaseCatalog() {
+        val c = java.net.URL(base + "catalog.json").openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 20000
+        c.readTimeout = 60000
+        c.instanceFollowRedirects = true
+        try {
+            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for the base map catalog")
+            val text = c.inputStream.bufferedReader().readText()
+            ChartTiles.tileSets(text, kind.key) // parses, or throws before the saved copy is replaced
+            catalogFile.writeText(text)
+        } finally { c.disconnect() }
     }
 
     fun file(set: ChartTiles.TileSet) = File(dir, set.file)
@@ -63,7 +87,7 @@ class ChartTileStore(private val ctx: Context) {
 
     @Synchronized
     fun all(): Map<String, Entry> {
-        val j = try { JSONObject(prefs.getString(PREFS, "{}")!!) } catch (_: Exception) { JSONObject() }
+        val j = try { JSONObject(prefs.getString(kind.prefs, "{}")!!) } catch (_: Exception) { JSONObject() }
         val out = LinkedHashMap<String, Entry>()
         for (k in j.keys()) {
             val e = j.getJSONObject(k)
@@ -95,9 +119,9 @@ class ChartTileStore(private val ctx: Context) {
 
     @Synchronized
     private fun put(e: Entry?, key: String = e!!.ncds) {
-        val j = try { JSONObject(prefs.getString(PREFS, "{}")!!) } catch (_: Exception) { JSONObject() }
+        val j = try { JSONObject(prefs.getString(kind.prefs, "{}")!!) } catch (_: Exception) { JSONObject() }
         if (e == null) j.remove(key) else j.put(key, e.json())
-        prefs.edit().putString(PREFS, j.toString()).apply()
+        prefs.edit().putString(kind.prefs, j.toString()).apply()
     }
 
     /** Start a download of [set]. A chart already shown stays until this one checks out. */
@@ -105,11 +129,11 @@ class ChartTileStore(private val ctx: Context) {
         val old = get(set.ncds)
         if (old != null && old.download >= 0) dm.remove(old.download)
         partial(set.file).delete()
-        val req = DownloadManager.Request(Uri.parse(set.url(VectorMaps.BASE)))
-            .setTitle("NOAA chart, ${set.shortName}")
+        val req = DownloadManager.Request(Uri.parse(set.url(base)))
+            .setTitle("${kind.title}, ${set.shortName}")
             .setDescription("For the map in NOAA Route")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-            .setDestinationInExternalFilesDir(ctx, null, "chart-tiles/${set.file}.download")
+            .setDestinationInExternalFilesDir(ctx, null, "${kind.folder}/${set.file}.download")
             .setAllowedOverMetered(mobileData)
             .setAllowedOverRoaming(false)
         val id = dm.enqueue(req)
@@ -130,6 +154,26 @@ class ChartTileStore(private val ctx: Context) {
             return got to (if (total > 0) total else e.size)
         }
         return 0L to e.size
+    }
+
+    /** Why a download has not moved, from DownloadManager: queued, waiting for Wi-Fi, ... or null while running. */
+    fun waitReason(ncds: String): String? {
+        val e = get(ncds) ?: return null
+        if (e.state != State.DOWNLOADING || e.download < 0) return null
+        dm.query(DownloadManager.Query().setFilterById(e.download))?.use { c ->
+            if (!c.moveToFirst()) return "not in Android's download list"
+            return when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                DownloadManager.STATUS_PENDING -> "queued"
+                DownloadManager.STATUS_PAUSED -> when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))) {
+                    DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "waiting for Wi-Fi (this connection counts as metered)"
+                    DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "waiting for a network"
+                    DownloadManager.PAUSED_WAITING_TO_RETRY -> "waiting to retry"
+                    else -> "paused"
+                }
+                else -> null
+            }
+        }
+        return null
     }
 
     /**
@@ -208,7 +252,7 @@ class ChartTileStore(private val ctx: Context) {
                 failed = true
                 partial(e.file).delete()
                 fail(e, ex.message ?: ex.toString())
-                ChartMaps.notifyChart(ctx, "Region ${e.ncds} chart failed", ex.message ?: "", null)
+                ChartMaps.notifyChart(ctx, "Region ${e.ncds} ${kind.what} failed", ex.message ?: "", null)
             }
         }
         return failed
@@ -227,7 +271,7 @@ class ChartTileStore(private val ctx: Context) {
             src.delete()
         }
         put(e.copy(state = State.READY, readySha = e.sha256, download = -1, error = null))
-        ChartMaps.notifyChart(ctx, "Region ${e.ncds} chart ready", "Open View map to see it.", null)
+        ChartMaps.notifyChart(ctx, "Region ${e.ncds} ${kind.what} ready", "Open View map to see it.", null)
     }
 
     private fun fail(e: Entry, why: String) {
@@ -255,7 +299,6 @@ class ChartTileStore(private val ctx: Context) {
     ) = Entry(ncds, state, name, file, sha256, readySha, size, bounds, minZoom, maxZoom, download, error)
 
     companion object {
-        private const val PREFS = "charttiles"
         private val BUSY = setOf(State.DOWNLOADING, State.DOWNLOADED, State.SAVING)
     }
 }

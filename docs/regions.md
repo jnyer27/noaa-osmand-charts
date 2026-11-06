@@ -68,6 +68,10 @@ The data the planner uses, a few MB. The status says whether it is downloaded an
 | **Update route data** | Downloads the newer weekly build (shown when one is out) |
 | **Delete route data** | Removes the region from the app |
 
+### Chart and base map for this app
+
+**Chart for this app** is NOAA's chart for **View map**; **Base map for this app (OpenStreetMap)** is the roads, towns, county lines and marinas drawn under it (see [Planning: base map](planning.html)). Each has **Download**, **Cancel download** while it runs, **Update** when a newer build is published, and **Delete**. They stay in the app; neither is an OsmAnd map. While a download waits, the status adds Android's reason (queued, waiting for Wi-Fi, waiting for a network).
+
 ### Chart map for OsmAnd
 
 NOAA's paper-chart style map of the region (NCDS), converted for OsmAnd. Before you download, the card shows the sizes, for example "560 MB download, about 952 MB for OsmAnd, 1568 MB free space needed while converting". See [Chart maps for OsmAnd](osmand.html#chart-maps-for-osmand-paper-chart-style).

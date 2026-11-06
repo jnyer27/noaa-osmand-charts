@@ -71,6 +71,7 @@ class MainActivity : Activity() {
     private val maps by lazy { ChartMaps(this) }
     private val vmaps by lazy { VectorMaps(this) }
     private val chartTiles by lazy { ChartTileStore(this) }
+    private val baseTiles by lazy { ChartTileStore(this, ChartTileStore.Kind.BASEMAP) }
     private var vcatalog: List<VectorMaps.Region> = emptyList()
     private var charts: ChartSet? = null
     private var chartsSig = ""
@@ -280,7 +281,7 @@ class MainActivity : Activity() {
         // The background job may have updated or swapped packs
         if (store.signature() != chartsSig) { openCharts(); checkTrip() }
         // Chart map downloads may have finished, or a map was deleted in Files
-        worker.execute { maps.reconcile(); vmaps.reconcile(); chartTiles.reconcile(); ui.post { regionsChanged?.invoke() } }
+        worker.execute { maps.reconcile(); vmaps.reconcile(); chartTiles.reconcile(); baseTiles.reconcile(); ui.post { regionsChanged?.invoke() } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -796,7 +797,7 @@ class MainActivity : Activity() {
                 if (!d.isShowing) return
                 val all = maps.all().values
                 val vec = vmaps.all().values
-                val app = chartTiles.all().values
+                val app = chartTiles.all().values + baseTiles.all().values
                 val now = all.joinToString { "${it.key}:${it.state}" } + vec.joinToString { "${it.ncds}:${it.state}" } +
                     app.joinToString { "${it.ncds}:${it.state}:${it.readySha}" }
                 if (now != last || all.any { it.state == ChartMaps.State.DOWNLOADING } ||
@@ -850,14 +851,16 @@ class MainActivity : Activity() {
         ChartMaps.State.FAILED -> "failed: ${e.error}"
     }
 
-    /** In-app chart status. The catalog entry is what is published now. */
-    private fun appChartStatus(set: ChartTiles.TileSet): String {
+    /** In-app chart or base map status. The catalog entry is what is published now. */
+    private fun appChartStatus(set: ChartTiles.TileSet, store: ChartTileStore = chartTiles): String {
+        val chartTiles = store
         val e = chartTiles.get(set.ncds)
         return when (e?.state) {
             null -> "not downloaded, about %.0f MB".format(set.size / 1e6)
-            ChartTileStore.State.DOWNLOADING -> chartTiles.progress(set.ncds)?.let { (got, total) ->
+            ChartTileStore.State.DOWNLOADING -> (chartTiles.progress(set.ncds)?.let { (got, total) ->
                 "downloading: %.0f of %.0f MB (waits for Wi-Fi unless mobile data was allowed)".format(got / 1e6, total / 1e6)
-            } ?: "download queued (waits for Wi-Fi unless mobile data was allowed)"
+            } ?: "download queued (waits for Wi-Fi unless mobile data was allowed)") +
+                (chartTiles.waitReason(set.ncds)?.let { "\nAndroid: $it" } ?: "")
             ChartTileStore.State.DOWNLOADED, ChartTileStore.State.SAVING -> "checking the download..."
             ChartTileStore.State.READY -> (if (chartTiles.needsUpdate(e, set)) "UPDATE available" else "ready for View map") +
                 " (%.0f MB)".format(set.size / 1e6) + (e.error?.let { "\n$it" } ?: "")
@@ -865,13 +868,15 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Check space, ask Wi-Fi or mobile data, then download one region's in-app chart. */
-    private fun startAppChart(set: ChartTiles.TileSet) {
+    /** Check space, ask Wi-Fi or mobile data, then download one region's in-app chart or base map. */
+    private fun startAppChart(set: ChartTiles.TileSet, store: ChartTileStore = chartTiles) {
+        val chartTiles = store
+        val what = store.kind.what
         val need = chartTiles.spaceNeeded(set)
         val free = chartTiles.freeBytes()
         if (free < need) {
             AlertDialog.Builder(this).setTitle("Not enough space")
-                .setMessage("${set.shortName}'s chart is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(set.size / 1e6, need / 1e6, free / 1e6))
+                .setMessage("${set.shortName}'s $what is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(set.size / 1e6, need / 1e6, free / 1e6))
                 .setPositiveButton("OK", null).show()
             return
         }
@@ -879,11 +884,13 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
         fun go(mobile: Boolean) {
             chartTiles.start(set, mobile)
-            status.text = "${set.shortName}'s chart is downloading. View map uses it when the area on screen is inside it."
+            status.text = "${set.shortName}'s $what is downloading. View map uses it when the area on screen is inside it."
             regionsChanged?.invoke()
         }
-        AlertDialog.Builder(this).setTitle("${set.shortName} chart, %.0f MB".format(set.size / 1e6))
-            .setMessage("NOAA's chart for View map. Android downloads it in the background. It stays in the app and works offline. It is not an OsmAnd map.")
+        AlertDialog.Builder(this).setTitle("${set.shortName} $what, %.0f MB".format(set.size / 1e6))
+            .setMessage(if (store.kind == ChartTileStore.Kind.BASEMAP)
+                "Roads, towns, county lines and marinas from OpenStreetMap, drawn under NOAA's chart in View map. Android downloads it in the background. It stays in the app and works offline. It has no depths."
+                else "NOAA's chart for View map. Android downloads it in the background. It stays in the app and works offline. It is not an OsmAnd map.")
             .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
             .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
             .setNegativeButton("Cancel", null).show()
@@ -951,23 +958,36 @@ class MainActivity : Activity() {
                 .show()
         })
 
-        val appChart = chartTiles.catalogSets().firstOrNull { it.ncds == code }
-        if (appChart != null) {
-            box.addView(label("Chart for this app"))
-            val te = chartTiles.get(code)
-            box.addView(TextView(this).apply { text = appChartStatus(appChart) + "\nUsed by View map. Not an OsmAnd map." })
+        // The in-app chart, then the OpenStreetMap base map, from the same catalog
+        fun appSection(store: ChartTileStore, heading: String, note: String) {
+            val set = store.catalogSets().firstOrNull { it.ncds == code } ?: return
+            val w = store.kind.what
+            box.addView(label(heading))
+            val te = store.get(code)
+            box.addView(TextView(this).apply { text = appChartStatus(set, store) + "\n" + note })
             when (te?.state) {
                 ChartTileStore.State.DOWNLOADING, ChartTileStore.State.DOWNLOADED, ChartTileStore.State.SAVING ->
-                    box.addView(act("Cancel download") { chartTiles.cancel(code); regionsChanged?.invoke() })
+                    box.addView(act("Cancel download") { store.cancel(code); regionsChanged?.invoke() })
                 ChartTileStore.State.FAILED -> {
-                    box.addView(act("Try again") { startAppChart(appChart) })
-                    box.addView(act("Remove") { chartTiles.delete(code); regionsChanged?.invoke() })
+                    box.addView(act("Try again") { startAppChart(set, store) })
+                    box.addView(act("Remove") { store.delete(code); regionsChanged?.invoke() })
                 }
                 ChartTileStore.State.READY -> {
-                    if (chartTiles.needsUpdate(te, appChart)) box.addView(act("Update chart") { startAppChart(appChart) })
-                    box.addView(act("Delete chart") { chartTiles.delete(code); regionsChanged?.invoke() })
+                    if (store.needsUpdate(te, set)) box.addView(act("Update $w") { startAppChart(set, store) })
+                    box.addView(act("Delete $w") { store.delete(code); regionsChanged?.invoke() })
                 }
-                null -> box.addView(act("Download chart") { startAppChart(appChart) })
+                null -> box.addView(act("Download $w") { startAppChart(set, store) })
+            }
+        }
+        appSection(chartTiles, "Chart for this app", "Used by View map. Not an OsmAnd map.")
+        appSection(baseTiles, "Base map for this app (OpenStreetMap)",
+            "Roads, towns, county lines and marinas under the chart in View map. No depths.")
+        // The saved catalog can predate the base map (it is the one from the last fetch):
+        // fetch it, and reopen the card once it lists this region's base map
+        if (baseTiles.catalogSets().none { it.ncds == code }) worker.execute {
+            baseTiles.refreshCatalog()
+            ui.post {
+                if (d.isShowing && baseTiles.catalogSets().any { it.ncds == code }) { d.dismiss(); regionCard(code) }
             }
         }
 

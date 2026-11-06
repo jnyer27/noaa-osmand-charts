@@ -21,8 +21,14 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.inputmethod.EditorInfo
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
+import android.widget.ListView
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -64,6 +70,7 @@ class ChartMapActivity : Activity() {
     companion object {
         const val EXTRA_ROUTE = "route"
         const val EXTRA_ROUTE_JSON = "routeJson"
+        private const val BASE_PREF = "baseMap"
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
@@ -84,9 +91,15 @@ class ChartMapActivity : Activity() {
     /** Remembered. True shows the paragraph. False is the one-line bar. */
     private var keyOpen = true
     private lateinit var downloadButton: Button
+    /** The OpenStreetMap base map offer, apart from the chart's so a chart update cannot hide it. */
+    private lateinit var baseButton: Button
     private lateinit var routeToggle: CheckBox
     private lateinit var routeLegend: TextView
     private val tiles by lazy { ChartTileStore(this) }
+    private val baseTiles by lazy { ChartTileStore(this, ChartTileStore.Kind.BASEMAP) }
+    private lateinit var baseToggle: CheckBox
+    /** OpenStreetMap base map files drawn now (empty when none is downloaded or it is off). */
+    private var baseDrawn: List<File> = emptyList()
     private val uiHandler = Handler(Looper.getMainLooper())
     private var map: MapLibreMap? = null
     private var style: Style? = null
@@ -115,6 +128,9 @@ class ChartMapActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { loc -> showFix(loc) }
     private var followButton: Button? = null
+    /** Search items from the drawn charts, base maps and route packs; loaded on first search. */
+    @Volatile private var searchItems: List<MapSearch.Item>? = null
+    private var searchKey = ""
     private var compassArrow: TextView? = null
     private var compassLabel: TextView? = null
     private var courseButton: Button? = null
@@ -183,8 +199,21 @@ class ChartMapActivity : Activity() {
                 if (style != null) refreshOverlay()
             }
         }
+        baseToggle = CheckBox(this).apply {
+            text = "Base map (OpenStreetMap)"
+            textSize = 13f
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            paintControl(this, chrome)
+            isChecked = prefs.getBoolean(BASE_PREF, true)
+            visibility = View.GONE
+            setOnCheckedChangeListener { _, on ->
+                prefs.edit().putBoolean(BASE_PREF, on).apply()
+                present()
+            }
+        }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(baseToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
@@ -230,8 +259,16 @@ class ChartMapActivity : Activity() {
             paintControl(this, chrome)
             setOnClickListener { toggleCourse() }
         }
+        val searchButton = Button(this).apply {
+            text = "Search"
+            isAllCaps = false
+            textSize = 14f
+            paintControl(this, chrome)
+            setOnClickListener { showSearch() }
+        }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(searchButton)
             addView(followButton)
             addView(compass)
             addView(courseButton)
@@ -261,6 +298,11 @@ class ChartMapActivity : Activity() {
             paintControl(this, chrome, chrome.keyBg)
         }
         root.addView(downloadButton)
+        baseButton = Button(this).apply {
+            visibility = View.GONE
+            paintControl(this, chrome, chrome.keyBg)
+        }
+        root.addView(baseButton)
         root.addView(Button(this).apply {
             text = "Back"
             paintControl(this, chrome, chrome.keyBg)
@@ -296,7 +338,9 @@ class ChartMapActivity : Activity() {
             uiHandler.post(poll)
             worker.execute {
                 tiles.reconcile()
+                baseTiles.reconcile()
                 try { tiles.refreshCatalog() } catch (_: Exception) { }
+                baseTiles.refreshCatalog()
                 runOnUiThread { if (!destroyed) present() }
             }
         }
@@ -345,6 +389,28 @@ class ChartMapActivity : Activity() {
             }
             else -> downloadButton.visibility = View.GONE
         }
+        // The OpenStreetMap base map of the region on screen (or the route's), when not downloaded
+        val baseCode = chosen?.ncds ?: offer?.ncds ?: update?.ncds
+        val bset = baseCode?.let { c -> baseTiles.catalogSets().firstOrNull { it.ncds == c } }
+        val be = bset?.let { baseTiles.get(it.ncds) }
+        when {
+            bset != null && baseTiles.busy(bset.ncds) -> {
+                baseButton.visibility = View.VISIBLE
+                val p = baseTiles.progress(bset.ncds)
+                val why = baseTiles.waitReason(bset.ncds)
+                baseButton.text = "Cancel base map download" +
+                    (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "") +
+                    (why?.let { ", $it" } ?: "")
+                baseButton.setOnClickListener { baseTiles.cancel(bset.ncds); present() }
+            }
+            bset != null && (be == null || be.state == ChartTileStore.State.FAILED || baseTiles.needsUpdate(be, bset)) -> {
+                baseButton.visibility = View.VISIBLE
+                baseButton.text = (if (be?.state == ChartTileStore.State.READY) "Update" else "Download") +
+                    " ${bset.shortName} base map, roads and towns (%.0f MB)".format(bset.size / 1e6)
+                baseButton.setOnClickListener { confirmDownload(bset, baseTiles) }
+            }
+            else -> baseButton.visibility = View.GONE
+        }
         val progress = if (busy && busyCode != null) tiles.progress(busyCode) else null
         val status = when {
             entry?.state == ChartTileStore.State.DOWNLOADING && progress != null ->
@@ -365,8 +431,14 @@ class ChartMapActivity : Activity() {
             else -> " This view is in ${offer.shortName}, which is not downloaded."
         }
         chartNote = status + fallback
+        // The OpenStreetMap base map: every downloaded region's file, under the chart's marks
+        val baseReady = baseTiles.readySets().filter { baseTiles.file(it).isFile }.sortedBy { it.ncds }
+        baseToggle.visibility = if (baseReady.isEmpty()) View.GONE else View.VISIBLE
+        val baseSets = if (baseToggle.isChecked) baseReady else emptyList()
+        baseDrawn = baseSets.map { baseTiles.file(it) }
+        val baseKey = "|osm:" + baseSets.joinToString(",") { it.ncds + ":" + it.sha256 }
         if (drawn.isNotEmpty()) {
-            val key = drawn.joinToString(",") { it.ncds + ":" + it.sha256 }
+            val key = drawn.joinToString(",") { it.ncds + ":" + it.sha256 } + baseKey
             val w = drawn.minOf { it.bounds[0] }
             val so = drawn.minOf { it.bounds[1] }
             val e = drawn.maxOf { it.bounds[2] }
@@ -382,7 +454,7 @@ class ChartMapActivity : Activity() {
             shownKey = key
         } else {
             drawnSets = emptyList()
-            val key = "bundled"
+            val key = "bundled$baseKey"
             if (shownKey != key) {
                 loadError = false
                 val mb = bundled()
@@ -395,10 +467,12 @@ class ChartMapActivity : Activity() {
         }
     }
 
-    private fun confirmDownload(set: ChartTiles.TileSet) {
+    private fun confirmDownload(set: ChartTiles.TileSet, store: ChartTileStore = tiles) {
+        val tiles = store
+        val what = store.kind.what
         if (tiles.freeBytes() < tiles.spaceNeeded(set)) {
             AlertDialog.Builder(this).setTitle("Not enough space")
-                .setMessage("${set.shortName}'s chart is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(
+                .setMessage("${set.shortName}'s $what is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(
                     set.size / 1e6, tiles.spaceNeeded(set) / 1e6, tiles.freeBytes() / 1e6))
                 .setPositiveButton("OK", null).show()
             return
@@ -409,8 +483,10 @@ class ChartMapActivity : Activity() {
             tiles.start(set, mobile)
             present()
         }
-        AlertDialog.Builder(this).setTitle("${set.shortName} chart, %.0f MB".format(set.size / 1e6))
-            .setMessage("NOAA's chart for the map in this app. Android downloads it in the background and resumes after interruptions. It stays in the app and works offline. It is not an OsmAnd map.")
+        AlertDialog.Builder(this).setTitle("${set.shortName} $what, %.0f MB".format(set.size / 1e6))
+            .setMessage(if (store.kind == ChartTileStore.Kind.BASEMAP)
+                "Roads, towns, county lines and marinas from OpenStreetMap, drawn under the chart. Android downloads it in the background. It stays in the app and works offline. It has no depths."
+                else "NOAA's chart for the map in this app. Android downloads it in the background and resumes after interruptions. It stays in the app and works offline. It is not an OsmAnd map.")
             .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
             .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
             .setNegativeButton("Cancel", null).show()
@@ -418,7 +494,8 @@ class ChartMapActivity : Activity() {
 
     private fun openFiles(loaded: MapLibreMap, files: List<File>, bounds: DoubleArray, heading: String, region: Boolean) {
         val glyphs = glyphDir()
-        val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf")
+        val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf",
+            baseDrawn.map { "pmtiles://file://${it.absolutePath}" })
         title = "$heading chart"
         val w = bounds[0]; val s = bounds[1]; val e = bounds[2]; val n = bounds[3]
         publishLegend(w, s, e, n, heading, region)
@@ -596,6 +673,8 @@ class ChartMapActivity : Activity() {
         sb.append(if (airFt == null) "Overhead cables are dashed red: no air draft is set, so none was checked. "
             else "Overhead cables are dashed, red when the clearance is under your air draft or not charted, navy when it clears. ")
         sb.append("Tap a restricted area or a cable for its rule or clearance. ")
+        sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
+        if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
@@ -648,6 +727,113 @@ class ChartMapActivity : Activity() {
             }
         }
         return md.digest().joinToString("") { b -> "%02x".format(b) }
+    }
+
+    /**
+     * Named marks, lights, bridges and channels from each drawn region chart, towns,
+     * marinas and roads from each base map, and bridges and restricted areas from the
+     * route packs. Read once per set of files, off the UI thread.
+     */
+    private fun loadSearch(): List<MapSearch.Item> {
+        val charts = tiles.readySets().map { tiles.file(it) }.filter { it.isFile }
+        val bases = baseTiles.readySets().map { baseTiles.file(it) }.filter { it.isFile }
+        val key = (charts + bases).joinToString(",") { it.name + ":" + it.length() }
+        searchItems?.let { if (key == searchKey) return it }
+        val out = ArrayList<MapSearch.Item>()
+        for (f in charts) try {
+            readMetadata(f, "search")?.let { out.addAll(MapSearch.parse(it, "chart")) }
+        } catch (e: Exception) { Log.w("ChartMap", "search index of ${f.name}", e) }
+        for (f in bases) try {
+            MapSearch.pmtilesMetadata(f)?.let { out.addAll(MapSearch.fromMetadata(it, "base map")) }
+        } catch (e: Exception) { Log.w("ChartMap", "search index of ${f.name}", e) }
+        try { out.addAll(MapSearch.fromNotes(ensurePacks().flatMap { it.notes })) } catch (_: Exception) { }
+        searchItems = out
+        searchKey = key
+        return out
+    }
+
+    /** One metadata value of an MBTiles file, read in pieces (a cursor row holds about 2 MB). */
+    private fun readMetadata(mbtiles: File, name: String): String? =
+        SQLiteDatabase.openDatabase(mbtiles.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            val len = db.rawQuery("select length(value) from metadata where name=?", arrayOf(name)).use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+            }
+            if (len < 0) return null
+            val sb = StringBuilder(len.toInt())
+            val step = 512 * 1024
+            var at = 1L
+            while (at <= len) {
+                db.rawQuery("select substr(value, ?, ?) from metadata where name=?", arrayOf(at.toString(), step.toString(), name)).use { c ->
+                    if (c.moveToFirst()) sb.append(c.getString(0))
+                }
+                at += step
+            }
+            sb.toString()
+        }
+
+    /**
+     * Search box: type part of a name ("mid riv", "bowleys", "light 2"). Results are
+     * nearest the map's center first. Picking one moves the map there with a pin.
+     */
+    private fun showSearch() {
+        val center = map?.cameraPosition?.target?.let { LatLon(it.latitude, it.longitude) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), 0) }
+        val input = EditText(this).apply {
+            hint = "Buoy, light, bridge, town, marina, road"
+            isSingleLine = true
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+        }
+        val status = TextView(this).apply { setPadding(0, dp(4), 0, dp(4)); text = "Loading names..." }
+        val list = ListView(this)
+        box.addView(input)
+        box.addView(status)
+        box.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)))
+        val d = AlertDialog.Builder(this).setTitle("Search the chart").setView(box)
+            .setNegativeButton("Close", null).create()
+        var shown: List<MapSearch.Item> = emptyList()
+        fun refresh() {
+            val items = searchItems ?: return
+            val q = input.text.toString()
+            shown = MapSearch.find(items, q, center)
+            list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, shown.map { it ->
+                val dist = center?.let { c -> " \u00b7 " + String.format(java.util.Locale.US, "%.1f nm", Planner.distanceM(c, LatLon(it.lat, it.lon)) / Planner.NM) } ?: ""
+                "${it.name}\n${it.line}$dist"
+            })
+            status.text = when {
+                q.isBlank() -> if (items.isEmpty()) "No names yet: download a region's chart or base map." else "${items.size} names from your downloaded charts, base maps and route data."
+                shown.isEmpty() -> "Nothing matches \"$q\"."
+                shown.size >= 60 -> "The 60 nearest matches. Type more to narrow them."
+                else -> "${shown.size} ${if (shown.size == 1) "match" else "matches"}, nearest first."
+            }
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: Editable?) { refresh() }
+        })
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val item = shown.getOrNull(pos) ?: return@setOnItemClickListener
+            d.dismiss()
+            goTo(item)
+        }
+        d.show()
+        input.requestFocus()
+        try {
+            worker.execute {
+                loadSearch()
+                runOnUiThread { if (d.isShowing) refresh() }
+            }
+        } catch (_: RejectedExecutionException) { }
+    }
+
+    /** Center the map on a search result, with a pin and its name. Follow stops. */
+    private fun goTo(item: MapSearch.Item) {
+        val loaded = map ?: return
+        if (following) { following = false; paintFollow() }
+        (style?.getSource("search") as? GeoJsonSource)?.setGeoJson(MapSearch.pinGeoJson(item))
+        val bearing = loaded.cameraPosition.bearing
+        loaded.animateCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder()
+            .target(LatLng(item.lat, item.lon)).zoom(MapSearch.zoomFor(item.kind)).bearing(bearing).build()), 800)
     }
 
     private fun readBounds(mbtiles: File): DoubleArray? = try {
