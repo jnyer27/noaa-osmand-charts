@@ -66,7 +66,8 @@ MINZOOM = {
     "depcnt": 11, "fairwy": 12,
     "bridge": 12, "bridge_area": 12,
     "slcons": 13, "slcons_area": 13,
-    "buoy": 13, "beacon": 13, "lights": 13,
+    # Marks from zoom 11 (about 2 nm across a phone screen), drawn smaller below 13
+    "buoy": 11, "beacon": 11, "lights": 11,
     "soundg": 14, "wreck": 14, "wreck_area": 14, "rock": 14, "rock_area": 14,
     "obstrn": 14, "obstrn_line": 14, "obstrn_area": 14,
 }
