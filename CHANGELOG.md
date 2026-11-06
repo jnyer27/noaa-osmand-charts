@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-06: distance scale on the chart (app 0.1.222, route packs build 153 unchanged)
+
+The chart:
+- **A distance scale** in the bottom left corner, in nautical miles, or feet when zoomed in closer than a tenth of a mile. It follows the zoom.
+
 ## 2026-11-06: chart detail stays when zoomed in (app 0.1.220, route packs build 153 unchanged)
 
 The chart:
