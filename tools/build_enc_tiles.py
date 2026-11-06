@@ -474,8 +474,26 @@ def add_search(col, cls, feat, geom, eto):
 
 def write_search(mbtiles, col):
     """The search rows go into the MBTiles metadata table as `search` (a JSON array)."""
-    import sqlite3
-    rows = sorted(col.search.values())
+    # A lateral mark's light is its own LIGHTS object at the same spot: its characteristic
+    # goes on the mark's row ("Middle River Light 3", "Fl G 4s")
+    lights = {}
+    for layer, _zoom, props, x, y in col.points:
+        if layer == "lights" and props.get("label"):
+            lights.setdefault((round(y, 4), round(x, 4)), props["label"])
+    # Channels, fairways and bridges come in pieces: one row per name every ~3 km
+    rows, seen = [], set()
+    for row in sorted(col.search.values()):
+        name, kind, lat, lon = row[:4]
+        if kind in ("channel", "fairway", "bridge"):
+            k = (name, kind, round(lat / 0.03), round(lon / 0.03))
+            if k in seen:
+                continue
+            seen.add(k)
+        if kind in ("buoy", "beacon") and len(row) == 4:
+            label = lights.get((round(lat, 4), round(lon, 4)))
+            if label:
+                row = row + [label]
+        rows.append(row)
     db = sqlite3.connect(mbtiles)
     try:
         db.execute("DELETE FROM metadata WHERE name = 'search'")

@@ -23,8 +23,8 @@ object MapSearch {
         val name: String, val kind: String, val lat: Double, val lon: Double,
         val detail: String, val source: String,
     ) {
-        internal val key = fold(name)
-        internal val words = key.split(' ').filter { it.isNotEmpty() }
+        /** The folded name, with a space in front so " w" finds a word that starts with w. */
+        internal val key = " " + fold(name)
         /** "Buoy, Fl G 4s" or "Town". */
         val subtitle get() = KIND_NAMES[kind] ?: kind.replaceFirstChar { it.uppercase() }
         val line get() = if (detail.isEmpty()) subtitle else "$subtitle, $detail"
@@ -95,12 +95,14 @@ object MapSearch {
         val q = fold(query)
         val qWords = q.split(' ').filter { it.isNotEmpty() }
         if (qWords.isEmpty()) return emptyList()
+        val needles = qWords.map { " $it" }
         class Hit(val item: Item, val rank: Int, val dist: Double)
         val hits = ArrayList<Hit>()
         for (it in items) {
+            // Base maps list a couple of hundred thousand streets: no lists or copies per item
             val rank = when {
-                it.key.startsWith(q) -> 0
-                qWords.all { w -> it.words.any { iw -> iw.startsWith(w) } } -> 1
+                it.key.startsWith(q, 1) -> 0
+                needles.all { w -> it.key.contains(w) } -> 1
                 it.key.contains(q) -> 2
                 else -> continue
             }
