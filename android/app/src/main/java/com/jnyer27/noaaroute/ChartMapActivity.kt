@@ -448,7 +448,8 @@ class ChartMapActivity : Activity() {
             drawnSets = drawn
             if (shownKey != key) {
                 loadError = false
-                openFiles(loaded, drawn.map { tiles.file(it)!! }, doubleArrayOf(w, so, e, n), heading, region = true)
+                openFiles(loaded, drawn.map { tiles.file(it)!! }, doubleArrayOf(w, so, e, n), heading, region = true,
+                    maxZooms = drawn.map { it.maxZoom })
             } else if (!loadError) {
                 publishLegend(w, so, e, n, heading, region = true)
             }
@@ -493,10 +494,13 @@ class ChartMapActivity : Activity() {
             .setNegativeButton("Cancel", null).show()
     }
 
-    private fun openFiles(loaded: MapLibreMap, files: List<File>, bounds: DoubleArray, heading: String, region: Boolean) {
+    private fun openFiles(
+        loaded: MapLibreMap, files: List<File>, bounds: DoubleArray, heading: String, region: Boolean,
+        maxZooms: List<Int>? = null,
+    ) {
         val glyphs = glyphDir()
         val json = ChartTiles.style(depthFt, files.map { "mbtiles://${it.absolutePath}" }, "file://${glyphs.absolutePath}/{fontstack}/{range}.pbf",
-            baseDrawn.map { "pmtiles://file://${it.absolutePath}" })
+            baseDrawn.map { "pmtiles://file://${it.absolutePath}" }, maxZooms)
         title = "$heading chart"
         val w = bounds[0]; val s = bounds[1]; val e = bounds[2]; val n = bounds[3]
         publishLegend(w, s, e, n, heading, region)

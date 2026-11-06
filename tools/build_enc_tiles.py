@@ -15,12 +15,13 @@ corrections are in. Each object is kept from the most detailed chart that covers
 Depths are whole feet, the way US charts print them (NOAA stores 6 ft as 1.8 m).
 
 A region is far larger than the Middle River box, so each usage band stops at a zoom
-that matches its chart scale (see BAND_MAXZOOM): below that zoom it is simplified.
-Every band is still written through zoom 15 (FILL_ZOOM), because MapLibre only
-overzooms past the file's max zoom and draws a missing tile inside it as blank.
-Berthing charts go to 16; water, land and the coastline are copied into a one-tile
-halo around them, because a zoom 16 tile is drawn instead of its parent and would
-otherwise be blank along that edge.
+that matches its chart scale (see BAND_MAXZOOM). Finer charts still go to zoom 15
+(harbor) or 16 (berthing). Each feature carries that zoom as `z`. Inside the file's
+zoom range MapLibre draws a missing tile as blank, it does not enlarge the parent, so
+the app opens the file a second time per cap below the file's max zoom (11, 13, 15)
+with that max zoom, and draws only the features of that cap from it past the cap
+(ChartTiles.style). Writing every band to zoom 15 instead made the files five times
+larger (948 MB to 5.1 GB for all regions), mostly open ocean.
 
 Layers: depare, drgare, lndare, depcnt, coalne, fairwy, slcons, slcons_area, bridge,
 bridge_area, soundg, buoy, beacon, lights, wreck, wreck_area, rock, rock_area, obstrn,
@@ -78,17 +79,12 @@ POINT_LAYERS = {"soundg", "buoy", "beacon", "lights", "wreck", "rock", "obstrn"}
 # z13, 1:14,000 at z15 and 1:7,000 at z16. That lines up with NOAA's reschemed scales
 # (overview 1:3,500,000, general 1:700,000, coastal 1:180,000, approach 1:45,000,
 # harbor 1:12,000, berthing 1:4,000). Legacy cells run a step larger in scale; the next
-# finer band covers those, and the rest is overzoomed. The Middle River box does not
-# use this table: every layer there is stored through zoom 16, as before.
-BAND_MAXZOOM = {1: 8, 2: 9, 3: 11, 4: 13, 5: 15, 6: 16}
-# Every band is still written through this zoom, unsimplified past its own cap. A
-# client only overzooms past the file's max zoom: inside it, a missing tile draws
-# blank, so water covered only by an approach chart vanished at zoom 14 and 15.
-# Coarser objects are already clipped away where a finer chart covers them.
-FILL_ZOOM = 15
-# These fill the chart. A high-zoom tile has to contain them or the water/land along
-# the edge of a finer chart disappears (the client does not also draw the parent tile).
-BASE_LAYERS = {"depare", "drgare", "lndare", "coalne"}
+# finer band covers those, and the rest is overzoomed. Overview and general charts go
+# on to zoom 11 with coastal ones, so the app needs one enlarged copy per cap (11, 13,
+# 15), not five; past zoom 9 their tiles hold the same geometry, unsimplified. The
+# Middle River box does not use this table: every layer there is stored through zoom
+# 16, as before.
+BAND_MAXZOOM = {1: 11, 2: 11, 3: 11, 4: 13, 5: 15, 6: 16}
 # Above this, a same-depth group is written as separate polygons. UnionCascaded of a
 # whole bay's depth areas is the step that runs out of memory; depare has no outline
 # in the style, so the cell edges do not show.
@@ -599,35 +595,6 @@ def merge_group(geoms):
     return union_polys(geoms)
 
 
-def build_zoom_halos(cov):
-    """zoom -> coverage of the charts that reach that zoom, grown by one and a half tiles.
-
-    A tile that only clips a finer chart is drawn in place of its parent. The coarser
-    water, land and coastline have to be in that tile too, or the edge of the finer
-    chart is blank. A tile is 360/2^z degrees wide; 1.5 of those covers the boundary
-    tile with a little to spare (tiles are shorter in latitude than in longitude).
-    """
-    by_z = {}
-    for band, geom, _env in cov.cells.values():
-        by_z.setdefault(BAND_MAXZOOM.get(band, 16), []).append(geom.Clone())
-    halos = {}
-    for z, geoms in sorted(by_z.items()):
-        merged = clean(union_polys(geoms))
-        if merged is None:
-            continue
-        pad = 1.5 * 360.0 / (1 << z)
-        try:
-            halo = clean(merged.Buffer(pad))
-        except RuntimeError as ex:
-            log(f"halo at zoom {z} failed ({ex})")
-            continue
-        if halo is None:
-            continue
-        halos[z] = halo
-        log(f"halo zoom {z}: {len(geoms)} charts, {pad:.4f} deg")
-    return halos
-
-
 def chop_geom(geom, step):
     """Split a geometry whose envelope is wider than `step` degrees.
 
@@ -660,7 +627,7 @@ def chop_geom(geom, step):
     return out or [geom]
 
 
-def write_gpkg(col, path, halos=None, region=False):
+def write_gpkg(col, path, region=False):
     drv = ogr.GetDriverByName("GPKG")
     if os.path.exists(path):
         drv.DeleteDataSource(path)
@@ -675,6 +642,9 @@ def write_gpkg(col, path, halos=None, region=False):
         ly = ds.CreateLayer(name, srs, wkb_of(public), options=["SPATIAL_INDEX=NO"])
         for fname, ftype in field_defs(public):
             ly.CreateField(ogr.FieldDefn(fname, ftype))
+        if region:
+            # The band cap: the app draws a feature from the copy of the file that stops at it
+            ly.CreateField(ogr.FieldDefn("z", ogr.OFTInteger))
         layers[name] = ly
         return ly
 
@@ -685,6 +655,10 @@ def write_gpkg(col, path, halos=None, region=False):
         for k, v in props.items():
             if v is not None:
                 feat.SetField(k, v)
+        if region:
+            _head, sep, tail = name.rpartition("_z")
+            if sep and tail.isdigit():
+                feat.SetField("z", int(tail))
         ly.CreateFeature(feat)
 
     merged = {}
@@ -693,35 +667,6 @@ def write_gpkg(col, path, halos=None, region=False):
             g = clean(merge_group(geoms))
             if g is not None:
                 merged[(layer, zoom, key)] = g
-    halo_n = 0
-    if halos:
-        extras = []
-        for (layer, zoom, key), geom in list(merged.items()):
-            if zoom is None or layer not in BASE_LAYERS:
-                continue
-            for hz, halo in halos.items():
-                # The layer already reaches FILL_ZOOM; only a berthing chart's zoom 16 needs a strip
-                if hz <= max(zoom, FILL_ZOOM):
-                    continue
-                try:
-                    if not geom.Intersects(halo):
-                        continue
-                    strip = clean(geom.Intersection(halo))
-                except RuntimeError as ex:
-                    log(f"halo clip {layer} zoom {zoom} to {hz} failed ({ex})")
-                    continue
-                if strip is not None:
-                    extras.append((layer, hz, key, strip))
-        for layer, hz, key, strip in extras:
-            k = (layer, hz, key)
-            if k in merged:
-                both = clean(union_polys([merged[k], strip]))
-                if both is not None:
-                    merged[k] = both
-            else:
-                merged[k] = strip
-        halo_n = len(extras)
-        log(f"halo strips copied onto finer zooms: {halo_n}")
 
     def pieces(geom, zoom):
         if not region or zoom is None:
@@ -773,20 +718,19 @@ def write_mbtiles(gpkg, out, layer_names, bounds, title, description, region):
         # Layer settings sit at the root of the CONF. GDAL looks up the OGR layer
         # name there (not under a "layers" key) and writes target_name into the tile.
         # Several source layers (depare_z13, depare_z15) become one MVT layer.
-        def cap(name):
-            _head, sep, tail = name.rpartition("_z")
-            return int(tail) if sep and tail.isdigit() else 16
-        file_max = max([8] + [cap(n) for n in layer_names])
+        file_max = 8
         conf = {}
         for name in layer_names:
             public = public_layer(name)
-            z = cap(name)
-            # A coarse band goes on through FILL_ZOOM (see there); past its cap the
-            # tiles hold the same geometry, unsimplified.
+            _head, sep, tail = name.rpartition("_z")
+            z = int(tail) if sep and tail.isdigit() else 16
+            file_max = max(file_max, z)
+            # A band whose cap is below the style's minzoom (approach soundings stop
+            # at 13, the style draws them from 14) is stored at its cap and overzoomed.
             conf[name] = {
                 "target_name": public,
                 "minzoom": min(MINZOOM.get(public, 8), z),
-                "maxzoom": max(z, min(FILL_ZOOM, file_max)),
+                "maxzoom": z,
             }
         # 4 tile units below a layer's own max zoom; that max zoom stays unsmoothed.
         simplify = ["SIMPLIFICATION=4", "SIMPLIFICATION_MAX_ZOOM=0"]
@@ -952,13 +896,6 @@ def main():
         if col.counts.get(required, 0) == 0:
             raise SystemExit(f"no {required} features inside the area; the chart would be empty")
 
-    halos = None
-    if region_mode:
-        try:
-            halos = build_zoom_halos(cov)
-        except Exception as ex:
-            log(f"halos skipped ({ex})")
-            halos = None
     stem = f"Ncds_{a.region}" if region_mode else "middle_river"
     # Next to the output, not in the cell cache: a half-written GeoPackage must not
     # be saved with the chart cells (vector-maps.yml caches that directory).
@@ -968,7 +905,7 @@ def main():
     # GDAL's MVT driver refuses to write MBTiles unless the name ends in .mbtiles.
     part = out[:-len(".mbtiles")] + ".partial.mbtiles"
     try:
-        names, counts = write_gpkg(col, gpkg, halos, region_mode)
+        names, counts = write_gpkg(col, gpkg, region_mode)
         log("gpkg: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
         write_mbtiles(gpkg, part, names, (w, s, e, n), title, description, region_mode)
         write_search(part, col)

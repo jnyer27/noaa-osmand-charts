@@ -201,6 +201,38 @@ class ChartTilesTest {
     }
 
     @Test
+    fun coarserBandsAreEnlargedFromACopyOfTheFileThatStopsAtTheirZoom() {
+        val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_16.mbtiles"),
+            "file:///g/{fontstack}/{range}.pbf", maxZooms = listOf(15, 16))
+        val json = obj(MiniJson.parse(style))
+        val sources = obj(json["sources"])
+        assertEquals("mbtiles:///a/Ncds_04.mbtiles", obj(sources["enc"])["url"])
+        val z13 = obj(sources["enc-z13"])
+        assertEquals(listOf("mbtiles:///a/Ncds_04.mbtiles?file={x}/{y}/{z}.pbf"), z13["tiles"])
+        assertEquals(13, (z13["maxzoom"] as Number).toInt())
+        // Copies only below the file's own max zoom: 04 stops at 15, 16 has berthing charts
+        assertTrue("enc-z11" in sources && "enc1-z11" in sources && "enc1-z15" in sources)
+        assertFalse("enc-z15" in sources)
+        val layers = arr(json["layers"]).map { obj(it) }
+        val ids = layers.map { it["id"] as String }
+        assertEquals("ids unique", ids.size, ids.toSet().size)
+        val lo = layers.first { it["id"] == "depare@13" }
+        assertEquals("enc-z13", lo["source"])
+        assertEquals(14, (lo["minzoom"] as Number).toInt())
+        assertEquals(listOf("==", listOf("get", "z"), 13), (lo["filter"] as List<*>).map { v -> if (v is Number) v.toInt() else v }
+            .map { v -> if (v is List<*>) v.map { if (it is Number) it.toInt() else it } else v })
+        // A layer that starts higher keeps its own start; an enlarged copy draws under the file's own
+        assertEquals(15, (layers.first { it["id"] == "buoy-name@11" }["minzoom"] as Number).toInt())
+        assertEquals(14, (layers.first { it["id"] == "soundg@13" }["minzoom"] as Number).toInt())
+        assertEquals("enc1-z15", layers.first { it["id"] == "soundg~1@15" }["source"])
+        assertTrue(ids.indexOf("depare@13") < ids.indexOf("depare"))
+        assertTrue(ids.indexOf("depare~1") < ids.indexOf("soundg@11"))
+        assertFalse(style.contains("__"))
+        // Without max zooms (the Middle River chart) there are no copies
+        assertFalse(ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf").contains("-z1"))
+    }
+
+    @Test
     fun severalRegionChartsAreOneStyleWithASourceEach() {
         val style = ChartTiles.style(3.0, listOf("mbtiles:///a/Ncds_04.mbtiles", "mbtiles:///a/Ncds_05.mbtiles"),
             "file:///g/{fontstack}/{range}.pbf")
