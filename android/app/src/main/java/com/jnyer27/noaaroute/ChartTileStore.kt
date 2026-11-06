@@ -156,6 +156,26 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         return 0L to e.size
     }
 
+    /** Why a download has not moved, from DownloadManager: queued, waiting for Wi-Fi, ... or null while running. */
+    fun waitReason(ncds: String): String? {
+        val e = get(ncds) ?: return null
+        if (e.state != State.DOWNLOADING || e.download < 0) return null
+        dm.query(DownloadManager.Query().setFilterById(e.download))?.use { c ->
+            if (!c.moveToFirst()) return "not in Android's download list"
+            return when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                DownloadManager.STATUS_PENDING -> "queued"
+                DownloadManager.STATUS_PAUSED -> when (c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))) {
+                    DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "waiting for Wi-Fi (this connection counts as metered)"
+                    DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "waiting for a network"
+                    DownloadManager.PAUSED_WAITING_TO_RETRY -> "waiting to retry"
+                    else -> "paused"
+                }
+                else -> null
+            }
+        }
+        return null
+    }
+
     /**
      * A download ended (from ChartDownloadReceiver, or noticed by [reconcile]).
      * True if it was one of ours.

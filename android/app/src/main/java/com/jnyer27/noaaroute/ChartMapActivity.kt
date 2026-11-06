@@ -380,8 +380,10 @@ class ChartMapActivity : Activity() {
             bset != null && baseTiles.busy(bset.ncds) -> {
                 baseButton.visibility = View.VISIBLE
                 val p = baseTiles.progress(bset.ncds)
+                val why = baseTiles.waitReason(bset.ncds)
                 baseButton.text = "Cancel base map download" +
-                    (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "")
+                    (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "") +
+                    (why?.let { ", $it" } ?: "")
                 baseButton.setOnClickListener { baseTiles.cancel(bset.ncds); present() }
             }
             bset != null && (be == null || be.state == ChartTileStore.State.FAILED || baseTiles.needsUpdate(be, bset)) -> {

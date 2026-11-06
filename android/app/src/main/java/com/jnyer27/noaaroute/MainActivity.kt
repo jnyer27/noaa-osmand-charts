@@ -857,9 +857,10 @@ class MainActivity : Activity() {
         val e = chartTiles.get(set.ncds)
         return when (e?.state) {
             null -> "not downloaded, about %.0f MB".format(set.size / 1e6)
-            ChartTileStore.State.DOWNLOADING -> chartTiles.progress(set.ncds)?.let { (got, total) ->
+            ChartTileStore.State.DOWNLOADING -> (chartTiles.progress(set.ncds)?.let { (got, total) ->
                 "downloading: %.0f of %.0f MB (waits for Wi-Fi unless mobile data was allowed)".format(got / 1e6, total / 1e6)
-            } ?: "download queued (waits for Wi-Fi unless mobile data was allowed)"
+            } ?: "download queued (waits for Wi-Fi unless mobile data was allowed)") +
+                (chartTiles.waitReason(set.ncds)?.let { "\nAndroid: $it" } ?: "")
             ChartTileStore.State.DOWNLOADED, ChartTileStore.State.SAVING -> "checking the download..."
             ChartTileStore.State.READY -> (if (chartTiles.needsUpdate(e, set)) "UPDATE available" else "ready for View map") +
                 " (%.0f MB)".format(set.size / 1e6) + (e.error?.let { "\n$it" } ?: "")
