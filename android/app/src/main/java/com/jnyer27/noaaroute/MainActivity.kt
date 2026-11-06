@@ -518,6 +518,7 @@ class MainActivity : Activity() {
                 if (!quiet) ui.post { status.text = "Could not reach the chart catalog (${e.message}); showing the last one." }
                 store.cachedCatalog()
             }
+            chartTiles.refreshCatalog() // its own copy: a branch APK lists the branch's charts
             ui.post {
                 catalog = list
                 if (store.dropReplaced(list)) openCharts()

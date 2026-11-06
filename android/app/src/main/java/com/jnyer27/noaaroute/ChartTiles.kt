@@ -443,13 +443,34 @@ object ChartTiles {
      * together, so depth shading stays under contours and marks across a seam. The
      * first source keeps the plain layer ids. Drawing only the region under the screen's
      * center left the next region blank while panning across 38.23 N (04 and 05).
+     *
+     * [maxZooms] (one per region file, its catalog max zoom) turns on the enlarged
+     * copies. A region file stores each chart band up to its own zoom (11, 13, 15, 16;
+     * each feature's `z`), and MapLibre draws a missing tile inside the file's zoom
+     * range as blank. So each file is also opened once per band zoom below its max, as
+     * a source stopping at that zoom ("enc-z13", "enc1-z11"), and past it MapLibre
+     * enlarges that zoom's tiles. Those layers draw only features with that `z`, from
+     * the next zoom up; finer charts are already cut out of coarser ones, so nothing
+     * is drawn twice. Without them, water covered only by an approach chart went blank
+     * at zoom 14. A file without `z` (built before) draws as it did.
      */
-    fun style(depthFt: Double, mbtilesUrls: List<String>, glyphsUrl: String, baseUrls: List<String> = emptyList()): String {
+    fun style(
+        depthFt: Double, mbtilesUrls: List<String>, glyphsUrl: String, baseUrls: List<String> = emptyList(),
+        maxZooms: List<Int>? = null,
+    ): String {
         require(mbtilesUrls.isNotEmpty())
+        require(maxZooms == null || maxZooms.size == mbtilesUrls.size)
         val depth = depthText(depthFt)
         fun src(k: Int) = if (k == 0) "enc" else "enc$k"
-        val sources = (mbtilesUrls.indices.map { k ->
-            "    \"${src(k)}\": {\"type\": \"vector\", \"url\": ${jsonString(mbtilesUrls[k])}}"
+        fun caps(k: Int) = if (maxZooms == null) emptyList() else BAND_ZOOMS.filter { it < maxZooms[k] }
+        val sources = (mbtilesUrls.indices.flatMap { k ->
+            listOf("    \"${src(k)}\": {\"type\": \"vector\", \"url\": ${jsonString(mbtilesUrls[k])}}") +
+                caps(k).map { z ->
+                    // The same file as tiles, so the source can stop at z. MapLibre reads the
+                    // tile from x/y/z and drops the query (MBTilesFileSource).
+                    "    \"${src(k)}-z$z\": {\"type\": \"vector\", \"tiles\": [" +
+                        jsonString(mbtilesUrls[k] + "?file={x}/{y}/{z}.pbf") + "], \"minzoom\": 8, \"maxzoom\": $z}"
+                }
         } + baseUrls.indices.map { k ->
             "    \"osm$k\": {\"type\": \"vector\", \"url\": ${jsonString(baseUrls[k])}, " +
                 "\"attribution\": \"\u00a9 OpenStreetMap contributors\"}"
@@ -476,15 +497,28 @@ object ChartTiles {
             val body = b.trimEnd().removeSuffix(",")
             if (!body.contains("\"source\": \"enc\"")) { layers.add(body); continue }
             val id = Regex("""\{"id": "([^"]+)"""").find(body)!!.groupValues[1]
+            val minZoom = Regex("""\"minzoom\": (\d+)""").find(body)?.groupValues?.get(1)?.toInt() ?: 0
             for (k in mbtilesUrls.indices) {
-                layers.add(if (k == 0) body else body
-                    .replaceFirst("{\"id\": \"$id\"", "{\"id\": \"$id~$k\"")
-                    .replace("\"source\": \"enc\"", "\"source\": \"${src(k)}\""))
+                val mine = if (k == 0) id else "$id~$k"
+                val copy = if (k == 0) body else body
+                    .replaceFirst("{\"id\": \"$id\"", "{\"id\": \"$mine\"")
+                    .replace("\"source\": \"enc\"", "\"source\": \"${src(k)}\"")
+                // The enlarged coarser bands first, under the file's own tiles
+                for (z in caps(k)) {
+                    val from = maxOf(minZoom, z + 1)
+                    var lo = copy
+                        .replaceFirst("{\"id\": \"$mine\"", "{\"id\": \"$mine@$z\"")
+                        .replace("\"source\": \"${src(k)}\"", "\"source\": \"${src(k)}-z$z\", \"filter\": [\"==\", [\"get\", \"z\"], $z]")
+                    lo = if (lo.contains("\"minzoom\": ")) lo.replace(Regex("""\"minzoom\": \d+"""), "\"minzoom\": $from")
+                        else lo.replaceFirst("\"source-layer\": ", "\"minzoom\": $from, \"source-layer\": ")
+                    layers.add(lo)
+                }
+                layers.add(copy)
             }
         }
         // Above the chart's land fill, under its contours, marks, soundings and the route
         if (base.isNotEmpty()) {
-            val at = layers.indexOfLast { Regex("""\{"id": "lndare(~\d+)?"""").containsMatchIn(it) } + 1
+            val at = layers.indexOfLast { it.contains("\"source-layer\": \"lndare\"") } + 1
             layers.addAll(at, base)
         }
         return (text.substring(0, open) + layers.joinToString(",\n") + text.substring(close))
@@ -492,6 +526,9 @@ object ChartTiles {
             .replace("__DEPTH__", depth)
             .replace("__GLYPHS__", jsonString(glyphsUrl))
     }
+
+    /** Band zooms below a region file's max that get an enlarged copy (tools/build_enc_tiles.py BAND_MAXZOOM). */
+    val BAND_ZOOMS = listOf(11, 13, 15)
 
     private fun coord(p: LatLon) = String.format(Locale.US, "[%.6f,%.6f]", p.lon, p.lat)
 
