@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-06: chart detail stays when zoomed in (app 0.1.217 unchanged, route packs build 153 unchanged)
+
+The chart:
+- **Water no longer goes blank past zoom 13 where only approach charts exist** (for example around Tilghman Island). The region chart files now carry every chart scale through zoom 15. Download the region chart again (the **Update** offer) to get it. Region 04 grows from about 32 MB to 49 MB.
+
 ## 2026-11-06: set the start from the chart (app 0.1.217, route packs build 153 unchanged)
 
 The chart:
