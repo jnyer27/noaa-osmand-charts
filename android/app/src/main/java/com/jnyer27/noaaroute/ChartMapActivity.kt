@@ -85,6 +85,8 @@ class ChartMapActivity : Activity() {
     /** Remembered. True shows the paragraph. False is the one-line bar. */
     private var keyOpen = true
     private lateinit var downloadButton: Button
+    /** The OpenStreetMap base map offer, apart from the chart's so a chart update cannot hide it. */
+    private lateinit var baseButton: Button
     private lateinit var routeToggle: CheckBox
     private lateinit var routeLegend: TextView
     private val tiles by lazy { ChartTileStore(this) }
@@ -279,6 +281,11 @@ class ChartMapActivity : Activity() {
             paintControl(this, chrome, chrome.keyBg)
         }
         root.addView(downloadButton)
+        baseButton = Button(this).apply {
+            visibility = View.GONE
+            paintControl(this, chrome, chrome.keyBg)
+        }
+        root.addView(baseButton)
         root.addView(Button(this).apply {
             text = "Back"
             paintControl(this, chrome, chrome.keyBg)
@@ -362,27 +369,27 @@ class ChartMapActivity : Activity() {
                 downloadButton.text = "Download ${offer.shortName} chart (%.0f MB)".format(offer.size / 1e6)
                 downloadButton.setOnClickListener { confirmDownload(offer) }
             }
-            else -> {
-                // The region's chart is here: offer its OpenStreetMap base map
-                val bset = chosen?.let { c -> baseTiles.catalogSets().firstOrNull { it.ncds == c.ncds } }
-                val be = bset?.let { baseTiles.get(it.ncds) }
-                when {
-                    bset != null && baseTiles.busy(bset.ncds) -> {
-                        downloadButton.visibility = View.VISIBLE
-                        val p = baseTiles.progress(bset.ncds)
-                        downloadButton.text = "Cancel base map download" +
-                            (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "")
-                        downloadButton.setOnClickListener { baseTiles.cancel(bset.ncds); present() }
-                    }
-                    bset != null && (be == null || be.state == ChartTileStore.State.FAILED || baseTiles.needsUpdate(be, bset)) -> {
-                        downloadButton.visibility = View.VISIBLE
-                        downloadButton.text = (if (be?.state == ChartTileStore.State.READY) "Update" else "Download") +
-                            " ${bset.shortName} base map, roads and towns (%.0f MB)".format(bset.size / 1e6)
-                        downloadButton.setOnClickListener { confirmDownload(bset, baseTiles) }
-                    }
-                    else -> downloadButton.visibility = View.GONE
-                }
+            else -> downloadButton.visibility = View.GONE
+        }
+        // The OpenStreetMap base map of the region on screen (or the route's), when not downloaded
+        val baseCode = chosen?.ncds ?: offer?.ncds ?: update?.ncds
+        val bset = baseCode?.let { c -> baseTiles.catalogSets().firstOrNull { it.ncds == c } }
+        val be = bset?.let { baseTiles.get(it.ncds) }
+        when {
+            bset != null && baseTiles.busy(bset.ncds) -> {
+                baseButton.visibility = View.VISIBLE
+                val p = baseTiles.progress(bset.ncds)
+                baseButton.text = "Cancel base map download" +
+                    (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "")
+                baseButton.setOnClickListener { baseTiles.cancel(bset.ncds); present() }
             }
+            bset != null && (be == null || be.state == ChartTileStore.State.FAILED || baseTiles.needsUpdate(be, bset)) -> {
+                baseButton.visibility = View.VISIBLE
+                baseButton.text = (if (be?.state == ChartTileStore.State.READY) "Update" else "Download") +
+                    " ${bset.shortName} base map, roads and towns (%.0f MB)".format(bset.size / 1e6)
+                baseButton.setOnClickListener { confirmDownload(bset, baseTiles) }
+            }
+            else -> baseButton.visibility = View.GONE
         }
         val progress = if (busy && busyCode != null) tiles.progress(busyCode) else null
         val status = when {
