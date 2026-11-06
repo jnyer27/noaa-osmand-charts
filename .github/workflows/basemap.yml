@@ -1,0 +1,55 @@
+name: Base map
+
+# OpenStreetMap base map for the chart screen (tools/build_basemap.sh), one file per
+# NCDS region. Test stage: region 04 only, built at max zoom 12, 13 and 14 to measure
+# size; nothing published yet. The files are uploaded as run artifacts.
+on:
+  push:
+    paths:
+      - "tools/build_basemap.sh"
+      - ".github/workflows/basemap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tools (go-pmtiles 1.31.2, tippecanoe 2.79.0)
+        run: |
+          curl -fsSL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin pmtiles
+          sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev >/dev/null
+          git clone -q --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -s -C /tmp/tippecanoe -j"$(nproc)" tile-join
+          sudo cp /tmp/tippecanoe/tile-join /usr/local/bin/
+          pmtiles version; tile-join --version 2>&1 | head -1
+      - name: Region 04 at zoom 14
+        run: tools/build_basemap.sh Ncds_04 -77.8,38.23,-73.4,39.73 14 out/z14
+      - name: Zoom 12 and 13 from the zoom 14 file
+        run: |
+          for z in 12 13; do
+            mkdir -p out/z$z
+            pmtiles extract out/z14/Ncds_04_basemap_full.pmtiles out/z$z/Ncds_04_basemap_full.pmtiles --maxzoom=$z
+            pmtiles extract out/z14/Ncds_04_basemap.pmtiles out/z$z/Ncds_04_basemap.pmtiles --maxzoom=$z
+          done
+      - name: Sizes
+        run: |
+          {
+            echo "| max zoom | all layers | trimmed (roads, places, boundaries, pois, transit) |"
+            echo "|---|---|---|"
+            for z in 12 13 14; do
+              echo "| $z | $(du -h out/z$z/Ncds_04_basemap_full.pmtiles | cut -f1) | $(du -h out/z$z/Ncds_04_basemap.pmtiles | cut -f1) |"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l out/z*/
+          pmtiles show out/z14/Ncds_04_basemap.pmtiles | head -40
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basemap-04
+          path: |
+            out/z13/Ncds_04_basemap.pmtiles
+            out/z14/Ncds_04_basemap.pmtiles
+          retention-days: 7
