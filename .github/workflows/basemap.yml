@@ -10,7 +10,7 @@ name: Base map
 # rebuilds a region.
 #   push: region 04 only; a commit message with "[basemap all]" or "[basemap 04 05]"
 #     builds those regions instead
-#   monthly schedule, manual runs (on main): every region in tools/areas.json, or the
+#   monthly schedule, manual runs (on main): every region in tools/areas.json (about 46), or the
 #     codes given. OpenStreetMap changes slowly; a month is plenty.
 on:
   push:
