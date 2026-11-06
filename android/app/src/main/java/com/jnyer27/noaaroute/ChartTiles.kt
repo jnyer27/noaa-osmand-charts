@@ -574,6 +574,7 @@ object ChartTiles {
     "route": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "restricted": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "cables": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "search": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
   },
   "layers": [
@@ -691,6 +692,12 @@ object ChartTiles {
       "layout": {"text-field": "!", "text-font": ["$FONT"],
         "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true},
       "paint": {"text-color": "#ffffff"}},
+    {"id": "search-pin", "type": "circle", "source": "search",
+      "paint": {"circle-radius": 9, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#d500f9", "circle-stroke-width": 3}},
+    {"id": "search-label", "type": "symbol", "source": "search",
+      "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 13, "text-offset": [0, 1.5],
+        "text-anchor": "top", "text-allow-overlap": true},
+      "paint": {"text-color": "#6a1b9a", "text-halo-color": "#ffffff", "text-halo-width": 2}},
     {"id": "gps-halo", "type": "circle", "source": "gps",
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
     {"id": "gps", "type": "circle", "source": "gps",

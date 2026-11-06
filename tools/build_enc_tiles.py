@@ -266,6 +266,8 @@ class Collector:
         self.points = []  # (layer, zoom, props, x, y)
         self.seen_pts = set()
         self.counts = {}
+        # Named objects for the app's search: (name, kind, lat 3 dp, lon 3 dp) -> row
+        self.search = {}
 
     def _bump(self, layer):
         self.counts[layer] = self.counts.get(layer, 0) + 1
@@ -440,10 +442,56 @@ def emit(col, layer, props, geom, zoom):
         col.add_point(layer, props, geom, zoom)
 
 
+# Chart objects the app's search lists, by S-57 class, with the word it shows
+SEARCH_KINDS = {"BOYLAT": "buoy", "BCNLAT": "beacon", "LIGHTS": "light", "BRIDGE": "bridge",
+                "DRGARE": "channel", "FAIRWY": "fairway", "WRECKS": "wreck"}
+
+
+def add_search(col, cls, feat, geom, eto):
+    """One search row per named object, once per ~100 m (the same object comes from
+    several cells and bands). Lines and areas use their centroid."""
+    kind = SEARCH_KINDS.get(cls)
+    if kind is None:
+        return
+    name = ascii_text(eto.val(feat, "OBJNAM"), 64)
+    if not name:
+        return
+    try:
+        c = geom if ogr.GT_Flatten(geom.GetGeometryType()) == ogr.wkbPoint else geom.Centroid()
+        lon, lat = c.GetX(), c.GetY()
+    except Exception:
+        return
+    key = (name, kind, round(lat, 3), round(lon, 3))
+    if key in col.search:
+        return
+    row = [name, kind, round(lat, 5), round(lon, 5)]
+    if cls == "LIGHTS":
+        label = light_label(feat, eto)
+        if label:
+            row.append(label)
+    col.search[key] = row
+
+
+def write_search(mbtiles, col):
+    """The search rows go into the MBTiles metadata table as `search` (a JSON array)."""
+    import sqlite3
+    rows = sorted(col.search.values())
+    db = sqlite3.connect(mbtiles)
+    try:
+        db.execute("DELETE FROM metadata WHERE name = 'search'")
+        db.execute("INSERT INTO metadata (name, value) VALUES ('search', ?)",
+                   (json.dumps(rows, separators=(",", ":")),))
+        db.commit()
+    finally:
+        db.close()
+    log(f"search: {len(rows)} named chart objects")
+
+
 def add_object(col, cls, feat, geom, eto, z=None, zoom=None):
     got = props_of(cls, feat, geom, eto, z)
     if got is None:
         return
+    add_search(col, cls, feat, geom, eto)
     if len(got) == 3:
         layer, props, geom = got
     else:
@@ -896,6 +944,7 @@ def main():
         names, counts = write_gpkg(col, gpkg, halos, region_mode)
         log("gpkg: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
         write_mbtiles(gpkg, part, names, (w, s, e, n), title, description, region_mode)
+        write_search(part, col)
         size, _, _ = summarize(part)
         os.replace(part, out)
         log(f"done in {time.time() - t0:.0f}s, {size} bytes")

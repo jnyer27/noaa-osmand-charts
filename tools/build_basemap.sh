@@ -11,7 +11,8 @@
 #   tools/build_basemap.sh <name> <west,south,east,north> <maxzoom> [outdir]
 #
 # Writes <outdir>/<name>_basemap.pmtiles (trimmed) and <name>_basemap_full.pmtiles
-# (all layers, for size comparison). Needs pmtiles and tile-join (tippecanoe) on PATH.
+# (all layers, for size comparison). The trimmed file's metadata gets a `search` list
+# (tools/basemap_search.py). Needs pmtiles, tile-join and tippecanoe-decode on PATH.
 set -euo pipefail
 name=$1 bbox=$2 maxzoom=$3 out=${4:-.}
 mkdir -p "$out"
@@ -26,4 +27,15 @@ tile-join --force --no-tile-size-limit \
   -n "${name} base map (OpenStreetMap)" \
   -A '<a href="https://openstreetmap.org/copyright">&copy; OpenStreetMap contributors</a>, Protomaps' \
   -o "$out/${name}_basemap.pmtiles" "$full"
+# Search rows (towns, marinas, roads) for the app, stored in the file's metadata
+tippecanoe-decode -Z "$maxzoom" -z "$maxzoom" -l places -l pois -l roads "$out/${name}_basemap.pmtiles" |
+  python3 "$(dirname "$0")/basemap_search.py" > "$out/${name}_search.json"
+pmtiles show --metadata "$out/${name}_basemap.pmtiles" > "$out/${name}_meta.json"
+python3 - "$out/${name}_meta.json" "$out/${name}_search.json" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1]))
+meta["search"] = json.load(open(sys.argv[2]))
+json.dump(meta, open(sys.argv[1], "w"), separators=(",", ":"), ensure_ascii=False)
+PY
+pmtiles edit "$out/${name}_basemap.pmtiles" --metadata="$out/${name}_meta.json"
 echo "$build" > "$out/${name}_basemap.build"
