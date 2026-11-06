@@ -74,10 +74,11 @@ class ChartMapActivity : Activity() {
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
-        /** Result: a point picked on the chart, and what to do with it ([PICK_VIA] or [PICK_DEST]). */
+        /** Result: a point picked on the chart, and what to do with it ([PICK_START], [PICK_VIA] or [PICK_DEST]). */
         const val EXTRA_PICK_LAT = "pickLat"
         const val EXTRA_PICK_LON = "pickLon"
         const val EXTRA_PICK_ACTION = "pickAction"
+        const val PICK_START = "start"
         const val PICK_VIA = "via"
         const val PICK_DEST = "dest"
     }
@@ -613,13 +614,13 @@ class ChartMapActivity : Activity() {
         return true
     }
 
-    /** Press and hold: use that spot as a via point or the destination on the planning screen. */
+    /** Press and hold: use that spot as the start, a via point or the destination on the planning screen. */
     private fun showPoint(lat: Double, lon: Double) {
         val p = LatLon(lat, lon)
         AlertDialog.Builder(this)
             .setTitle(Coords.format(p))
-            .setItems(arrayOf("Add as via point", "Set as destination")) { _, which ->
-                returnPick(if (which == 0) PICK_VIA else PICK_DEST, lat, lon)
+            .setItems(arrayOf("Set as start", "Add as via point", "Set as destination")) { _, which ->
+                returnPick(when (which) { 0 -> PICK_START; 1 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -675,7 +676,7 @@ class ChartMapActivity : Activity() {
         sb.append("Tap a restricted area or a cable for its rule or clearance. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position. Press and hold the chart to add a via point or set the destination there.")
+        sb.append("The blue dot is your GPS position. Press and hold the chart to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)

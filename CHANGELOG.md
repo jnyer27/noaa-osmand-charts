@@ -4,6 +4,12 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: set the start from the chart
+
+The chart:
+- **Set as start**, beside **Add as via point** and **Set as destination**, when you press and hold the chart.
+- **A destination picked on a chart with no route no longer fails.** From View map with no trip, **Set as destination** went back to plan at once and stopped with "Start must be LAT, LON". Planning now waits until the trip has a start and a destination, and the planning screen says which one to set.
+
 ## 2026-11-06: OpenStreetMap base map and search on the chart (app 0.1.215, route packs build 153 unchanged)
 
 The chart:

@@ -1379,11 +1379,35 @@ class MainActivity : Activity() {
         if (!data.hasExtra(ChartMapActivity.EXTRA_PICK_LAT)) return
         val p = LatLon(data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LAT, 0.0), data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LON, 0.0))
         val pos = Coords.format(p)
-        if (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION) == ChartMapActivity.PICK_DEST) {
-            dest.setText(pos)
-            status.text = "Destination set from the chart: $pos. Planning..."
-            plan(reopenMap = true)
-            return
+        // Plan only when the trip has both ends. View map opened with no route has no start
+        // yet: planning then stopped with "Start must be LAT, LON".
+        fun planOrAsk(what: String) {
+            val missing = listOfNotNull(
+                "start".takeIf { Coords.parse(start.text.toString()) == null },
+                "destination".takeIf { Coords.parse(dest.text.toString()) == null },
+            )
+            if (missing.isEmpty()) {
+                status.text = "$what. Planning..."
+                plan(reopenMap = true)
+                return
+            }
+            val field = if (missing.first() == "start") start else dest
+            status.text = "$what. Set the ${missing.joinToString(" and the ")} to plan: type it, use Places" +
+                (if (missing.first() == "start") " or Here" else "") +
+                ", or press and hold the chart in View map."
+            field.requestFocus()
+        }
+        when (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION)) {
+            ChartMapActivity.PICK_START -> {
+                start.setText(pos)
+                planOrAsk("Start set from the chart: $pos")
+                return
+            }
+            ChartMapActivity.PICK_DEST -> {
+                dest.setText(pos)
+                planOrAsk("Destination set from the chart: $pos")
+                return
+            }
         }
         val vias = via.text.toString().split(";").map { it.trim() }.filter { it.isNotEmpty() }
         val parsed = vias.map { Coords.parse(it) }
@@ -1394,8 +1418,7 @@ class MainActivity : Activity() {
         else vias.size
         val out = vias.toMutableList().apply { add(at, pos) }
         via.setText(out.joinToString("; "))
-        status.text = "Via point ${at + 1} of ${out.size} added from the chart: $pos. Planning..."
-        plan(reopenMap = true)
+        planOrAsk("Via point ${at + 1} of ${out.size} added from the chart: $pos")
     }
 
     /** [reopenMap]: a point picked on the chart replans, then shows the new route on the chart. */
