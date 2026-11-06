@@ -49,28 +49,30 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
     private val prefs = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE)
     private val dm = ctx.getSystemService(DownloadManager::class.java)
     val dir: File = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, kind.folder).apply { mkdirs() }
-    /** The chart uses the vector chart catalog; the base map its own copy, from [base]. */
-    private val catalogFile = File(ctx.filesDir, if (kind == Kind.CHART) "vector-catalog.json" else "basemap-catalog.json")
-    val base: String = if (kind == Kind.CHART) VectorMaps.BASE else BuildConfig.BASEMAP_BASE
+    /**
+     * Each its own copy of the vector chart catalog, from [base]: a branch APK reads the
+     * branch's charts and base maps, while VectorMaps (vector-catalog.json) keeps the
+     * main release's OsmAnd maps.
+     */
+    private val catalogFile = File(ctx.filesDir, if (kind == Kind.CHART) "chart-catalog.json" else "basemap-catalog.json")
+    val base: String = if (kind == Kind.CHART) BuildConfig.CHART_BASE else BuildConfig.BASEMAP_BASE
 
     fun catalogSets(): List<ChartTiles.TileSet> =
         try { ChartTiles.tileSets(catalogFile.readText(), kind.key) } catch (_: Exception) { emptyList() }
 
-    /** Fetch the vector catalog (branch builds read vector-maps-beta) and return its tile sets. */
+    /** Fetch the vector catalog from [base] (branch builds read vector-maps-beta) and return its tile sets. */
     fun refreshCatalog(): List<ChartTiles.TileSet> {
-        try {
-            if (kind == Kind.CHART) VectorMaps(ctx).fetchCatalog() else fetchBaseCatalog()
-        } catch (_: Exception) { }
+        try { fetchCatalog() } catch (_: Exception) { }
         return catalogSets()
     }
 
-    private fun fetchBaseCatalog() {
+    private fun fetchCatalog() {
         val c = java.net.URL(base + "catalog.json").openConnection() as java.net.HttpURLConnection
         c.connectTimeout = 20000
         c.readTimeout = 60000
         c.instanceFollowRedirects = true
         try {
-            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for the base map catalog")
+            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for the ${kind.what} catalog")
             val text = c.inputStream.bufferedReader().readText()
             ChartTiles.tileSets(text, kind.key) // parses, or throws before the saved copy is replaced
             catalogFile.writeText(text)

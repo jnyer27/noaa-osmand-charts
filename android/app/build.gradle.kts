@@ -41,6 +41,9 @@ android {
         // a branch APK reads vector-maps-beta for it even when NOAA_CATALOG=main
         val baseTag = if (branch == null || branch == "main") "vector-maps" else "vector-maps-beta"
         buildConfigField("String", "BASEMAP_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$baseTag/\"")
+        // Region chart tiles too (build_enc_tiles.py changes are tried on a branch's own
+        // charts); the OsmAnd maps above stay on the main release
+        buildConfigField("String", "CHART_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$baseTag/\"")
     }
 
     signingConfigs {
