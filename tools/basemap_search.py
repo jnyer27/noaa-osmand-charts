@@ -4,7 +4,7 @@
 Reads `tippecanoe-decode` output (one feature per line) of the places, pois and roads
 layers at one zoom on stdin and writes a JSON array of [name, kind, lat, lon] rows:
 towns and neighborhoods (kind from kind_detail), boating places (the poi kind) and
-named roads, one row per road name every ~2 km (ROAD_CELL degrees), at a vertex of
+named roads, one row per road name every ~5 km (ROAD_CELL degrees), at a vertex of
 the road. MapSearch.kt reads them from the PMTiles metadata `search` key.
 
     tippecanoe-decode -Z 14 -z 14 -l places -l pois -l roads base.pmtiles |
@@ -13,7 +13,7 @@ the road. MapSearch.kt reads them from the PMTiles metadata `search` key.
 import json
 import sys
 
-ROAD_CELL = 0.02
+ROAD_CELL = 0.05
 PLACE_KINDS = {"city", "town", "village", "hamlet", "suburb", "neighbourhood", "quarter"}
 ROAD_KINDS = {"highway", "major_road", "minor_road"}
 
