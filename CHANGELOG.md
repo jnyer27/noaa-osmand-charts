@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased: set the start from the chart
+## 2026-11-06: set the start from the chart (app 0.1.217, route packs build 153 unchanged)
 
 The chart:
 - **Set as start**, beside **Add as via point** and **Set as destination**, when you press and hold the chart.
