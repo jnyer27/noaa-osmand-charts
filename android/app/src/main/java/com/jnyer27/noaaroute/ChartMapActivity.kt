@@ -85,6 +85,7 @@ class ChartMapActivity : Activity() {
 
     private lateinit var mapView: MapView
     private lateinit var legend: TextView
+    private var scaleBar: ScaleBarView? = null
     /** The full key. The view shows [ChartTiles.keyLine] of this, or the load error. */
     private var fullKey = "Opening the chart..."
     /** A load failure stays in full even when the key is hidden. */
@@ -278,6 +279,11 @@ class ChartMapActivity : Activity() {
             gravity = Gravity.BOTTOM or Gravity.END
             setMargins(0, 0, dp(8), dp(8))
         })
+        scaleBar = ScaleBarView(this, chrome).apply { visibility = View.GONE }
+        frame.addView(scaleBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            setMargins(dp(8), 0, 0, dp(8))
+        })
         root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         keyOpen = prefs.getBoolean(ChartTiles.KEY_PREF, true)
         legend = TextView(this).apply {
@@ -324,13 +330,13 @@ class ChartMapActivity : Activity() {
                     paintFollow()
                 }
             }
-            loaded.addOnCameraMoveListener { paintCompass() }
+            loaded.addOnCameraMoveListener { paintCompass(); paintScale() }
             mapView.addOnDidFailLoadingMapListener { message ->
                 if (destroyed) return@addOnDidFailLoadingMapListener
                 loadError = true
                 showKey("Chart did not load: $message", error = true)
             }
-            loaded.addOnCameraIdleListener { if (overlayOn && !destroyed) refreshOverlay() }
+            loaded.addOnCameraIdleListener { paintScale(); if (overlayOn && !destroyed) refreshOverlay() }
             loaded.addOnMapClickListener { latLng ->
                 showLeg(latLng.latitude, latLng.longitude) || showNotes(latLng.latitude, latLng.longitude)
             }
@@ -972,6 +978,13 @@ class ChartMapActivity : Activity() {
             following -> "Following"
             else -> "Follow"
         }
+    }
+
+    /** The distance scale for the map center's latitude (MapLibre's pixels are dp). */
+    private fun paintScale() {
+        val m = map ?: return
+        val lat = m.cameraPosition.target?.latitude ?: return
+        scaleBar?.show(m.projection.getMetersPerPixelAtLatitude(lat))
     }
 
     private fun paintCompass() {

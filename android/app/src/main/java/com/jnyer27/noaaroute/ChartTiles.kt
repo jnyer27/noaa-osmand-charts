@@ -187,6 +187,35 @@ object ChartTiles {
         return String.format(Locale.US, "%s %.0f°", names[i], b)
     }
 
+    /** A scale bar: its [label] and its length on screen in dp. */
+    class Scale(val label: String, val dp: Double)
+
+    /**
+     * The longest round distance (1, 2 or 5 times a power of ten) that fits in [maxDp],
+     * at [metersPerDp] (MapLibre's meters per pixel at the map center's latitude; its
+     * pixels are dp). Nautical miles, or feet when a tenth of a mile does not fit.
+     */
+    fun scaleBar(metersPerDp: Double, maxDp: Double = 110.0): Scale? {
+        if (!(metersPerDp > 0) || metersPerDp.isInfinite()) return null
+        val most = metersPerDp * maxDp
+        val nmM = 1852.0
+        val ftM = 0.3048
+        fun nice(v: Double): Double {
+            var p = Math.pow(10.0, Math.floor(Math.log10(v)))
+            for (k in doubleArrayOf(5.0, 2.0, 1.0)) if (k * p <= v) return k * p
+            p /= 10
+            return 5 * p
+        }
+        return if (most >= 0.1 * nmM) {
+            val nm = nice(most / nmM)
+            val text = if (nm >= 1) String.format(Locale.US, "%.0f nm", nm) else String.format(Locale.US, "%.1f nm", nm)
+            Scale(text, nm * nmM / metersPerDp)
+        } else {
+            val ft = maxOf(nice(most / ftM), 1.0)
+            Scale(String.format(Locale.US, "%.0f ft", ft), ft * ftM / metersPerDp)
+        }
+    }
+
     /** A finger pan ends Follow. The app's own camera moves do not. */
     fun stillFollowing(following: Boolean, userPanned: Boolean) = following && !userPanned
 

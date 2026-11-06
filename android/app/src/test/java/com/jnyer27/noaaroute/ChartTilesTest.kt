@@ -358,6 +358,27 @@ class ChartTilesTest {
     }
 
     @Test
+    fun theScaleBarIsARoundDistanceThatFits() {
+        // 20 m per dp: 110 dp is 2200 m (1.19 nm), so 1 nm in 92.6 dp
+        val mile = ChartTiles.scaleBar(20.0)!!
+        assertEquals("1 nm", mile.label)
+        assertEquals(1852.0 / 20.0, mile.dp, 1e-9)
+        assertEquals("5 nm", ChartTiles.scaleBar(100.0)!!.label)
+        assertEquals("20 nm", ChartTiles.scaleBar(400.0)!!.label)
+        assertEquals("0.5 nm", ChartTiles.scaleBar(9.0)!!.label)
+        assertEquals("0.2 nm", ChartTiles.scaleBar(4.0)!!.label)
+        // Under a tenth of a mile: feet
+        assertEquals("500 ft", ChartTiles.scaleBar(1.5)!!.label)
+        assertEquals("50 ft", ChartTiles.scaleBar(0.2)!!.label)
+        for (m in doubleArrayOf(0.05, 0.3, 1.0, 3.0, 7.0, 15.0, 60.0, 900.0)) {
+            val s = ChartTiles.scaleBar(m)!!
+            assertTrue("$m ${s.label} ${s.dp}", s.dp <= 110.0 + 1e-9 && s.dp >= 110.0 / 5 - 1e-9)
+        }
+        assertNull(ChartTiles.scaleBar(0.0))
+        assertNull(ChartTiles.scaleBar(Double.NaN))
+    }
+
+    @Test
     fun followAndCompass() {
         assertEquals(0.0, ChartTiles.mapBearing(false, 90f, 3f, 40.0), 0.001)
         assertEquals(90.0, ChartTiles.mapBearing(true, 90f, 3f, 0.0), 0.001)
