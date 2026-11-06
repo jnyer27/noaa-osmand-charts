@@ -25,6 +25,7 @@ on:
   push:
     paths:
       - "tools/enc_to_osm.py"
+      - "tools/build_enc_tiles.py"
       - "tools/obf_compare.py"
       - "tools/osm_to_obf.sh"
       - ".github/workflows/vector-maps.yml"
