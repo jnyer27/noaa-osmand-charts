@@ -37,6 +37,10 @@ android {
         // Vector chart maps for OsmAnd (vector-maps.yml), the same way
         val vectorTag = if (releaseCatalogs) "vector-maps" else "vector-maps-beta"
         buildConfigField("String", "VECTOR_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$vectorTag/\"")
+        // The OpenStreetMap base map (basemap.yml) is published by the branch that builds it:
+        // a branch APK reads vector-maps-beta for it even when NOAA_CATALOG=main
+        val baseTag = if (branch == null || branch == "main") "vector-maps" else "vector-maps-beta"
+        buildConfigField("String", "BASEMAP_BASE", "\"https://github.com/jnyer27/noaa-osmand-charts/releases/download/$baseTag/\"")
     }
 
     signingConfigs {

@@ -984,7 +984,7 @@ class MainActivity : Activity() {
         // The saved catalog can predate the base map (it is the one from the last fetch):
         // fetch it, and reopen the card once it lists this region's base map
         if (baseTiles.catalogSets().none { it.ncds == code }) worker.execute {
-            try { vmaps.fetchCatalog() } catch (_: Exception) { }
+            baseTiles.refreshCatalog()
             ui.post {
                 if (d.isShowing && baseTiles.catalogSets().any { it.ncds == code }) { d.dismiss(); regionCard(code) }
             }

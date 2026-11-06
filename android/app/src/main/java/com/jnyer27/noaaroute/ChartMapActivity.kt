@@ -323,6 +323,7 @@ class ChartMapActivity : Activity() {
                 tiles.reconcile()
                 baseTiles.reconcile()
                 try { tiles.refreshCatalog() } catch (_: Exception) { }
+                baseTiles.refreshCatalog()
                 runOnUiThread { if (!destroyed) present() }
             }
         }

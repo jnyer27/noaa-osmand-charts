@@ -49,7 +49,9 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
     private val prefs = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE)
     private val dm = ctx.getSystemService(DownloadManager::class.java)
     val dir: File = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, kind.folder).apply { mkdirs() }
-    private val catalogFile = File(ctx.filesDir, "vector-catalog.json")
+    /** The chart uses the vector chart catalog; the base map its own copy, from [base]. */
+    private val catalogFile = File(ctx.filesDir, if (kind == Kind.CHART) "vector-catalog.json" else "basemap-catalog.json")
+    val base: String = if (kind == Kind.CHART) VectorMaps.BASE else BuildConfig.BASEMAP_BASE
 
     fun catalogSets(): List<ChartTiles.TileSet> =
         try { ChartTiles.tileSets(catalogFile.readText(), kind.key) } catch (_: Exception) { emptyList() }
@@ -57,9 +59,22 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
     /** Fetch the vector catalog (branch builds read vector-maps-beta) and return its tile sets. */
     fun refreshCatalog(): List<ChartTiles.TileSet> {
         try {
-            VectorMaps(ctx).fetchCatalog()
+            if (kind == Kind.CHART) VectorMaps(ctx).fetchCatalog() else fetchBaseCatalog()
         } catch (_: Exception) { }
         return catalogSets()
+    }
+
+    private fun fetchBaseCatalog() {
+        val c = java.net.URL(base + "catalog.json").openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 20000
+        c.readTimeout = 60000
+        c.instanceFollowRedirects = true
+        try {
+            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for the base map catalog")
+            val text = c.inputStream.bufferedReader().readText()
+            ChartTiles.tileSets(text, kind.key) // parses, or throws before the saved copy is replaced
+            catalogFile.writeText(text)
+        } finally { c.disconnect() }
     }
 
     fun file(set: ChartTiles.TileSet) = File(dir, set.file)
@@ -114,7 +129,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         val old = get(set.ncds)
         if (old != null && old.download >= 0) dm.remove(old.download)
         partial(set.file).delete()
-        val req = DownloadManager.Request(Uri.parse(set.url(VectorMaps.BASE)))
+        val req = DownloadManager.Request(Uri.parse(set.url(base)))
             .setTitle("${kind.title}, ${set.shortName}")
             .setDescription("For the map in NOAA Route")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
