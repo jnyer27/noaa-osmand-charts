@@ -314,6 +314,7 @@ class ChartMapActivity : Activity() {
             uiHandler.post(poll)
             worker.execute {
                 tiles.reconcile()
+                baseTiles.reconcile()
                 try { tiles.refreshCatalog() } catch (_: Exception) { }
                 runOnUiThread { if (!destroyed) present() }
             }
@@ -361,7 +362,27 @@ class ChartMapActivity : Activity() {
                 downloadButton.text = "Download ${offer.shortName} chart (%.0f MB)".format(offer.size / 1e6)
                 downloadButton.setOnClickListener { confirmDownload(offer) }
             }
-            else -> downloadButton.visibility = View.GONE
+            else -> {
+                // The region's chart is here: offer its OpenStreetMap base map
+                val bset = chosen?.let { c -> baseTiles.catalogSets().firstOrNull { it.ncds == c.ncds } }
+                val be = bset?.let { baseTiles.get(it.ncds) }
+                when {
+                    bset != null && baseTiles.busy(bset.ncds) -> {
+                        downloadButton.visibility = View.VISIBLE
+                        val p = baseTiles.progress(bset.ncds)
+                        downloadButton.text = "Cancel base map download" +
+                            (p?.let { " (%.0f of %.0f MB)".format(it.first / 1e6, it.second / 1e6) } ?: "")
+                        downloadButton.setOnClickListener { baseTiles.cancel(bset.ncds); present() }
+                    }
+                    bset != null && (be == null || be.state == ChartTileStore.State.FAILED || baseTiles.needsUpdate(be, bset)) -> {
+                        downloadButton.visibility = View.VISIBLE
+                        downloadButton.text = (if (be?.state == ChartTileStore.State.READY) "Update" else "Download") +
+                            " ${bset.shortName} base map, roads and towns (%.0f MB)".format(bset.size / 1e6)
+                        downloadButton.setOnClickListener { confirmDownload(bset, baseTiles) }
+                    }
+                    else -> downloadButton.visibility = View.GONE
+                }
+            }
         }
         val progress = if (busy && busyCode != null) tiles.progress(busyCode) else null
         val status = when {
@@ -419,10 +440,12 @@ class ChartMapActivity : Activity() {
         }
     }
 
-    private fun confirmDownload(set: ChartTiles.TileSet) {
+    private fun confirmDownload(set: ChartTiles.TileSet, store: ChartTileStore = tiles) {
+        val tiles = store
+        val what = store.kind.what
         if (tiles.freeBytes() < tiles.spaceNeeded(set)) {
             AlertDialog.Builder(this).setTitle("Not enough space")
-                .setMessage("${set.shortName}'s chart is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(
+                .setMessage("${set.shortName}'s $what is %.0f MB and the download needs about %.0f MB free. %.0f MB is free.".format(
                     set.size / 1e6, tiles.spaceNeeded(set) / 1e6, tiles.freeBytes() / 1e6))
                 .setPositiveButton("OK", null).show()
             return
@@ -433,8 +456,10 @@ class ChartMapActivity : Activity() {
             tiles.start(set, mobile)
             present()
         }
-        AlertDialog.Builder(this).setTitle("${set.shortName} chart, %.0f MB".format(set.size / 1e6))
-            .setMessage("NOAA's chart for the map in this app. Android downloads it in the background and resumes after interruptions. It stays in the app and works offline. It is not an OsmAnd map.")
+        AlertDialog.Builder(this).setTitle("${set.shortName} $what, %.0f MB".format(set.size / 1e6))
+            .setMessage(if (store.kind == ChartTileStore.Kind.BASEMAP)
+                "Roads, towns, county lines and marinas from OpenStreetMap, drawn under the chart. Android downloads it in the background. It stays in the app and works offline. It has no depths."
+                else "NOAA's chart for the map in this app. Android downloads it in the background and resumes after interruptions. It stays in the app and works offline. It is not an OsmAnd map.")
             .setPositiveButton("On Wi-Fi only") { _, _ -> go(false) }
             .setNeutralButton("Use mobile data too") { _, _ -> go(true) }
             .setNegativeButton("Cancel", null).show()
