@@ -1,28 +1,93 @@
 name: Base map
 
-# OpenStreetMap base map for the chart screen (tools/build_basemap.sh), one file per
-# NCDS region, max zoom 14 (MapLibre draws it larger past that). Test stage: region 04
-# only. Published beside the in-app chart tiles: Ncds_<region>_basemap.pmtiles and a
-# "basemap" object on that region's entry in catalog.json of vector-maps (main) or
-# vector-maps-beta (a branch). vector-maps.yml keeps the object when it rebuilds a region.
+# OpenStreetMap base map for the app's chart screen (tools/build_basemap.sh): one file per
+# NCDS region, max zoom 14 (MapLibre draws it larger past that), cut from the latest
+# Protomaps build over the region's band 4+ charts (build_route_pack.region_bbox, the
+# box the charts and packs use). Published beside the in-app chart tiles as
+# Ncds_<region>_basemap.pmtiles plus a "basemap" object on that region's entry in
+# catalog.json, on vector-maps (main) or vector-maps-beta (a branch; branch APKs read the
+# base map from beta, BuildConfig.BASEMAP_BASE). vector-maps.yml keeps the object when it
+# rebuilds a region.
+#   push: region 04 only; a commit message with "[basemap all]" or "[basemap 04 05]"
+#     builds those regions instead
+#   monthly schedule, manual runs (on main): every region in tools/areas.json, or the
+#     codes given. OpenStreetMap changes slowly; a month is plenty.
 on:
   push:
     paths:
       - "tools/build_basemap.sh"
       - ".github/workflows/basemap.yml"
+  schedule:
+    - cron: "0 16 1 * *"
   workflow_dispatch:
+    inputs:
+      regions:
+        description: 'NCDS region codes, e.g. "04 05", or "all"'
+        default: all
 
 permissions:
   contents: write
 
-concurrency:
-  group: catalog-${{ github.ref == 'refs/heads/main' && 'main' || 'beta' }}
-  cancel-in-progress: false
-
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: GDAL (build_route_pack imports it)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-gdal python3-numpy >/dev/null
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          REGIONS: ${{ inputs.regions }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re, sys
+          sys.path.insert(0, "tools")
+          import build_route_pack as brp
+          areas = [a for a in json.load(open("tools/areas.json"))["areas"] if a.get("ncds")]
+          ids = [a["ncds"] for a in areas]
+          if os.environ["EVENT"] == "push":
+              m = re.search(r"\[basemap ([^\]]+)\]", os.environ.get("MESSAGE") or "")
+              want = (m.group(1) if m else "04").split()
+          elif os.environ["EVENT"] == "workflow_dispatch":
+              want = (os.environ.get("REGIONS") or "all").split()
+          else:
+              want = ["all"]
+          if "all" in want:
+              want = ids
+          enc = brp.enc_catalog("enc-work")
+          out = []
+          for a in areas:
+              if a["ncds"] not in want:
+                  continue
+              try:
+                  w, s, e, n = brp.region_bbox(a, enc)
+              except SystemExit as ex:
+                  print(f"skip {a['ncds']}: {ex}", file=sys.stderr)
+                  continue
+              # East longitudes past 180 (the western Pacific): back to -180..180, and a
+              # box across 180 is cut at it
+              if w >= 180:
+                  w, e = w - 360, e - 360
+              e = min(e, 180.0)
+              out.append({"ncds": a["ncds"], "bbox": f"{w},{s},{e},{n}"})
+          print(f"{len(out)} regions: {[o['ncds'] for o in out]}", file=sys.stderr)
+          print("matrix=" + json.dumps({"include": out}))
+          PY
+
+  build:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
       - name: Tools (go-pmtiles 1.31.2, tippecanoe 2.79.0)
@@ -32,35 +97,74 @@ jobs:
           git clone -q --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
           make -s -C /tmp/tippecanoe -j"$(nproc)" tile-join
           sudo cp /tmp/tippecanoe/tile-join /usr/local/bin/
-      - name: Region 04
-        run: tools/build_basemap.sh Ncds_04 -77.8,38.23,-73.4,39.73 14 out
-      - name: Size
-        run: |
-          echo "Ncds_04 base map: all layers $(du -h out/Ncds_04_basemap_full.pmtiles | cut -f1), trimmed $(du -h out/Ncds_04_basemap.pmtiles | cut -f1)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Publish
+      - name: Region ${{ matrix.ncds }}
+        run: tools/build_basemap.sh Ncds_${{ matrix.ncds }} ${{ matrix.bbox }} 14 out
+      - name: Catalog entry
         env:
-          GH_TOKEN: ${{ github.token }}
+          NCDS: ${{ matrix.ncds }}
+          BBOX: ${{ matrix.bbox }}
         run: |
-          if [ "$GITHUB_REF" = refs/heads/main ]; then tag=vector-maps; else tag=vector-maps-beta; fi
-          gh release upload $tag out/Ncds_04_basemap.pmtiles --clobber
-          gh release download $tag -p catalog.json -O catalog.json --clobber
           python3 - <<'PY'
           import hashlib, json, os, datetime
-          f = "out/Ncds_04_basemap.pmtiles"
+          code = os.environ["NCDS"]
+          f = f"out/Ncds_{code}_basemap.pmtiles"
           h = hashlib.sha256()
           with open(f, "rb") as fh:
               for b in iter(lambda: fh.read(1 << 20), b""):
                   h.update(b)
           entry = {"file": os.path.basename(f), "size": os.path.getsize(f), "sha256": h.hexdigest(),
-                   "bounds": [-77.8, 38.23, -73.4, 39.73], "minzoom": 0, "maxzoom": 14,
+                   "bounds": [float(x) for x in os.environ["BBOX"].split(",")], "minzoom": 0, "maxzoom": 14,
                    "created": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                   "build": open("out/Ncds_04_basemap.build").read().strip()}
+                   "build": open(f"out/Ncds_{code}_basemap.build").read().strip()}
+          json.dump({"ncds": code, "basemap": entry}, open(f"out/basemap-{code}.json", "w"))
+          full = os.path.getsize(f"out/Ncds_{code}_basemap_full.pmtiles")
+          line = f"Ncds_{code}: {entry['size'] / 1e6:.1f} MB (all layers {full / 1e6:.1f} MB)"
+          print(line)
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write(line + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basemap-${{ matrix.ncds }}
+          path: |
+            out/Ncds_${{ matrix.ncds }}_basemap.pmtiles
+            out/basemap-${{ matrix.ncds }}.json
+          retention-days: 3
+
+  publish:
+    needs: build
+    if: always() && needs.build.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: basemap-publish-${{ github.ref == 'refs/heads/main' && 'main' || 'beta' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: basemap-*
+          path: maps
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF" = refs/heads/main ]; then tag=vector-maps; else tag=vector-maps-beta; fi
+          ls maps/*.pmtiles >/dev/null 2>&1 || { echo "No region built"; exit 1; }
+          # Files first, then the catalog, so it never lists a file not uploaded yet
+          gh release upload $tag maps/*.pmtiles --clobber
+          gh release download $tag -p catalog.json -O catalog.json --clobber
+          python3 - <<'PY'
+          import glob, json
           c = json.load(open("catalog.json"))
-          reg = next((r for r in c["regions"] if r["ncds"] == "04"), None)
-          if reg is None:
-              raise SystemExit("Region 04 is not in the catalog")
-          reg["basemap"] = entry
+          regions = {r["ncds"]: r for r in c["regions"]}
+          for f in sorted(glob.glob("maps/basemap-*.json")):
+              e = json.load(open(f))
+              r = regions.get(e["ncds"])
+              if r is None:
+                  print(f"Region {e['ncds']} is not in the catalog yet; its base map is not listed")
+                  continue
+              r["basemap"] = e["basemap"]
+              print(f"Region {e['ncds']}: {e['basemap']['size'] / 1e6:.1f} MB")
           json.dump(c, open("catalog.json", "w"), indent=1)
-          print(entry)
           PY
           gh release upload $tag catalog.json --clobber

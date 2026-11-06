@@ -4,6 +4,14 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: OpenStreetMap base map on the chart
+
+The chart:
+- **Roads, towns and marinas under the chart.** Each region can download an OpenStreetMap base map for View map: roads with their names, towns, state and county lines, ferries and rail, and marinas, beaches and ferry terminals. It draws on NOAA's land, under the chart's contours, soundings, marks and the route, with no water or shoreline of its own, so the depths and shore are still NOAA's. **Download** is on the chart screen under the chart's own button, and on the region's card under **Regions** (Region 04 about 59 MB, then offline). **Base map (OpenStreetMap)** at the top of the chart turns it off. Rebuilt monthly. Map data © OpenStreetMap contributors.
+- **A stuck download says why.** A chart or base map download that has not started shows Android's reason: queued, waiting for Wi-Fi (the connection counts as metered), waiting for a network, or waiting to retry.
+
+No pack rebuild.
+
 ## 2026-11-03: restricted areas, cables and check pins on the chart (app 0.1.206, route packs build 153 unchanged)
 
 The report:
