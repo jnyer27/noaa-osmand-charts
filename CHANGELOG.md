@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-06: marks and lights when zoomed out (app 0.1.224, route packs build 153 unchanged)
+
+The chart:
+- **Buoys, daybeacons and lights show from zoom 11** (about 2 nm across a phone screen), not 13, drawn smaller until zoom 13. Download your region charts again (the **Update** offer) to get them.
+
 ## 2026-11-06: distance scale on the chart (app 0.1.222, route packs build 153 unchanged)
 
 The chart:
