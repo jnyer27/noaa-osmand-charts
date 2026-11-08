@@ -140,7 +140,7 @@ class TidesTest {
     fun reportLineInLocalTime() {
         // 2026-11-08 is EST: NOAA's GMT 05:21, 10:28, 16:38, 23:17 are 12:21 am, 5:28 am, 11:38 am, 6:17 pm
         val lines = Tides.reportLines(listOf(northPoint()), LocalDate.of(2026, 11, 8), ny)
-        assertEquals(listOf("tides at North Point, Sun Nov 8 (predicted, feet above chart datum (MLLW)): " +
+        assertEquals(listOf("tides at North Point, Sun Nov 8 (predicted, feet above chart datum): " +
             "low 0.4 ft 12:21 am, high 1.1 ft 5:28 am, low 0.1 ft 11:38 am, high 1.6 ft 6:17 pm"), lines)
         assertTrue(Tides.reportLines(listOf(northPoint()), LocalDate.of(2027, 1, 1), ny).isEmpty())
     }

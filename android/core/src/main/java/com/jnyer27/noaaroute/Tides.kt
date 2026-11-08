@@ -101,7 +101,7 @@ class TideAt(val station: TideStation, val series: TideSeries)
 /** NOAA CO-OPS tide predictions: parsing their JSON, the nearest stations, and the report's tide lines. */
 object Tides {
     /** Every place a tide shows says this. */
-    const val PREDICTED = "predicted, feet above chart datum (MLLW)"
+    const val PREDICTED = "predicted, feet above chart datum"
     /** Said with every tide shown: the route's depths stay charted depths at MLLW. */
     const val CAVEAT = "Predicted, not observed. Wind and pressure can move the water feet from this, " +
         "most of all on the Chesapeake in a northwest wind."
