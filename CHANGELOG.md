@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased (branch core-module)
+## 2026-11-08: command-line planner (app 0.1.232, route packs build 166 unchanged)
 
 Planning:
 - **Chart depth notes appear once on an adjusted route.** After **Look for a way around the checks**, a leg the adjusted route kept unchanged listed its "crosses N m of a depth area..." note twice. Routes and which legs are flagged are unchanged.
