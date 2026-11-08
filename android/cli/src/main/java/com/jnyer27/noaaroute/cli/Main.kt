@@ -13,6 +13,8 @@ import com.jnyer27.noaaroute.PlanException
 import com.jnyer27.noaaroute.Planner
 import com.jnyer27.noaaroute.Regions
 import com.jnyer27.noaaroute.Route
+import com.jnyer27.noaaroute.RouteTides
+import com.jnyer27.noaaroute.TideCache
 import java.io.File
 import java.io.PrintStream
 import java.text.SimpleDateFormat

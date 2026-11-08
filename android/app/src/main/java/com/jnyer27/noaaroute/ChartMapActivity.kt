@@ -1182,16 +1182,16 @@ class ChartMapActivity : Activity() {
         val station = Tides.nearest(tideStations, LatLon(lat, lon), maxM = fingerM(lat)).firstOrNull() ?: return false
         val zone = java.time.ZoneId.systemDefault()
         val today = java.time.LocalDate.now(zone)
-        val text = TextView(this).apply { textSize = 15f; setPadding(dp(20), dp(8), dp(20), 0) }
+        val info = TextView(this).apply { textSize = 15f; setPadding(dp(20), dp(8), dp(20), 0) }
         val curve = TideCurveView(this, systemNight()).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150)).apply { setMargins(dp(12), dp(8), dp(12), 0) }
         }
         val caveat = TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), dp(4)); text = Tides.CAVEAT }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(curve); addView(caveat) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(info); addView(curve); addView(caveat) }
         fun fill(series: TideSeries?, failed: String?) {
             val now = Tides.minuteOf(java.time.Instant.now())
             val day = series?.let { Tides.dayText(it, today, zone) }
-            text.text = when {
+            info.text = when {
                 day != null -> "Today (${Tides.PREDICTED}):\n" + day.split(", ").joinToString("\n") +
                     (Tides.nowText(series!!, now)?.let { "\n\n" + it.replaceFirstChar { c -> c.uppercaseChar() } } ?: "")
                 failed != null -> failed
