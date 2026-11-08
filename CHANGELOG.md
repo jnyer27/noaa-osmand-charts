@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-08: base map after an update (app 0.1.<next>, route packs build 166 unchanged)
+## 2026-11-08: base map after an update (app 0.1.238, route packs build 166 unchanged)
 
 Charts and base maps:
 - **An updated base map draws without restarting the app.** After a region's base map was replaced by a newer version, View map showed no roads or towns there until the app was force stopped: the map library kept reading the new file through the old one's index. Each downloaded version of a chart or base map is now saved under its own name.
