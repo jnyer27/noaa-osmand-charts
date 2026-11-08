@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: depth estimate (branch spot-depth)
+
+View map:
+- **Depth and tide here estimates the depth at the spot** from the soundings around it (closer ones count more, kept within the depth area's range), adds the tide now, and gives the times today the estimate reaches your safe depth. The red dotted line stays on the shallowest sounding nearby.
+
 ## 2026-11-08: tide predictions (app 0.1.252, route packs build 166 unchanged)
 
 Routing is unchanged: routes are still planned on charted depth at MLLW, and every tide shown is NOAA's prediction, not observed water.
