@@ -171,6 +171,18 @@ class TidesTest {
         assertEquals("all day", Tides.aboveText(Tides.above(s, day, ny, -1.0), day, ny))
     }
 
+    @Test
+    fun predictedDepth() {
+        assertEquals(5, Tides.predictedFeet(4, 1.6))
+        assertEquals(3, Tides.predictedFeet(4, -0.2))
+        assertEquals(4, Tides.predictedFeet(4, 0.0))
+        // 16:40 GMT is 11:40 am EST, just after the 0.1 ft low
+        val key = Tides.predictedKey(northPoint(), minute("2026-11-08 16:40"), ny)!!
+        assertTrue(key, key.contains("plus the predicted tide at North Point, 0.1 ft at 11:40 am (0.1 ft and rising to high 1.6 ft)"))
+        assertTrue(key.contains("route planning stay at charted depth") && key.contains("Predicted, not observed"))
+        assertNull(Tides.predictedKey(northPoint(), minute("2027-01-01 00:00"), ny))
+    }
+
     private fun route(shoal: Double) = Route("r",
         listOf(LatLon(39.20, -76.44), LatLon(39.19, -76.43), LatLon(39.18, -76.42)),
         listOf(Leg(1000.0, 135.0, 0.0, null, emptyList()), Leg(1000.0, 135.0, shoal, 0.6, listOf("200 m where charted depth may be under 5 ft"))),

@@ -45,7 +45,9 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.ImageSource
 import java.io.File
@@ -114,6 +116,20 @@ class ChartMapActivity : Activity() {
     @Volatile private var cablesJson: String? = null
     @Volatile private var packNotes: List<Note> = emptyList()
     @Volatile private var tidesJson: String? = null
+    /** Predicted depth: soundings and contour labels show charted depth plus the tide now (off each time the chart opens). */
+    private var predictedOn = false
+    private var predictedNote = ""
+    private val predictedSaved = HashMap<String, Array<PropertyValue<*>>>()
+    private var predictedSeries: TideSeries? = null
+    private val predictedFetching = HashSet<String>()
+    private val predictedFailed = HashSet<String>()
+    private val predictedTick = object : Runnable {
+        override fun run() {
+            if (destroyed || !predictedOn) return
+            refreshPredicted()
+            uiHandler.postDelayed(this, 60_000)
+        }
+    }
     @Volatile private var tideStations: List<TideStation> = emptyList()
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
@@ -215,10 +231,23 @@ class ChartMapActivity : Activity() {
                 present()
             }
         }
+        val predictedToggle = CheckBox(this).apply {
+            text = "Predicted depth (tide now)"
+            textSize = 13f
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            paintControl(this, chrome)
+            isChecked = false
+            setOnCheckedChangeListener { _, on ->
+                predictedOn = on
+                uiHandler.removeCallbacks(predictedTick)
+                if (on) uiHandler.post(predictedTick) else refreshPredicted()
+            }
+        }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(baseToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(predictedToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         frame.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -338,7 +367,11 @@ class ChartMapActivity : Activity() {
                 loadError = true
                 showKey("Chart did not load: $message", error = true)
             }
-            loaded.addOnCameraIdleListener { paintScale(); if (overlayOn && !destroyed) refreshOverlay() }
+            loaded.addOnCameraIdleListener {
+                paintScale()
+                if (overlayOn && !destroyed) refreshOverlay()
+                if (predictedOn && !destroyed) refreshPredicted()
+            }
             loaded.addOnMapClickListener { latLng ->
                 showLeg(latLng.latitude, latLng.longitude) || showTide(latLng.latitude, latLng.longitude) ||
                     showNotes(latLng.latitude, latLng.longitude)
@@ -521,6 +554,8 @@ class ChartMapActivity : Activity() {
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
             showRestricted(st)
             showTides(st)
+            predictedSaved.clear() // the new style's sounding layers start charted
+            if (predictedOn) refreshPredicted()
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
             if (!framed) {
@@ -687,6 +722,7 @@ class ChartMapActivity : Activity() {
         val outside = routePoints().any { p -> if (sets.isEmpty()) p.lon !in w..e || p.lat !in s..n else sets.none { it.contains(p) } }
         val sb = StringBuilder()
         sb.append("Not for navigation. ")
+        sb.append(predictedNote)
         sb.append("NOAA ENC of $heading, depths in feet. ")
         sb.append(ChartTiles.orientSentence(courseUp))
         sb.append(ChartTiles.spanText(w, e, (s + n) / 2))
@@ -1166,7 +1202,10 @@ class ChartMapActivity : Activity() {
      * their own thread: the station list may have to be fetched first (about 2 MB, once).
      */
     private fun showTides(st: Style) {
-        fun apply(target: Style?) { tidesJson?.let { (target?.getSource("tides") as? GeoJsonSource)?.setGeoJson(it) } }
+        fun apply(target: Style?) {
+            tidesJson?.let { (target?.getSource("tides") as? GeoJsonSource)?.setGeoJson(it) }
+            if (predictedOn) refreshPredicted()
+        }
         if (tidesJson != null) { apply(st); return }
         Thread {
             try {
@@ -1181,6 +1220,63 @@ class ChartMapActivity : Activity() {
                 Log.w("ChartMap", "tide stations failed", e)
             }
         }.start()
+    }
+
+    /**
+     * Predicted depth: the station nearest the map center (within 30 km), its predicted
+     * height now added to every sounding and contour label (whole feet, rounded down), in
+     * teal so they do not read as charted, red under the safe operating depth. Off, or with
+     * no station or predictions, the labels are the chart's again. The key says which.
+     */
+    private fun refreshPredicted() {
+        val st = style ?: return
+        fun charted(note: String) {
+            for ((id, props) in predictedSaved) (st.getLayer(id) as? SymbolLayer)?.setProperties(*props)
+            predictedSaved.clear()
+            setPredictedNote(note)
+        }
+        if (!predictedOn) { charted(""); return }
+        val center = map?.cameraPosition?.target ?: return
+        if (tideStations.isEmpty()) { charted("Predicted depth is on, but the tide station list is not loaded yet: depths shown are charted. "); return }
+        val station = Tides.nearest(tideStations, LatLon(center.latitude, center.longitude)).firstOrNull()
+            ?: return charted("Predicted depth is on, but no NOAA tide station is within 30 km of the map center: depths shown are charted. ")
+        val series = predictedSeries?.takeIf { it.station == station.id } ?: TideStore(this).cache.series(station.id)?.also { predictedSeries = it }
+        val minute = Tides.minuteOf(java.time.Instant.now())
+        val h = series?.height(minute)
+        if (series == null || h == null) {
+            if (predictedFetching.add(station.id)) Thread {
+                val got = try { TideStore(this).cache.ensure(station.id) } catch (_: Exception) { null }
+                runOnUiThread {
+                    if (destroyed) return@runOnUiThread
+                    if (got != null) predictedSeries = got else predictedFailed.add(station.id)
+                    refreshPredicted()
+                }
+            }.start()
+            charted(when {
+                station.id in predictedFailed -> "Predicted depth is on, but ${station.name}'s predictions are not saved and NOAA could not be reached: depths shown are charted. "
+                series == null -> "Predicted depth is on: getting ${station.name}'s predictions from NOAA; until then depths shown are charted. "
+                else -> "Predicted depth is on, but ${station.name} has no predictions saved for now: depths shown are charted. "
+            })
+            return
+        }
+        val sum = String.format(java.util.Locale.US, "[\"floor\",[\"+\",[\"get\",\"ft\"],%.3f]]", h)
+        val field = Expression.raw("[\"to-string\",$sum]")
+        val color = Expression.raw(String.format(java.util.Locale.US,
+            "[\"case\",[\"<\",$sum,%.2f],[\"to-color\",\"#9b1c1c\"],[\"to-color\",\"#00707a\"]]", depthFt))
+        for (layer in st.layers) {
+            val base = layer.id.substringBefore('@').substringBefore('~')
+            if (base != "soundg" && base != "depcnt-label") continue
+            val sym = layer as? SymbolLayer ?: continue
+            if (layer.id !in predictedSaved) predictedSaved[layer.id] = arrayOf<PropertyValue<*>>(sym.textField, sym.textColor)
+            sym.setProperties(PropertyFactory.textField(field), PropertyFactory.textColor(color))
+        }
+        setPredictedNote(Tides.predictedKey(TideAt(station, series), minute, java.time.ZoneId.systemDefault()) ?: "")
+    }
+
+    private fun setPredictedNote(note: String) {
+        if (note == predictedNote) return
+        predictedNote = note
+        if (keyReady) publishLegend(keyW, keyS, keyE, keyN, keyHeading, keyRegion)
     }
 
     /** What a check leg needs from the tide: the height to draw, and why (or why there is none). */
@@ -1356,6 +1452,7 @@ class ChartMapActivity : Activity() {
         destroyed = true
         generation++
         uiHandler.removeCallbacks(poll)
+        uiHandler.removeCallbacks(predictedTick)
         val closing = openPacks
         openPacks = emptyList()
         routeTiles = null

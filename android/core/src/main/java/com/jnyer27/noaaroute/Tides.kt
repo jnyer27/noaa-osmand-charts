@@ -161,6 +161,22 @@ object Tides {
         return windows.joinToString(", ") { (a, b) -> "${if (a == from) "midnight" else t(a)} to ${t(b)}" }
     }
 
+    /** A sounding or contour of [chartedFt] shown with the predicted tide: whole feet, rounded down. */
+    fun predictedFeet(chartedFt: Int, tideFt: Double): Int = kotlin.math.floor(chartedFt + tideFt + 1e-9).toInt()
+
+    /**
+     * The chart key's sentence while depths show the predicted tide: which station, the
+     * height added and when, and that it is not what the planner uses.
+     */
+    fun predictedKey(t: TideAt, minute: Long, zone: ZoneId): String? {
+        val h = t.series.height(minute) ?: return null
+        val now = nowText(t.series, minute)?.removePrefix("now ")?.let { " ($it)" } ?: ""
+        val sign = if (h < 0) "minus" else "plus"
+        return "Predicted depth is on: teal soundings and contour labels are charted depth $sign the predicted tide at " +
+            "${t.station.name}, ${ft(kotlin.math.abs(h))} ft at ${clock(minute, zone)}$now, rounded down to whole feet; " +
+            "red is under your safe operating depth. Depth area colors and route planning stay at charted depth. $CAVEAT "
+    }
+
     private const val NOTE = "tide today at "
 
     /** True for the tide note [annotate] adds (information only, whatever the station's name says). */
