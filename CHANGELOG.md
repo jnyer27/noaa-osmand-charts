@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-08: base map downloads (app 0.1.234, route packs build 166 unchanged)
+
+Charts and base maps:
+- **A good base map or chart download no longer fails with "damaged (checksum)".** The app checked the download against its saved copy of the catalog, which could be older than the file (rebuilt since) or come from a test version of the app. Region 06's base map failed this way. The app now ignores a saved catalog from another release, refreshes the base map catalog with the others, and gets the current catalog again before calling a download damaged.
+
 ## 2026-11-08: command-line planner (app 0.1.232, route packs build 166 unchanged)
 
 Planning:
