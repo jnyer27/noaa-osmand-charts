@@ -26,7 +26,7 @@ NOAA's regions on a built-in coastline that works offline. Pinch to zoom, drag t
 | On the map | Meaning |
 |---|---|
 | Green box (shaded) | Route data downloaded and up to date |
-| Amber box (shaded) | Downloaded, and an update is available |
+| Amber box (shaded) | An update is available for something downloaded there: its route data, or its chart or base map for View map |
 | Dashed blue box | Available to download |
 | Faint gray box | No route data yet |
 | "chart map" under a region's number | That region's chart map for OsmAnd is ready |

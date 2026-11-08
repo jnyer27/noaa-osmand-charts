@@ -506,8 +506,15 @@ class MainActivity : Activity() {
 
     private fun hasUpdate(a: AreaInfo) = !a.deprecated && installed(a.id)?.let { a.created > it.created } == true
 
+    /** Regions whose downloaded chart or base map for View map has a newer version in its catalog. */
+    private fun mapUpdates(): Set<String> = listOf(chartTiles, baseTiles).flatMap { s ->
+        val sets = s.catalogSets().associateBy { it.ncds }
+        s.all().values.filter { e -> sets[e.ncds]?.let { s.needsUpdate(e, it) } == true }.map { it.ncds }
+    }.toSet()
+
     private fun updateBadge() {
-        val updates = catalog.count { hasUpdate(it) }
+        // Regions with anything used in the app out of date: route data, chart or base map
+        val updates = (catalog.filter { hasUpdate(it) }.map { it.ncds ?: it.id } + mapUpdates()).toSet().size
         packButton.text = if (updates > 0) "Regions ($updates update${if (updates > 1) "s" else ""})" else "Regions"
     }
 
@@ -684,12 +691,15 @@ class MainActivity : Activity() {
 
         val map = RegionMapView(this)
         fun areaFor(code: String) = catalog.firstOrNull { it.ncds == code && !it.deprecated }
+        // Read once per fill(), not on every draw
+        var appUpdates = mapUpdates()
         map.status = { code ->
             val a = areaFor(code)
             when {
+                // Amber when anything the app uses there is out of date: route data, chart or base map
+                (a != null && hasUpdate(a)) || code in appUpdates -> RegionMapView.Status.UPDATE
                 a == null -> RegionMapView.Status.NOT_BUILT
                 installed(a.id) == null -> RegionMapView.Status.AVAILABLE
-                hasUpdate(a) -> RegionMapView.Status.UPDATE
                 else -> RegionMapView.Status.INSTALLED
             }
         }
@@ -728,6 +738,7 @@ class MainActivity : Activity() {
         list.addView(rows)
         fun fill() {
             rows.removeAllViews()
+            appUpdates = mapUpdates()
             map.invalidate()
             val ids = (catalog.sortedBy { it.deprecated }.map { it.id } + charts?.packs.orEmpty().map { it.areaId }).distinct()
             if (ids.isEmpty()) rows.addView(TextView(this).apply { text = "No chart regions available (offline?)" })
