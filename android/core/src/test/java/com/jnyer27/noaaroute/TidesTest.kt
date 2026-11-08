@@ -183,6 +183,20 @@ class TidesTest {
         assertNull(Tides.predictedKey(northPoint(), minute("2027-01-01 00:00"), ny))
     }
 
+    @Test
+    fun estimatedDepthWithTheTide() {
+        val s = northPoint().series
+        val day = LocalDate.of(2026, 11, 8)
+        // 16:40 GMT: 0.1 ft just after the low. An estimated 4.5 ft is about 4.6 ft now
+        val t = SpotReport.estimateWithTide(4.5, s, minute("2026-11-08 16:40"), day, ny, 5.0)!!
+        assertTrue(t, t.startsWith("Predicted depth here now: about 4.6 ft (the estimated 4.5 ft plus 0.1 ft of tide)."))
+        // 5 ft needs 0.5 ft of tide: around both highs
+        assertTrue(t, Regex("""By the estimate, your 5 ft is there today \d+:\d\d (am|pm) to .+\.""").matches(t.substringAfter("tide). ")))
+        assertTrue(SpotReport.estimateWithTide(6.0, s, minute("2026-11-08 16:40"), day, ny, 5.0)!!.endsWith("is there all day."))
+        assertTrue(SpotReport.estimateWithTide(2.0, s, minute("2026-11-08 16:40"), day, ny, 5.0)!!.endsWith("does not give your 5 ft here today."))
+        assertNull(SpotReport.estimateWithTide(4.5, s, minute("2027-01-01 00:00"), day, ny, 5.0))
+    }
+
     private fun route(shoal: Double) = Route("r",
         listOf(LatLon(39.20, -76.44), LatLon(39.19, -76.43), LatLon(39.18, -76.42)),
         listOf(Leg(1000.0, 135.0, 0.0, null, emptyList()), Leg(1000.0, 135.0, shoal, 0.6, listOf("200 m where charted depth may be under 5 ft"))),

@@ -708,7 +708,7 @@ class ChartMapActivity : Activity() {
                 if (station != null) {
                     val km = Planner.distanceM(p, station.point) / 1000.0
                     content.addView(tidePanel(station, String.format(java.util.Locale.US, "\nTide at %s, the nearest station (%.1f km):", station.name, km),
-                        spotNeed(a?.lowFt, a?.basis)))
+                        spotNeed(a?.lowFt, a?.basis), a?.estimateFt))
                 } else content.addView(TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), 0)
                     this.text = "No NOAA tide station within 30 km, or the station list is not downloaded yet." })
                 AlertDialog.Builder(this)
@@ -1353,10 +1353,11 @@ class ChartMapActivity : Activity() {
 
     /**
      * A station's tide for today: highs and lows, the height now and the curve, with the
-     * caveat. With [need], the red dotted line and the times the water is above it. A station
-     * without saved predictions (or with too few) is fetched while the box is open.
+     * caveat. With [need], the red dotted line and the times the water is above it. With
+     * [estimateFt] (Depth and tide here), the estimated depth at the spot with the tide now.
+     * A station without saved predictions (or with too few) is fetched while the box is open.
      */
-    private fun tidePanel(station: TideStation, heading: String?, need: TideNeed?): LinearLayout {
+    private fun tidePanel(station: TideStation, heading: String?, need: TideNeed?, estimateFt: Double? = null): LinearLayout {
         val zone = java.time.ZoneId.systemDefault()
         val today = java.time.LocalDate.now(zone)
         val info = TextView(this).apply { textSize = 15f; setPadding(dp(20), dp(8), dp(20), 0) }
@@ -1382,6 +1383,8 @@ class ChartMapActivity : Activity() {
             if (need != null) window.text = need.text + (need.feet?.takeIf { day != null }?.let { f ->
                 " Above it today: " + (Tides.aboveText(Tides.above(series!!, today, zone, f), today, zone)
                     ?: "never; the predicted tide does not reach it.")
+            } ?: "") + (estimateFt?.takeIf { day != null }?.let { e ->
+                SpotReport.estimateWithTide(e, series!!, now, today, zone, depthFt)?.let { "\n\n$it" }
             } ?: "")
         }
         val cache = TideStore(this).cache
