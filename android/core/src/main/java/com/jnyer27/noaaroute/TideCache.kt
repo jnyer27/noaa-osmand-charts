@@ -57,6 +57,9 @@ class TideCache(
         return stations()
     }
 
+    /** True if station [id] has saved highs and lows (without reading them). */
+    fun isSaved(id: String) = seriesFile(id).isFile
+
     /** The saved highs and lows of station [id], or null. */
     fun series(id: String): TideSeries? =
         seriesFile(id).takeIf { it.isFile }?.let { try { TideSeries.read(it) } catch (_: Exception) { null } }

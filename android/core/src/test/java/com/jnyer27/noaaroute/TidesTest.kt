@@ -180,6 +180,8 @@ class TidesTest {
         assertEquals(6, c.refreshStations(now + 40L * 86_400_000).size)
         assertEquals(before, hits.size)
         assertNotNull(TideCache(root).series("8574680"))
+        assertTrue(c.isSaved("8574680"))
+        assertFalse(c.isSaved("8574857"))
     }
 
     @Test

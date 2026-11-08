@@ -6,7 +6,7 @@ import android.app.job.JobService
 /**
  * Daily on Wi-Fi (or any unmetered network) when automatic downloads are on:
  * fetch NOAA's weekly route pack builds for installed regions and finish
- * swapping a replaced area for its regions. The app reopens its charts when it
+ * swapping a replaced area for its regions, and refresh tide predictions. The app reopens its charts when it
  * sees the files changed.
  */
 class UpdateJob : JobService() {
@@ -17,6 +17,7 @@ class UpdateJob : JobService() {
             var retry = false
             try {
                 PackStore(this).updateAll()
+                TideStore(this).updateAll() // years of tide predictions running out
             } catch (_: Exception) {
                 retry = true // offline or a failed download: the scheduler tries again later
             }

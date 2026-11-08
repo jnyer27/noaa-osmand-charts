@@ -255,6 +255,7 @@ class MainActivity : Activity() {
             override fun afterTextChanged(e: Editable?) { ui.removeCallbacks(tripCheck); ui.postDelayed(tripCheck, 500) }
         })
         PackStore.schedule(this, store.auto == true) // keeps the daily update job after app updates
+        TideStore.schedule(this) // tide stations for the downloaded regions, on Wi-Fi; nothing to do when all are saved
         catalog = store.cachedCatalog()
         openCharts()
         refreshCatalog(quiet = true)
@@ -567,6 +568,7 @@ class MainActivity : Activity() {
                     synchronized(failed) { failed.add(a.id) }
                 }
             }
+            if (errors.size < todo.size) TideStore.schedule(this) // the new regions' tide stations
             ui.post {
                 downloading.removeAll(todo.map { it.id }.toSet())
                 store.dropReplaced(catalog)
@@ -970,6 +972,25 @@ class MainActivity : Activity() {
                 .setNegativeButton("Cancel", null)
                 .show()
         })
+
+        // Tide predictions for the region's stations (fetched on Wi-Fi once its route data is in)
+        if (area != null && have != null) {
+            box.addView(label("Tide predictions"))
+            val tideText = TextView(this).apply { text = "Counting saved tide stations..." }
+            box.addView(tideText)
+            Thread { // not the worker: a region download there can take minutes
+                val c = TideStore(this).cache
+                val ts = c.stationsIn(area.bbox)
+                val saved = ts.count { c.isSaved(it.id) }
+                val msg = when {
+                    ts.isEmpty() && c.stations().isEmpty() -> "NOAA's tide station list is not downloaded yet. The app gets it on Wi-Fi."
+                    ts.isEmpty() -> "No NOAA tide stations in this region."
+                    else -> "$saved of ${ts.size} NOAA tide stations saved for offline use, a year ahead each. " +
+                        if (saved < ts.size) "The rest are fetched on Wi-Fi in the background." else "Refreshed on Wi-Fi when under 30 days are left."
+                }
+                ui.post { tideText.text = msg }
+            }.start()
+        }
 
         // The in-app chart, then the OpenStreetMap base map, from the same catalog
         fun appSection(store: ChartTileStore, heading: String, note: String) {
@@ -1473,6 +1494,8 @@ class MainActivity : Activity() {
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val pts = listOf(a) + vias + listOf(b)
                 val (uri, savedAs) = saveGpx(r, datum, markChecks, pts)
+                // Tides at the trip's ends, for next time and offline (any network, ~70 KB each)
+                Thread { try { TideStore(this).ensureNear(listOf(a, b)) } catch (_: Exception) { } }.start()
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside },
                     "Move ends to navigable water: on".takeIf { moveToWater })
