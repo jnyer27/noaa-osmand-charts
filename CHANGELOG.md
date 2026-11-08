@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-08: regions needing an update (app 0.1.<next>, route packs build 166 unchanged)
+## 2026-11-08: regions needing an update (app 0.1.240, route packs build 166 unchanged)
 
 Regions:
 - **A region is amber when anything the app uses there has an update.** Amber on the region map, and the count on the **Regions** button, covered only route data. They now also cover the region's chart and base map for View map. OsmAnd files are not counted.
