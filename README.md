@@ -495,7 +495,9 @@ Your existing map is protected. If a refresh ends with failed tiles, the old `.s
 
 ### noaa-route.py (route planner)
 
-The original route planner, in Python. It reads NOAA ENC vector charts with all of NOAA's update files applied, uses the same rules as the app (see [How the planner decides where you can go](#how-the-planner-decides-where-you-can-go)), and writes a GPX route for OsmAnd. Its results match the app's, but it takes 15-60 seconds for a trip within a bay region and 5-15 minutes for long trips (over roughly 40 nm), where the app takes seconds.
+**Frozen since 2026-11-08.** Its routing was last updated on 2026-10-16, and the app's planner has changed many times since (narrow channels, fairways, moving ends to navigable water, replanning legs to check, and more), so its routes can differ from the app's and are sometimes worse. Use the app for planning. The script is kept as the proof of concept and is no longer maintained.
+
+The original route planner, in Python. It reads NOAA ENC vector charts with all of NOAA's update files applied, uses the same rules as the app (see [How the planner decides where you can go](#how-the-planner-decides-where-you-can-go)), and writes a GPX route for OsmAnd. It takes 15-60 seconds for a trip within a bay region and 5-15 minutes for long trips (over roughly 40 nm), where the app takes seconds.
 
 **Setup:**
 ```
