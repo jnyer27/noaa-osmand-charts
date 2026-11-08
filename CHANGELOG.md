@@ -7,7 +7,11 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 ## Unreleased (branch core-module)
 
 Planning:
-- **Chart depth notes appear once on an adjusted route.** After **Try to avoid checks**, a leg the adjusted route kept unchanged listed its "crosses N m of a depth area..." note twice. Routes and which legs are flagged are unchanged.
+- **Chart depth notes appear once on an adjusted route.** After **Look for a way around the checks**, a leg the adjusted route kept unchanged listed its "crosses N m of a depth area..." note twice. Routes and which legs are flagged are unchanged.
+
+Command-line planner (new):
+- **`noaa-route` plans routes on Windows, macOS, Linux and Termux** with the app's own planner and route data, for planning on a computer or without an Android phone. It prints the app's route report and writes the same GPX file, with the same options: via points, safe operating depth, air draft, Stay inside, Move ends to navigable water, check markers and Look for a way around the checks. It also checks each leg against the region chart's depth areas, as the app does with a downloaded chart. Download `noaa-route.zip` from the [cli release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/cli); it needs Java 17 or later. See [Command-line planner](README.md#command-line-planner-windows-macos-linux-termux).
+- **The Termux route script `noaa-route.py` is frozen** (see 2026-11-08 below). The command-line planner replaces it.
 
 ## 2026-11-08: documentation (app and route packs unchanged)
 

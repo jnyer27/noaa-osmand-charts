@@ -70,7 +70,7 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             |  -b, --buffer M        hazard buffer in meters (default 60)
             |      --inside          Stay inside: no open ocean
             |      --move-ends       move ends to navigable water
-            |      --resolve         also try to avoid checks; writes NAME_adjusted.gpx
+            |      --resolve         also look for a way around the checks; writes NAME_adjusted.gpx
             |      --no-check-markers  no check markers in the GPX
             |      --no-chart-depth  skip the check of each leg against the chart's depth areas
             |                        (saves downloading the region chart, about 30 MB a region)
