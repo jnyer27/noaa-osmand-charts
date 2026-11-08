@@ -130,7 +130,7 @@ object Regions {
      * Key for the region map. Green, amber, and blue are route data for planning.
      * "chart map" is an OsmAnd file, not the route data and not the chart in this app.
      */
-    fun mapLegend() = "Green: route data for planning is installed. Amber: an update is ready. " +
+    fun mapLegend() = "Green: route data for planning is installed. Amber: an update is ready for its route data, or for its chart or base map in this app. " +
         "Blue dashed: route data is published and not downloaded. Faint: no route data. " +
         "\"chart map\" under a code means an OsmAnd chart file is ready. It does not mean the route data is ready, and it does not mean the chart in this app is ready. " +
         "Start is the red dot. You is the GPS fix, drawn beside Start when they are close. Vias are marked."
