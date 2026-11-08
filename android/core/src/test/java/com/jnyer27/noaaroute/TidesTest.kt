@@ -110,6 +110,11 @@ class TidesTest {
         val near = Tides.nearest(st, LatLon(39.32371, -76.39998), n = 2)
         assertEquals(listOf("8574857", "8574680"), near.map { it.id })
         assertTrue(Tides.nearest(st, LatLon(30.0, -60.0)).isEmpty())
+        // All of them, nearest first, for fetching the boater's own waters first
+        val order = Tides.byDistance(st, LatLon(39.32371, -76.39998)).map { it.id }
+        assertEquals(listOf("8574857", "8574680", "8573364", "8575512"), order.take(4))
+        assertEquals("1610367", order.last()) // Hawaii
+        assertEquals(st.map { it.id }, Tides.byDistance(st, null).map { it.id })
     }
 
     @Test
@@ -209,9 +214,9 @@ class TidesTest {
     fun ensureAllReportsStationsItCouldNotGet() {
         val c = cache()
         val done = ArrayList<Int>()
-        val failed = c.ensureAll(listOf("8574680", "8574857"), now) { k, _ -> done.add(k) }
+        val failed = c.ensureAll(listOf("8574680", "8574857"), now) { k, _ -> synchronized(done) { done.add(k) } }
         assertEquals(listOf("8574857"), failed)
-        assertEquals(listOf(1, 2), done)
+        assertEquals(listOf(1, 2), done.sorted())
         assertNotNull(c.series("8574680"))
         assertNull(c.series("8574857"))
     }

@@ -29,6 +29,8 @@ class TideCache(
         const val REFRESH_DAYS = 30
         /** The station list changes rarely (new or retired stations). */
         const val STATIONS_DAYS = 30
+        /** Requests at a time in [ensureAll]. */
+        const val PARALLEL = 2
         private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC)
     }
 
@@ -89,16 +91,30 @@ class TideCache(
     }
 
     /**
-     * [ensure] each station in turn. Returns the ids that could not be fetched (and have
-     * nothing saved). [progress] gets (done, total) after each.
+     * [ensure] each station, in the order given, [parallel] requests at a time (NOAA takes
+     * about a second per year; it refused 8 at a time from GitHub's servers). Returns the
+     * ids that could not be fetched (and have nothing saved). [progress] gets (done, total)
+     * after each, from the fetching threads.
      */
-    fun ensureAll(ids: List<String>, now: Long = System.currentTimeMillis(), progress: (Int, Int) -> Unit = { _, _ -> }): List<String> {
-        val failed = ArrayList<String>()
-        for ((k, id) in ids.withIndex()) {
-            try { ensure(id, now) } catch (_: Exception) { failed.add(id) }
-            progress(k + 1, ids.size)
+    fun ensureAll(
+        ids: List<String>, now: Long = System.currentTimeMillis(), parallel: Int = PARALLEL,
+        progress: (Int, Int) -> Unit = { _, _ -> },
+    ): List<String> {
+        val failed = java.util.Collections.synchronizedList(ArrayList<String>())
+        val next = java.util.concurrent.atomic.AtomicInteger(0)
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val workers = List(parallel.coerceIn(1, ids.size.coerceAtLeast(1))) {
+            Thread {
+                while (true) {
+                    val k = next.getAndIncrement()
+                    if (k >= ids.size) break
+                    try { ensure(ids[k], now) } catch (_: Exception) { failed.add(ids[k]) }
+                    progress(done.incrementAndGet(), ids.size)
+                }
+            }.apply { start() }
         }
-        return failed
+        workers.forEach { it.join() }
+        return ids.filter { it in failed }
     }
 
     /** Stations inside [bounds] (west, south, east, north), e.g. a region's box. */

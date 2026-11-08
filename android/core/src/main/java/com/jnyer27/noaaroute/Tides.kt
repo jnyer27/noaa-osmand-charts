@@ -140,5 +140,9 @@ object Tides {
             .take(n)
             .map { it.first }
 
+    /** [stations] nearest [p] first (all of them; for fetching the boater's own waters first). */
+    fun byDistance(stations: List<TideStation>, p: LatLon?): List<TideStation> =
+        if (p == null) stations else stations.sortedBy { Planner.distanceM(p, it.point) }
+
     fun minuteOf(i: Instant) = i.epochSecond / 60
 }

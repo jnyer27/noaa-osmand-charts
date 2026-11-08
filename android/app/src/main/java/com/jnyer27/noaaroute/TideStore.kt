@@ -45,8 +45,23 @@ class TideStore(private val ctx: Context) {
      */
     fun updateAll(): Int {
         val stations = cache.refreshStations()
-        val todo = wanted(stations).map { it.id }.filter { cache.needsFetch(it) }
+        // Nearest the boater first: the last GPS fix, else the trip's start
+        val todo = Tides.byDistance(wanted(stations), home()).map { it.id }.filter { cache.needsFetch(it) }
         return cache.ensureAll(todo).size
+    }
+
+    /** The last known position (if location is allowed), else the start saved by the planning screen. */
+    private fun home(): LatLon? {
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try {
+                val lm = ctx.getSystemService(android.location.LocationManager::class.java)
+                listOf(android.location.LocationManager.GPS_PROVIDER, android.location.LocationManager.NETWORK_PROVIDER)
+                    .firstNotNullOfOrNull { lm.getLastKnownLocation(it) }
+                    ?.let { return LatLon(it.latitude, it.longitude) }
+            } catch (_: Exception) { }
+        }
+        val start = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE).getString("start", null)
+        return start?.let { Coords.parse(it) }
     }
 
     /** The nearest station to each point (within 30 km), fetched if needed; failures are skipped. */
