@@ -133,10 +133,11 @@ object Gpx {
     }
 
     /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. [trip] is the start, via points and destination, written so opening the file can set them again. */
-    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true, trip: List<LatLon> = emptyList()): String {
+    fun write(r: Route, datum: String = "MLLW", checks: Boolean = true, trip: List<LatLon> = emptyList(),
+              creator: String = "NOAA Route (Android)"): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        sb.append("<gpx version=\"1.1\" creator=\"NOAA Route (Android)\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
+        sb.append("<gpx version=\"1.1\" creator=\"${esc(creator)}\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
             "xmlns:osmand=\"https://osmand.net\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" " +
             "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\n")
         // Check markers where each run of flagged legs starts and ends (waypoints come before the route)
