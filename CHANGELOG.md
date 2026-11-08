@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## 2026-11-08: tide predictions (route packs build 166 unchanged)
+## 2026-11-08: tide predictions (app 0.1.252, route packs build 166 unchanged)
 
 Routing is unchanged: routes are still planned on charted depth at MLLW, and every tide shown is NOAA's prediction, not observed water.
 
