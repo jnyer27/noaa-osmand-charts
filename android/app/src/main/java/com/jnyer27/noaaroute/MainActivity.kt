@@ -1372,9 +1372,21 @@ class MainActivity : Activity() {
     /** Air draft from the form, or null when the field is empty. The planner treats empty the same way. */
     private fun formAir(): Double? = air.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 300 }
 
-    /** The Middle River chart alone, shaded for the safe depth on the form (3 ft if that field is empty). */
+    /** Safe operating depth from the form, in feet (a decimal comma is read too), or null when it is not 0-40. */
+    private fun formDepth(): Double? =
+        depth.text.toString().trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it < 40 }
+
+    /**
+     * The chart, shaded for the safe depth on the form. The depth is saved, so it is there
+     * after a restart; one that cannot be read is said, and the map uses 3 ft.
+     */
     private fun showChart() {
-        val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
+        val typed = formDepth()
+        val text = depth.text.toString().trim()
+        if (typed != null) prefs.edit().putString("depth", text).apply()
+        else toast(if (text.isEmpty()) "Safe operating depth is empty: the map is shaded for 3 ft."
+            else "Safe operating depth \"$text\" is not feet from 0 to 40: the map is shaded for 3 ft.")
+        val d = typed ?: 3.0
         val i = Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d)
         formAir()?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
         @Suppress("DEPRECATION") startActivityForResult(i, REQ_CHART)
@@ -1473,7 +1485,7 @@ class MainActivity : Activity() {
         val vias = via.text.toString().split(";").filter { it.isNotBlank() }.map {
             Coords.parse(it) ?: run { toast("Bad via point: $it"); return }
         }
-        val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: run { toast("Depth must be feet, 0-40"); return }
+        val d = formDepth() ?: run { toast("Depth must be feet, 0-40"); return }
         val airFt = try {
             Planner.airDraftFt(air.text.toString(), skipBridges.isChecked)
         } catch (e: PlanException) {
