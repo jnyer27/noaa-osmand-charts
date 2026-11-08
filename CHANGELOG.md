@@ -4,6 +4,10 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-08: documentation (app and route packs unchanged)
+
+- **The Termux route planner (`noaa-route.py`) is frozen.** Its routing was last updated on 2026-10-16 and no longer matches the app, so its routes can differ from the app's. The README says so; use the app for planning.
+
 ## 2026-11-06: marks and lights when zoomed out (app 0.1.224, route packs build 153 unchanged)
 
 The chart:
