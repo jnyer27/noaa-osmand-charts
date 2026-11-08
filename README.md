@@ -17,6 +17,8 @@ The app can also download NOAA's paper-chart style maps and convert them for Osm
 
 **[User guide](https://jnyer27.github.io/noaa-osmand-charts/)**: installing, planning, reading the route report, OsmAnd, regions, safety and troubleshooting. What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
+No Android phone? The [command-line planner](#command-line-planner-windows-macos-linux-termux) runs the app's planner on Windows, macOS, Linux and Termux, with the same route data and the same report.
+
 The project began as a set of Termux scripts, which are kept in this repository as the [proof of concept](#proof-of-concept-the-termux-scripts) that the app grew from.
 
 ---
@@ -336,6 +338,54 @@ So the path would be: NOAA ENC, read with GDAL so that NOAA's update files are a
 
 This was tried once and dropped: the converter used then (JOSM's `js57toosm`) ignored NOAA's update files, so the maps missed Notice to Mariners corrections. The vector charts now read the charts with GDAL, as the route pack builder does, so they include those corrections. The open questions were settled on the phone: OsmAnd draws depth contours, depth areas and soundings from the app's own depth map with only the free Nautical plugin (as a `.depth.obf`, listed under Nautical maps and following the Nautical depth switch). How the contours look depends on OsmAnd's depth rules, which are changing (see [Vector charts for OsmAnd](#vector-charts-for-osmand)). Its Nautical style draws buoys and beacons, lights, wrecks, rocks and obstructions, piers, bridges, cables, fairways and dredged channels, and restricted areas. Daymarks and light sectors are not drawn yet. See the [screenshots](#vector-charts-for-osmand) comparing the vector charts with the NCDS chart map.
 
+## Command-line planner (Windows, macOS, Linux, Termux)
+
+`noaa-route` runs the app's own planner on a computer or in Termux: the same route data, the same rules, the same report and GPX file, and the same check of each leg against the chart's depth areas. Use it to plan on a laptop for a chartplotter, OpenCPN or Navionics, without an Android phone, or to plan many routes from a script.
+
+**Install:**
+
+1. Install Java 17 or later. Windows and macOS: [Eclipse Temurin](https://adoptium.net). Linux: your package manager, for example `sudo apt install openjdk-17-jre-headless`. Termux: `pkg install openjdk-21`.
+2. Download **[noaa-route.zip](https://github.com/jnyer27/noaa-osmand-charts/releases/download/cli/noaa-route.zip)** from the [cli release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/cli) and unzip it.
+3. Run `noaa-route --help` in the unzipped `noaa-route` folder (on Windows, `noaa-route.cmd --help`).
+
+**Plan a route:**
+
+```
+noaa-route -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n ego-alley
+```
+
+This plans Maryland Marina to Ego Alley at a 3 ft safe operating depth and 10 ft air draft, prints the route report and writes `ego-alley.gpx` in the current folder. Positions are decimal degrees (`39.32371,-76.39998`) or degrees and minutes (`"39 19.42 N, 76 24.0 W"`, quoted because of the spaces).
+
+| Option | Meaning | In the app |
+|---|---|---|
+| `-f`, `-t` POINT | Start and destination | Start, Destination |
+| `-v` POINT | Via point, in order; repeat for more | Via points |
+| `-d` FT | Safe operating depth (required) | Safe operating depth (ft) |
+| `-a` FT | Air draft (required unless `--no-bridges`) | Air draft (ft) |
+| `--no-bridges` | Don't check bridges and cables | Don't check bridges and cables |
+| `-b` M | Hazard buffer, default 60 m | |
+| `--inside` | Stay inside (no open ocean) | Stay inside (avoid open ocean) |
+| `--move-ends` | Move ends to navigable water | Move ends to navigable water |
+| `--resolve` | Also look for a way around the checks, saved as `NAME_adjusted.gpx` | Look for a way around the checks |
+| `--no-check-markers` | No check markers in the GPX | Check markers in the GPX |
+| `--no-chart-depth` | Skip the check of each leg against the chart's depth areas | |
+| `-n` NAME, `-o` FILE | Route name, GPX file | Name |
+| `--offline` | Use only what is already downloaded | |
+| `--json` | A JSON summary instead of the report | |
+| `--beta` | Route data from the test release (`route-pack-beta`) | Test APKs |
+
+Exit codes: 0 planned, 1 no route (the reason is printed), 2 bad input, 3 route data could not be downloaded.
+
+**What it downloads:** the route data for the regions a trip passes through (2-7 MB each) and each region's chart (about 30 MB each), for the depth check. Both are checked against the published checksums, kept in `~/.cache/noaa-route` (`%USERPROFILE%\.cache\noaa-route` on Windows), and updated when a newer build is published. After the first run, `--offline` plans with no network. `NOAA_ROUTE_PACKS` and `NOAA_ROUTE_CHARTS` (or `--packs`, `--charts`) choose other folders.
+
+**The chart depth check:** like the app, the planner works on a 20 m grid, then follows each leg's line through the chart's depth areas and flags a leg that crosses one that may be under your safe depth ("crosses 115 m of a depth area that may be under your 3 ft: check"). The report says which charts were checked ("chart depth check: Region 04 chart"). If a chart cannot be downloaded or read, the report and a warning say so; those legs were checked on the grid only.
+
+**Not in the command-line planner:** the map, saved places, sharing from other apps, and chart maps or vector charts for OsmAnd. Very long trips may need more memory: `NOAA_ROUTE_JAVA_OPTS=-Xmx2g` (the default is 1 GB).
+
+> **Not a certified navigation system.** The command-line planner is the same planning aid as the app. Check every leg against a current chart before you run it.
+
+To build it yourself: `cd android && gradle :cli:cliZip` makes `cli/build/dist/noaa-route.zip`.
+
 ## How it works
 
 Regions are defined in `tools/areas.json`: each NCDS region's code and NOAA's region rectangle, plus reference routes. Every week, `tools/build_route_pack.py` (run by `.github/workflows/route-pack.yml`) builds a route pack for each region:
@@ -351,7 +401,7 @@ Before publishing, the workflow runs every reference route through the app's pla
 
 ## Building the app
 
-The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`) and published as the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app). The phone needs no Android tools. The Kotlin planner core (`MiniJson`, `Pack`, `ChartSet`, `Planner`, `Gpx`, `Coords`, `Shared`, `Regions`) has no Android dependencies, so it can also be tested on the phone with `pkg install openjdk-17 kotlin` plus the junit 4.13.2 and hamcrest-core 1.3 jars (see CLAUDE.md). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
+The APK is built, tested and signed by GitHub Actions on every push that changes `android/` (`.github/workflows/android.yml`) and published as the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app). The phone needs no Android tools. The planner and everything it reads (route packs, catalog, GPX, chart depth check) is the `:core` Gradle module, plain Kotlin with no Android dependencies; the app (`:app`) and the [command-line planner](#command-line-planner-windows-macos-linux-termux) (`:cli`) both build on it. `gradle :core:test` runs its tests (Gradle still needs the Android SDK to set up the app module; `tools/run_refs.sh` installs one). The signing key lives in `~/.noaa-route-signing/` and in the repository's Actions secrets.
 
 On a Linux computer (or a Claude Code cloud session), `tools/cloud-setup.sh` installs GDAL, numpy and a JDK, and `tools/run_refs.sh 'name regex'` runs matching reference routes from `tools/areas.json` through the app's planner on the published route packs, in a few minutes instead of a CI run. It installs the Android SDK and Gradle under `~/.cache/noaa-route` on first use.
 
@@ -361,11 +411,11 @@ To report a route that goes the wrong way, use the [Route problem](https://githu
 
 ## Proof of concept: the Termux scripts
 
-Before the app, the whole idea was proven with three scripts run from Termux on the phone. They still work and are kept here as the reference implementation:
+Before the app, the whole idea was proven with three scripts run from Termux on the phone. The chart scripts still work; the route planner script is frozen:
 
 | Script | What it does | App equivalent |
 |---|---|---|
-| `noaa-route.py` | Route planner from NOAA ENC charts, GPX output | The app's planner, which is a Kotlin port with the same rules and results that runs in seconds instead of minutes |
+| `noaa-route.py` | Route planner from NOAA ENC charts, GPX output (frozen since 2026-11-08) | The app's planner, which grew from it and has changed many times since. Off the phone, use the [command-line planner](#command-line-planner-windows-macos-linux-termux) |
 | `noaa-charts.sh` | Downloads NOAA's paper-chart style (NCDS) region maps and converts them for OsmAnd | **Download for OsmAnd** and **Combine chart maps** on a region's card |
 | `noaa-ecdis-tiles.sh` | Builds an ECDIS / S-52 style map (the same look as SiiTech) for any bounding box, tile by tile from NOAA's live service | Not in the app yet. Use the script when you want the most current data or a custom area |
 
@@ -495,7 +545,7 @@ Your existing map is protected. If a refresh ends with failed tiles, the old `.s
 
 ### noaa-route.py (route planner)
 
-**Frozen since 2026-11-08.** Its routing was last updated on 2026-10-16, and the app's planner has changed many times since (narrow channels, fairways, moving ends to navigable water, replanning legs to check, and more), so its routes can differ from the app's and are sometimes worse. Use the app for planning. The script is kept as the proof of concept and is no longer maintained.
+**Frozen since 2026-11-08.** Its routing was last updated on 2026-10-16, and the app's planner has changed many times since (narrow channels, fairways, moving ends to navigable water, replanning legs to check, and more), so its routes can differ from the app's and are sometimes worse. Use the app for planning, or the [command-line planner](#command-line-planner-windows-macos-linux-termux) on a computer or in Termux, which runs the app's planner. The script is kept as the proof of concept and is no longer maintained.
 
 The original route planner, in Python. It reads NOAA ENC vector charts with all of NOAA's update files applied, uses the same rules as the app (see [How the planner decides where you can go](#how-the-planner-decides-where-you-can-go)), and writes a GPX route for OsmAnd. It takes 15-60 seconds for a trip within a bay region and 5-15 minutes for long trips (over roughly 40 nm), where the app takes seconds.
 
@@ -571,6 +621,7 @@ The script searches a box around your points. If the only way runs outside it (a
 | `Download/noaa-charts/routes/*.gpx` | Routes from the app and from `noaa-route.py` |
 | `Download/noaa-charts/*.sqlitedb` | Finished chart maps to import into OsmAnd |
 | `Download/noaa-charts/noaa-route.apk` | Latest app build copied here for installing (also on the [app release](https://github.com/jnyer27/noaa-osmand-charts/releases/tag/app)) |
+| `~/.cache/noaa-route/packs/`, `~/.cache/noaa-route/charts/` | The command-line planner's route data and region charts (safe to delete; they download again) |
 | `~/.noaa-route-signing/` | App signing key and password (also stored as GitHub secrets). Back it up: without it, new builds cannot update the installed app |
 | `noaa-charts.sh`, `noaa-ecdis-tiles.sh`, `noaa-route.py` | Termux proof-of-concept scripts |
 | `Download/noaa-charts/ncds_XX_YY.sqlitedb` | Merged map from `noaa-charts.sh -M`; the per-region files beside it are its sources. If you delete the per-region files to save space, refresh later with `-f` (for example `noaa-charts.sh -f -M 03 04 05`), since their `.stamp` files say they are current |

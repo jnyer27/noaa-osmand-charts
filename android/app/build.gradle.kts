@@ -80,6 +80,8 @@ android {
 }
 
 dependencies {
+    // The planner, route packs, catalog and GPX (plain Kotlin, shared with the command-line planner)
+    implementation(project(":core"))
     // In-app chart. BSD-2-Clause; no API key and no online base map.
     // AndroidX comes in with it (annotation, and whatever the renderer pulls). The rest of
     // the app stays on the platform widgets.
