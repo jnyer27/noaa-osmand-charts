@@ -11,7 +11,8 @@ import java.time.ZoneId
 /**
  * One day of predicted tide at a station, midnight to midnight on the phone's clock: the
  * curve, each high and low with its height, the 0 ft line (chart datum) when the water goes
- * near it, and a line at the current time.
+ * near it, a line at the current time, and on a check leg a red dotted line at the tide
+ * the boat needs there ([needFt]).
  */
 class TideCurveView(ctx: Context, night: Boolean) : View(ctx) {
     private var series: TideSeries? = null
@@ -19,6 +20,7 @@ class TideCurveView(ctx: Context, night: Boolean) : View(ctx) {
     private var to = 0L
     private var now = 0L
     private var zone: ZoneId = ZoneId.systemDefault()
+    private var needFt: Double? = null
 
     private val density = ctx.resources.displayMetrics.density
     private val ink = if (night) 0xFFEEEEEE.toInt() else 0xFF212121.toInt()
@@ -26,16 +28,23 @@ class TideCurveView(ctx: Context, night: Boolean) : View(ctx) {
     private val teal = if (night) 0xFF4DD0E1.toInt() else 0xFF00838F.toInt()
     private val fillColor = if (night) 0x334DD0E1 else 0x2200838F
     private val nowColor = if (night) 0xFFFFAB91.toInt() else 0xFFBF360C.toInt()
+    private val needColor = if (night) 0xFFEF5350.toInt() else 0xFFD32F2F.toInt()
 
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.5f * density; color = teal }
     private val area = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = fillColor }
     private val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 1f * density; color = faint }
     private val nowLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f * density; color = nowColor }
+    private val needLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 2f * density; color = needColor
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * density, 3f * density), 0f)
+    }
+    private val needLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = needColor; textSize = 11f * density; textAlign = Paint.Align.RIGHT; isFakeBoldText = true }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = teal }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; textSize = 11f * density; textAlign = Paint.Align.CENTER }
 
-    fun show(s: TideSeries, date: LocalDate, zone: ZoneId, nowMinute: Long) {
+    fun show(s: TideSeries, date: LocalDate, zone: ZoneId, nowMinute: Long, need: Double? = null) {
         series = s
+        needFt = need
         this.zone = zone
         from = date.atStartOfDay(zone).toEpochSecond() / 60
         to = date.plusDays(1).atStartOfDay(zone).toEpochSecond() / 60
@@ -51,6 +60,7 @@ class TideCurveView(ctx: Context, night: Boolean) : View(ctx) {
         val day = s.extremes.filter { it.minute in from until to }
         var lo = minOf(samples.minOf { it.second }, 0.0)
         var hi = samples.maxOf { it.second }
+        needFt?.let { lo = minOf(lo, it); hi = maxOf(hi, it) }
         if (hi - lo < 0.5) hi = lo + 0.5
         val pad = (hi - lo) * 0.08
         lo -= pad; hi += pad
@@ -90,6 +100,11 @@ class TideCurveView(ctx: Context, night: Boolean) : View(ctx) {
             val w = label.measureText(text) / 2
             val cx = ex.coerceIn(left + w, right - w)
             c.drawText(text, cx, if (e.high) ey - 7f * density else ey + 15f * density, label)
+        }
+        needFt?.let { n ->
+            val ny = y(n)
+            c.drawPath(Path().apply { moveTo(left, ny); lineTo(right, ny) }, needLine)
+            c.drawText(String.format(java.util.Locale.US, "need %.1f ft", n), right, ny - 4f * density, needLabel)
         }
         if (now in from..to) c.drawLine(x(now), top - 6f * density, x(now), bottom, nowLine)
     }

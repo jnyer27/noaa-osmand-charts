@@ -153,6 +153,24 @@ class TidesTest {
         assertNull(Tides.nowText(s, minute("2027-01-01 00:00")))
     }
 
+    @Test
+    fun timesAboveAHeight() {
+        // North Point 2026-11-08 (EST): low 0.4 12:21 am, high 1.1 5:28 am, low 0.1 11:38 am, high 1.6 6:17 pm
+        val s = northPoint().series
+        val day = LocalDate.of(2026, 11, 8)
+        val w = Tides.above(s, day, ny, 1.0)
+        assertEquals(2, w.size)
+        // Around each high, and every minute in a window is at least 1.0 ft
+        assertTrue(w[0].first < minute("2026-11-08 10:28") && w[0].second > minute("2026-11-08 10:28"))
+        assertTrue(w[1].first < minute("2026-11-08 23:17") && w[1].second > minute("2026-11-08 23:17"))
+        for ((a, b) in w) for (m in a..b) assertTrue(s.height(m)!! >= 1.0)
+        assertTrue(s.height(w[0].first - 1)!! < 1.0 && s.height(w[0].second + 1)!! < 1.0)
+        val text = Tides.aboveText(w, day, ny)!!
+        assertTrue(text, Regex("""\d+:\d\d am to \d+:\d\d am, \d+:\d\d pm to \d+:\d\d pm""").matches(text))
+        assertNull(Tides.aboveText(Tides.above(s, day, ny, 2.5), day, ny))
+        assertEquals("all day", Tides.aboveText(Tides.above(s, day, ny, -1.0), day, ny))
+    }
+
     private fun route(shoal: Double) = Route("r",
         listOf(LatLon(39.20, -76.44), LatLon(39.19, -76.43), LatLon(39.18, -76.42)),
         listOf(Leg(1000.0, 135.0, 0.0, null, emptyList()), Leg(1000.0, 135.0, shoal, 0.6, listOf("200 m where charted depth may be under 5 ft"))),

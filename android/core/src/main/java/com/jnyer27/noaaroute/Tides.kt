@@ -133,6 +133,34 @@ object Tides {
             ft(next.feet) + " ft"
     }
 
+    /**
+     * When the predicted height on [date] in [zone] is at least [feet]: (from, to) minute
+     * pairs, to the minute. Empty when it never gets there that day.
+     */
+    fun above(s: TideSeries, date: LocalDate, zone: ZoneId, feet: Double): List<Pair<Long, Long>> {
+        val from = date.atStartOfDay(zone).toEpochSecond() / 60
+        val to = date.plusDays(1).atStartOfDay(zone).toEpochSecond() / 60
+        val out = ArrayList<Pair<Long, Long>>()
+        var start: Long? = null
+        for (m in from..to) {
+            val h = s.height(m)
+            val up = h != null && h >= feet
+            if (up && start == null) start = m
+            if ((!up || m == to) && start != null) { out.add(start to (if (up) m else m - 1)); start = null }
+        }
+        return out
+    }
+
+    /** [above]'s times as "4:10 am to 9:30 am, 3:00 pm to midnight", "all day", or null for none. */
+    fun aboveText(windows: List<Pair<Long, Long>>, date: LocalDate, zone: ZoneId): String? {
+        if (windows.isEmpty()) return null
+        val from = date.atStartOfDay(zone).toEpochSecond() / 60
+        val to = date.plusDays(1).atStartOfDay(zone).toEpochSecond() / 60
+        if (windows.size == 1 && windows[0].first == from && windows[0].second == to) return "all day"
+        fun t(m: Long) = if (m == to) "midnight" else clock(m, zone)
+        return windows.joinToString(", ") { (a, b) -> "${if (a == from) "midnight" else t(a)} to ${t(b)}" }
+    }
+
     private const val NOTE = "tide today at "
 
     /** True for the tide note [annotate] adds (information only, whatever the station's name says). */
