@@ -195,12 +195,24 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         val e = all().values.firstOrNull { it.state == State.DOWNLOADING && it.download == id } ?: return false
         var ok = false
         var reason = "download failed"
+        var local: String? = null
         dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
             if (c.moveToFirst()) {
                 ok = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
                 if (!ok) reason = "download failed (code ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))})"
+                local = c.getString(c.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
             } else reason = "download was cancelled"
         }
+        // Android can save under another name than the one asked for (Ncds_06_basemap-1...)
+        // when a file is in the way: check the file it wrote, not an old one at our path
+        if (ok) try {
+            val got = local?.let { Uri.parse(it).path }?.let { File(it) }
+            val want = partial(e.file)
+            if (got != null && got.isFile && got.canonicalPath != want.canonicalPath) {
+                want.delete()
+                if (!got.renameTo(want)) { got.copyTo(want, overwrite = true); got.delete() }
+            }
+        } catch (_: Exception) { }
         if (!ok) {
             dm.remove(id)
             partial(e.file).delete()
@@ -282,7 +294,8 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
             try { fetchCatalog() } catch (_: Exception) { }
             val now = catalogSets().firstOrNull { it.ncds == e.ncds && it.file == e.file }
             if (now != null && now.sha256 == got) want = got
-            else throw Exception("${e.file} is damaged (checksum); download it again")
+            else throw Exception("${e.file} is damaged (checksum; %.1f MB, expected %.1f MB, sha %s, catalog %s); download it again"
+                .format(src.length() / 1e6, (now?.size ?: e.size) / 1e6, got.take(8), (now?.sha256 ?: e.sha256).take(8)))
         }
         val dest = File(dir, e.file)
         if (dest.exists()) dest.delete()
