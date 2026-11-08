@@ -3,6 +3,10 @@
 Plan a boat route over NOAA ENC vector charts and write it as a GPX route.
 Runs in Termux. Needs: pkg install gdal python-numpy (plus openexr if gdal fails to load).
 
+FROZEN (2026-11-08): routing was last changed on 2026-10-16 and no longer matches the
+app's planner (android/.../Planner.kt), which is the reference. Kept as the proof of
+concept; fixes go to the app only.
+
 Usage:
   python3 noaa-route.py                      (no options: asks step by step)
   python3 noaa-route.py -f LAT,LON -t LAT,LON -d DEPTH_FT [options]
