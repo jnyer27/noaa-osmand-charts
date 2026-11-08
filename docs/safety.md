@@ -10,7 +10,7 @@ nav_order: 9
 
 ## What the planner cannot know
 
-- **Tide and water level.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Wind and low tides can take water below chart datum.
+- **Tide and water level.** Routes are planned on depths charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. The app shows NOAA's tide predictions in the report, on flagged shallow legs and on the chart, but they are predictions: wind setdown (a northwest wind on the Chesapeake), high pressure and river flow can move the water feet from them, and below chart datum. A route planned on the tide could lead onto water that is not there, so the planner never uses it. **Predicted depth** on the chart is a display aid, not observed water.
 - **The real bottom.** Soundings are sparse, and shoals move, especially in inlets and the ICW. Charts lag behind the water, even with Notices to Mariners.
 - **Small things.** Single piles, crab pots, floating debris and uncharted obstructions are not on the grid.
 - **Exact lines.** The grid is 20 m. A narrow dredged channel is drawn toward its middle, but a line through a bridge opening can still sit to one side. Line up on the marks by eye.
@@ -21,7 +21,7 @@ nav_order: 9
 
 Before you go, read the [route report](report.html) and look at each flagged leg on a current chart:
 
-- legs where the charted depth may be under your safe depth, including "crosses N m of a depth area that straddles your depth" from the chart in the app: check the tide and the shallowest sounding,
+- legs where the charted depth may be under your safe depth, including "crosses N m of a depth area that straddles your depth" from the chart in the app: check the tide and the shallowest sounding (tap the leg on the chart for the day's tide and the times it is high enough, then allow for the wind),
 - **"check"** notes: hazards, channel markers, piers, piles,
 - the **"connects your point to usable water"** leg at either end,
 - **bridges and cables**: clearances and opening schedules,

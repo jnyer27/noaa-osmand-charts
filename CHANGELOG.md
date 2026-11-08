@@ -4,6 +4,21 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## 2026-11-08: tide predictions (route packs build 166 unchanged)
+
+Routing is unchanged: routes are still planned on charted depth at MLLW, and every tide shown is NOAA's prediction, not observed water.
+
+Tides (new):
+- **NOAA tide predictions, offline.** For every tide station in your downloaded regions, the app fetches a year of NOAA's predicted highs and lows on Wi-Fi in the background (about 10 KB per station) and refreshes it when under 30 days are left. The region card says how many are saved. A station a trip or the chart needs is fetched on any network.
+- **The report** gives today's highs and lows at the stations nearest the start and the destination, with the reminder that wind and pressure can move the water feet from the prediction. The GPX route description carries the same lines.
+- **Legs flagged for shallow water** add the day's predicted range at the nearest station: "tide today at North Point: 0.1 to 1.6 ft above chart datum (predicted)". The leg stays flagged.
+- **View map:** teal dots are tide stations (tap one for today's highs and lows, the height now and the day's curve). Tapping a check leg shows the nearest station's curve with a red dotted line at the tide your safe depth needs over the leg's shallowest charted sounding, and the times today the water is above it. Press and hold, **Depth and tide here**, does the same for any spot, with the chart's depth area, dredged depth and soundings within 150 m.
+- **Predicted depth (tide now)**, a checkbox on View map, off each time the map opens, shows soundings and contour labels as charted depth plus the tide now at the station nearest the map's center, rounded down, in teal. Depth area colors and planning stay at charted depth.
+- **Command-line planner:** `--tides` and `--tide-date`.
+
+View map:
+- **The safe operating depth typed for View map is saved**, so it is still there after the app restarts; before, it was saved only by planning. An empty or unreadable depth now says so instead of quietly shading the chart for 3 ft, and a decimal comma (3,5) is read.
+
 ## 2026-11-08: regions needing an update (app 0.1.240, route packs build 166 unchanged)
 
 Regions:
