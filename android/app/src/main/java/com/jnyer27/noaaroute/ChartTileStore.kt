@@ -88,7 +88,31 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         } finally { c.disconnect() }
     }
 
-    fun file(set: ChartTiles.TileSet) = File(dir, set.file)
+    /** A ready chart's file ([set] from [readySets]: its sha is the checked file's). */
+    fun file(set: ChartTiles.TileSet) = stored(set.file, set.sha256)
+
+    /**
+     * Where a checked file lives: Ncds_06_basemap-<sha>.pmtiles, so each version has its own
+     * path. MapLibre keeps a PMTiles file's header and directory by path until the app
+     * restarts (maplibre-native #4786); a new version saved under the old name was read
+     * through the old header and drew nothing.
+     */
+    private fun stored(file: String, sha: String?): File {
+        if (sha.isNullOrEmpty()) return File(dir, file)
+        val dot = file.lastIndexOf('.')
+        val tag = "-" + sha.take(12)
+        return File(dir, if (dot > 0) file.substring(0, dot) + tag + file.substring(dot) else file + tag)
+    }
+
+    /** The ready file of [e]; one saved by an older app under the plain name is moved to its own. */
+    private fun readyFile(e: Entry): File {
+        val f = stored(e.file, e.readySha)
+        if (!f.isFile && e.readySha != null) {
+            val old = File(dir, e.file)
+            if (old.isFile) old.renameTo(f)
+        }
+        return f
+    }
     private fun partial(file: String) = File(dir, "$file.download")
 
     fun freeBytes(): Long = StatFs(dir.path).availableBytes
@@ -119,7 +143,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
     /** Charts whose file is in place and checked. */
     fun readySets(): List<ChartTiles.TileSet> = all().values.mapNotNull { e ->
         if (e.state != State.READY || e.readySha.isNullOrEmpty()) null
-        else if (!File(dir, e.file).isFile) null
+        else if (!readyFile(e).isFile) null
         else e.tileSet()
     }
 
@@ -236,7 +260,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
                     downloadDone(e.download)
             }
             State.DOWNLOADED, State.SAVING -> ChartMaps.schedule(ctx)
-            State.READY -> if (!File(dir, e.file).isFile) put(null, e.ncds)
+            State.READY -> if (!readyFile(e).isFile) put(null, e.ncds)
             State.FAILED -> {}
         }
     }
@@ -246,6 +270,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         val e = get(ncds) ?: return
         if (e.download >= 0) dm.remove(e.download)
         partial(e.file).delete()
+        readyFile(e).delete()
         File(dir, e.file).delete()
         put(null, ncds)
     }
@@ -257,7 +282,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         val e = get(ncds) ?: return
         if (e.download >= 0) dm.remove(e.download)
         partial(e.file).delete()
-        if (e.readySha != null && File(dir, e.file).isFile)
+        if (e.readySha != null && readyFile(e).isFile)
             put(e.copy(state = State.READY, sha256 = e.readySha, download = -1, error = null))
         else put(null, ncds)
     }
@@ -297,18 +322,22 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
             else throw Exception("${e.file} is damaged (checksum; %.1f MB, expected %.1f MB, sha %s, catalog %s); download it again"
                 .format(src.length() / 1e6, (now?.size ?: e.size) / 1e6, got.take(8), (now?.sha256 ?: e.sha256).take(8)))
         }
-        val dest = File(dir, e.file)
+        val old = if (e.readySha != null && e.readySha != want) readyFile(e) else null
+        val dest = stored(e.file, want)
         if (dest.exists()) dest.delete()
         if (!src.renameTo(dest)) {
             src.copyTo(dest, overwrite = true)
             src.delete()
         }
         put(e.copy(state = State.READY, sha256 = want, readySha = want, download = -1, error = null))
+        // The map may still have the old version open: it keeps reading it until it reloads
+        old?.delete()
+        File(dir, e.file).delete()
         ChartMaps.notifyChart(ctx, "Region ${e.ncds} ${kind.what} ready", "Open View map to see it.", null)
     }
 
     private fun fail(e: Entry, why: String) {
-        if (e.readySha != null && File(dir, e.file).isFile)
+        if (e.readySha != null && readyFile(e).isFile)
             put(e.copy(state = State.READY, sha256 = e.readySha, download = -1, error = "update failed: $why"))
         else put(e.copy(state = State.FAILED, download = -1, error = why))
     }
