@@ -41,6 +41,16 @@ class CliTest {
     }
 
     @Test
+    fun tideOptions() {
+        assertTrue(!parse().tides)
+        assertTrue(parse("--tides").tides && parse("--tides").tideDate == null)
+        val o = parse("--tide-date", "2026-11-08")
+        assertTrue(o.tides)
+        assertEquals(java.time.LocalDate.of(2026, 11, 8), o.tideDate)
+        assertTrue(usageError(*base, "--tide-date", "Nov 8").startsWith("--tide-date: not a date"))
+    }
+
+    @Test
     fun helpReturnsNull() {
         assertNull(Cli.parse(arrayOf("--help")))
         val (code, out, _) = run("-h")

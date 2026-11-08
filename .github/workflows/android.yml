@@ -44,6 +44,7 @@ jobs:
         env:
           NOAA_ROUTE_PACKS: ${{ runner.temp }}/cli-packs
           NOAA_ROUTE_CHARTS: ${{ runner.temp }}/cli-charts
+          NOAA_ROUTE_TIDES: ${{ runner.temp }}/cli-tides
         run: |
           gradle --no-daemon -q :cli:cliZip
           cp cli/build/dist/noaa-route.zip "$GITHUB_WORKSPACE/noaa-route.zip"
@@ -51,8 +52,9 @@ jobs:
           nr="$RUNNER_TEMP/cli/noaa-route/noaa-route"
           "$nr" --version
           cd "$RUNNER_TEMP"
-          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 --resolve -n cli-ego-alley
-          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --json -q > cli.json
+          # --tides fetches two stations from NOAA; a refusal leaves a "tides:" line, not a failure
+          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 --resolve --tides -n cli-ego-alley
+          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --tides --json -q > cli.json
           cat cli.json
           python3 -c "import json,sys; j=json.load(open(sys.argv[1])); nm=j['route']['nm']; cd=j['chartDepth']; print('nm', nm, '| chart depth:', cd); sys.exit(0 if 24 <= nm <= 29 and cd == 'Region 04 chart' else 1)" cli.json
           for f in cli-ego-alley*.gpx; do xmllint --noout --schema "$GITHUB_WORKSPACE/android/app/src/test/resources/gpx.xsd" "$f"; done

@@ -21,6 +21,9 @@ Saved to Download/noaa-charts/routes/....gpx
 
 Annapolis trip: 26.5 nm, 38 points
 depth 5 ft (MLLW), air draft 10 ft, hazard buffer 60 m, grid 20 m
+tides at North Point, Sun Nov 8 (predicted, feet above chart datum): low 0.4 ft 12:21 am, high 1.1 ft 5:28 am, low 0.1 ft 11:38 am, high 1.6 ft 6:17 pm
+tides at Annapolis (US Naval Academy), Sun Nov 8 (predicted, feet above chart datum): low 0.5 ft 3:21 am, high 1.1 ft 8:41 am, low 0.1 ft 2:54 pm, high 1.5 ft 9:44 pm
+tides: Predicted, not observed. Wind and pressure can move the water feet from this, most of all on the Chesapeake in a northwest wind.
 ```
 
 Shoal rows are coloured dark red, bridges blue, cables purple, restricted areas purple, and the check count a deep orange. That orange is the report text. On the chart, the dashed check leg is orange and a cable drawn for vertical clearance is navy, so the two are not the same mark.
@@ -29,6 +32,7 @@ Shoal rows are coloured dark red, bridges blue, cables purple, restricted areas 
 - Your start, via points and destination.
 - The settings it was planned for, and what depths are charted to (MLLW, or Low Water Datum on the Great Lakes).
 - **grid 20 m**: the chart detail the route was planned on. Long trips add "(long trip, guided by a 320 m overview)": the trip was sketched on a coarse grid first, then planned at 20 m stretch by stretch.
+- **Tides**: today's predicted highs and lows at the NOAA tide station nearest the start, and at the one nearest the destination when that is a different station, in feet above chart datum on the phone's clock, then the reminder that they are predictions. See [Tides](#tides) below.
 - The charts (regions) used and when it was planned.
 - Messages, such as "Point 1 moved 35 m to the nearest usable water".
 
@@ -60,6 +64,7 @@ Leg Course  Dist nm  Notes
 | **passes over or on the wrong side of a channel marker: check** | The leg crosses the wrong side of a lateral buoy or daybeacon. The planner does this only when there is no other way. | Check the marks on the chart; keep red right returning. |
 | **runs along or across charted piers or seawalls: check** | The leg runs along or crosses a charted pier, seawall, jetty or breakwater line, for example into a slip. | Steer by eye; the chart line may not match the dock. |
 | **passes charted piles or snags: check** | The leg passes old pilings or snags of unknown depth. | Look for them and stay clear. |
+| **tide today at North Point: 0.1 to 1.6 ft above chart datum (predicted)** | Added to a leg already flagged for water that may be under your safe depth: the lowest and highest predicted water today at the NOAA tide station nearest the leg (within 30 km). It is information. The leg stays flagged, and the route was planned on charted depth. | Use it with the shallowest sounding: a 3.9 ft sounding has about 4.0 to 5.5 ft over it today, before wind. On the chart, tap the leg for the day's curve and the times the water is high enough (see [Planning a route](planning.html#tides-on-the-map)). |
 | **connects your point to usable water: not checked, use your eyes** | The short leg from your point to the nearest usable water. It may cross a dock, the shore, or shallow water. It does not cross a bridge or cable your air draft cannot clear. When that structure is in the way, there is no such leg: the route stops on the near side and the message names the charted feet. | Steer it by eye. |
 | **Bridge name: swing (or bascule, lift) bridge has to open (closed clearance N ft, under your air draft)** or **clears when closed (closed clearance N ft, M ft over your air draft)** | An opening bridge on the route. With no air draft the note still says it may need an opening. | Check its opening schedule and call ahead when it has to open. |
 | **Bridge name span (vertical clearance N ft)** | A fixed bridge span you clear by your air draft. The number is the height under the span, not the width. With **Don't check bridges and cables** on, the same note ends in "check": the span was not tested. | Check the clearance board; water levels vary. |
@@ -67,6 +72,14 @@ Leg Course  Dist nm  Notes
 | **Area name: entry restricted, or entry prohibited (CFR)** | The leg crosses water where entry is restricted or prohibited. The note stays on each leg that is still inside the area, so a long zone is not silent after the first leg. Aberdeen Proving Ground (33 CFR 334.140) adds that it is a firing danger zone and that the ship channel south of Pooles Island is the other way. The C&D Canal (33 CFR 162.40) is a canal traffic rule: anchoring is restricted, and the note does not say entry is restricted. The lower Chesapeake Bay and Hampton Roads regulated navigation area (33 CFR 165.501) reads "regulated navigation area, rules for large and deep-draft vessels and anchoring" and is not a check. The leg is a check when entry is restricted or prohibited, with the orange dashed line and a check marker in the GPX. | Read the rule. Do not enter water where entry is prohibited. |
 | **Area name: other rules (CFR)** | No wake, anchoring, fishing, or an area to be avoided by large ships. | Read the rule. The route is not blocked by it, and the leg is not a check unless it is also shoal. |
 | **Zone name: security zone, entry may be prohibited: check (33 CFR 165.xxx)** | The leg crosses a Coast Guard security zone. When only part of the leg is inside, the note says about how many meters of that leg. Some zones are always closed (the Cove Point LNG terminal, nuclear plants, Navy bases), others only around particular vessels or when the Coast Guard announces them; the charts do not say which, so the route is not changed. | Read the regulation and the Local Notice to Mariners. If entry is prohibited, tap [Look for a way around the checks](planning.html#try-to-avoid-checks) or add a via point to go around the zone, or call the Coast Guard on VHF 16 for permission. |
+
+## Tides
+
+The tide lines are NOAA's own predictions, fetched from NOAA's tide service (CO-OPS) a year at a time for each station and kept on the phone, so they work offline. Heights are feet above chart datum (MLLW), the same datum as the depths on the chart, so a 3.9 ft sounding with 1.2 ft of predicted tide has about 5.1 ft over it. Times are on the phone's clock.
+
+They do not change the route. The planner still uses charted depth: a late start, a northwest wind on the Chesapeake, high pressure or low river flow can hold the water a foot or more below the prediction, and a route planned on the tide could then lead onto water that is not there. Use the tide to judge a flagged leg, not to replace the check.
+
+When planning, the app fetches the stations a trip needs on any network (about 70 KB each). With no connection and nothing saved for a station, the report says so in a "tides:" line. Great Lakes regions have no tide stations, and the report has no tide lines there.
 
 ## How the shallow-water note is measured
 
@@ -91,7 +104,7 @@ Each route point in the GPX file carries a short description of the next leg, wi
 Next: 357 T, 0.05 nm, 95 m where charted depth may be under 5 ft (shallowest sounding nearby 3.9 ft, under your 5 ft)
 ```
 
-Points are named **Start**, **WP01**, **WP02** ... **End**. The file description says the total distance, the depth it was planned for, the same warning lines as the report (checks, shoal water, bridges, cables, restricted areas), and "Not for navigation". When bridges and cables were not checked, it says that too. It also lists the start, via points and destination (`Trip points:`), so **Use as trip** can put those back, including via points.
+Points are named **Start**, **WP01**, **WP02** ... **End**. The file description says the total distance, the depth it was planned for, the same warning lines as the report (checks, shoal water, bridges, cables, restricted areas), and "Not for navigation". When bridges and cables were not checked, it says that too. The report's tide lines follow, and a flagged leg's tide note is in that route point's description with its other notes. It also lists the start, via points and destination (`Trip points:`), so **Use as trip** can put those back, including via points.
 
 With **Check markers in the GPX** on (the default; see [Planning a route](planning.html#check-markers-in-the-gpx)), every stretch of legs to check also gets two waypoints:
 

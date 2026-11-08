@@ -15,6 +15,9 @@ class ChartDepthSource(private val ctx: android.content.Context) {
         return ChartDepthRoute.annotate(route, charts)
     }
 
+    /** What the downloaded charts say at [p] (blocking: off the UI thread). */
+    fun spot(p: LatLon): ChartDepthRoute.Spot? = ChartDepthRoute.spot(p, charts())
+
     /** One chart file read with Android's SQLite. */
     private class Reader(file: File) : ChartTileReader {
         private val db = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY)

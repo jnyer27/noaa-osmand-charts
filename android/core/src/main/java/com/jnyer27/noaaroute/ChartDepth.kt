@@ -26,7 +26,7 @@ object ChartDepth {
     private val LAYERS = setOf("depare", "drgare")
 
     /** One depth area, rings in longitude/latitude. Even-odd fill, so a hole ring counts. */
-    class Area(val rings: List<List<LatLon>>, val d1: Int, val d2: Int) {
+    class Area(val rings: List<List<LatLon>>, val d1: Int, val d2: Int, val dredged: Boolean = false) {
         val west: Double
         val south: Double
         val east: Double
@@ -155,6 +155,76 @@ object ChartDepth {
         return try { decode(raw, z, x, y) } catch (_: Exception) { emptyList() }
     }
 
+    /** A charted sounding, in whole feet as the chart prints it. */
+    class Sounding(val p: LatLon, val ft: Int)
+
+    /** The soundings (layer soundg) in one vector tile; a tile that does not decode yields none. */
+    fun soundingsInTile(tile: ByteArray, z: Int, x: Int, y: Int): List<Sounding> = try {
+        val raw = ungzip(tile)
+        val out = ArrayList<Sounding>()
+        val t = Proto(raw)
+        while (t.more()) {
+            val (field, wire) = t.key()
+            if (field == 3 && wire == 2) soundingLayer(t.message(), z, x, y, out) else t.skip(wire)
+        }
+        out
+    } catch (_: Exception) { emptyList() }
+
+    private fun soundingLayer(layer: Proto, z: Int, x: Int, y: Int, out: MutableList<Sounding>) {
+        var name = ""
+        var extent = 4096
+        val keys = ArrayList<String>()
+        val values = ArrayList<Double?>()
+        val features = ArrayList<ByteArray>()
+        while (layer.more()) {
+            val (field, wire) = layer.key()
+            when {
+                field == 1 && wire == 2 -> name = layer.text()
+                field == 2 && wire == 2 -> features.add(layer.bytes())
+                field == 3 && wire == 2 -> keys.add(layer.text())
+                field == 4 && wire == 2 -> values.add(value(Proto(layer.bytes())))
+                field == 5 && wire == 0 -> extent = layer.varint().toInt().coerceAtLeast(1)
+                else -> layer.skip(wire)
+            }
+        }
+        if (name != "soundg") return
+        for (bytes in features) {
+            val feat = Proto(bytes)
+            var tags = IntArray(0)
+            var geom = IntArray(0)
+            while (feat.more()) {
+                val (field, wire) = feat.key()
+                when {
+                    field == 2 && wire == 2 -> tags = packed(feat.bytes())
+                    field == 4 && wire == 2 -> geom = packed(feat.bytes())
+                    else -> feat.skip(wire)
+                }
+            }
+            var ft: Int? = null
+            var t = 0
+            while (t + 1 < tags.size) {
+                if (keys.getOrNull(tags[t]) == "ft") ft = values.getOrNull(tags[t + 1])?.toInt()
+                t += 2
+            }
+            if (ft == null || geom.isEmpty()) continue
+            // MoveTo with one or more points
+            var i = 0
+            var px = 0
+            var py = 0
+            while (i < geom.size) {
+                val cmd = geom[i] and 7
+                val count = geom[i] ushr 3
+                i++
+                if (cmd != 1) break
+                repeat(count) {
+                    if (i + 1 >= geom.size) return@repeat
+                    px += zig(geom[i]); py += zig(geom[i + 1]); i += 2
+                    out.add(Sounding(latlon(z, x, y, px, py, extent), ft))
+                }
+            }
+        }
+    }
+
     private fun ungzip(b: ByteArray): ByteArray {
         if (b.size >= 2 && b[0] == 0x1f.toByte() && b[1] == 0x8b.toByte())
             return GZIPInputStream(ByteArrayInputStream(b)).use { it.readBytes() }
@@ -217,7 +287,7 @@ object ChartDepth {
             }
             if (d1 == null || d2 == null) continue
             val rings = rings(geom, z, x, y, extent)
-            if (rings.any { it.size >= 3 }) out.add(Area(rings, d1, d2))
+            if (rings.any { it.size >= 3 }) out.add(Area(rings, d1, d2, name == "drgare"))
         }
     }
 

@@ -36,7 +36,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 3. **Safe operating depth (ft):** the shallowest charted depth you are willing to use, which is your draft plus a margin. For example, a boat with a 1.8 ft draft might use 3 ft. Enter **Air draft (ft)**, the height of the boat, so the route avoids low bridges and cables. Leave it empty only with **Don't check bridges and cables** turned on, and then the report says those were not checked. Check **Stay inside (avoid open ocean)** to keep the route on bays, sounds, rivers and the ICW. Check **Move ends to navigable water** if your dock or anchorage is in water too shallow for your safe depth: the route then starts at the nearest water charted at least that deep, and the leg from your point is marked to check. That leg does not cross a bridge or cable your air draft cannot clear.
 4. Tap **Plan route**. You get a leg-by-leg report (course, distance and notes on anything that needs a look) and a GPX file in `Download/noaa-charts/routes/`.
 5. **Check the route before you go.** Every route needs checking. Where the planner cannot keep to water charted at least your safe operating depth (a creek, a marina entrance, a narrow channel), it goes on and flags the leg instead of stopping: a flagged leg is one it could not prove safe. Look at each leg with a note on a current chart:
-   - **shallow water**: "N m where charted depth may be under 5 ft" (your own safe depth in place of 5 ft): check the tide and the shallowest sounding named with it,
+   - **shallow water**: "N m where charted depth may be under 5 ft" (your own safe depth in place of 5 ft): check the tide and the shallowest sounding named with it. The leg's note gives today's predicted tide range at the nearest station, and tapping the leg on the chart shows the times the tide is high enough ([Tides on the map](https://jnyer27.github.io/noaa-osmand-charts/planning.html#tides-on-the-map)); the leg stays flagged, since wind can hold the water below the prediction,
    - **chart depth areas**: "crosses N m of a depth area that straddles your 5 ft" or "crosses N m charted entirely under your 5 ft", from the downloaded chart (or the bundled Middle River chart) when the leg line itself crosses that water,
    - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
    - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
@@ -74,6 +74,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
 </p>
 
 *View on map, proof of concept, safe operating depth 3 ft. Soundings under 3 ft are red. The orange dashed leg is a check. The blue dot is the GPS position.*
+- **Tide predictions.** NOAA's predicted highs and lows, a year ahead for every tide station in your downloaded regions, fetched on Wi-Fi and kept for offline use. The report gives today's tides at the stations nearest the start and destination, and a leg flagged for shallow water adds the day's predicted range at the nearest station ("tide today at North Point: 0.1 to 1.6 ft above chart datum (predicted)"). On the chart, teal dots are tide stations (tap one for today's curve); tapping a check leg, or pressing and holding a spot and choosing **Depth and tide here**, shows the nearest station's curve with a red dotted line at the tide your safe depth needs over the shallowest charted sounding, and the times today the water is above it. **Predicted depth (tide now)** adds the tide now to the chart's soundings and contour labels, in teal. Routing still uses charted depth at MLLW: tides are predictions, and wind can hold the water feet below them. See [Tides on the map](https://jnyer27.github.io/noaa-osmand-charts/planning.html#tides-on-the-map).
 - **Fully offline once a region is downloaded.**
 
 ## Chart regions
@@ -237,7 +238,7 @@ With **Check markers in the GPX** on (the default), the GPX also gets an orange 
 
 *Check markers in OsmAnd. Left: the orange start and green end of a stretch to check (leg 10, 1.00 nm, in Middle River). Right: the start marker's notes, in the Check group. The route was planned with a 5 ft safe operating depth, so its notes say "under 5 ft".*
 
-**What the planner does not know.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. Soundings are sparse, the bottom moves, and single piles are not avoided. The grid is 20 m, so a line through a narrow opening may run along one side of it. Charts lag behind the water, even with Notices to Mariners corrections.
+**What the planner does not know.** Depths are charted at MLLW (Low Water Datum on the Great Lakes) with no tide added. The tide predictions the app shows (report, shallow-leg notes, chart) are information only: wind setdown, pressure and river flow can move the water feet from them, so routing never uses them. Soundings are sparse, the bottom moves, and single piles are not avoided. The grid is 20 m, so a line through a narrow opening may run along one side of it. Charts lag behind the water, even with Notices to Mariners corrections.
 
 **How the route data is built.** Every week the route packs are rebuilt from NOAA's current ENC cells with all update files applied. The build checks each chart's depth units and records its sounding datum. A shallower depth area covering more than about a quarter of a 20 m cell is stored for that cell; dredged channels and fairways keep the deeper depth at the cell center.
 
@@ -369,6 +370,8 @@ This plans Maryland Marina to Ego Alley at a 3 ft safe operating depth and 10 ft
 | `--resolve` | Also look for a way around the checks, saved as `NAME_adjusted.gpx` | Look for a way around the checks |
 | `--no-check-markers` | No check markers in the GPX | Check markers in the GPX |
 | `--no-chart-depth` | Skip the check of each leg against the chart's depth areas | |
+| `--tides` | Today's NOAA tide predictions near the start and destination in the report, and the day's range on legs flagged for shallow water | Tides in the report |
+| `--tide-date` DATE | Tides for another day (`2026-11-15`); implies `--tides` | |
 | `-n` NAME, `-o` FILE | Route name, GPX file | Name |
 | `--offline` | Use only what is already downloaded | |
 | `--json` | A JSON summary instead of the report | |
@@ -376,11 +379,11 @@ This plans Maryland Marina to Ego Alley at a 3 ft safe operating depth and 10 ft
 
 Exit codes: 0 planned, 1 no route (the reason is printed), 2 bad input, 3 route data could not be downloaded.
 
-**What it downloads:** the route data for the regions a trip passes through (2-7 MB each) and each region's chart (about 30 MB each), for the depth check. Both are checked against the published checksums, kept in `~/.cache/noaa-route` (`%USERPROFILE%\.cache\noaa-route` on Windows), and updated when a newer build is published. After the first run, `--offline` plans with no network. `NOAA_ROUTE_PACKS` and `NOAA_ROUTE_CHARTS` (or `--packs`, `--charts`) choose other folders.
+**What it downloads:** the route data for the regions a trip passes through (2-7 MB each) and each region's chart (about 30 MB each), for the depth check. Both are checked against the published checksums, kept in `~/.cache/noaa-route` (`%USERPROFILE%\.cache\noaa-route` on Windows), and updated when a newer build is published. After the first run, `--offline` plans with no network. `NOAA_ROUTE_PACKS` and `NOAA_ROUTE_CHARTS` (or `--packs`, `--charts`) choose other folders. With `--tides`, a year of predictions per station (about 70 KB from NOAA) is kept in `~/.cache/noaa-route/tides` (`NOAA_ROUTE_TIDES` chooses another folder) and used offline.
 
 **The chart depth check:** like the app, the planner works on a 20 m grid, then follows each leg's line through the chart's depth areas and flags a leg that crosses one that may be under your safe depth ("crosses 115 m of a depth area that may be under your 3 ft: check"). The report says which charts were checked ("chart depth check: Region 04 chart"). If a chart cannot be downloaded or read, the report and a warning say so; those legs were checked on the grid only.
 
-**Not in the command-line planner:** the map, saved places, sharing from other apps, and chart maps or vector charts for OsmAnd. Very long trips may need more memory: `NOAA_ROUTE_JAVA_OPTS=-Xmx2g` (the default is 1 GB).
+**Not in the command-line planner:** the map (and its tide graphs and Predicted depth), saved places, sharing from other apps, and chart maps or vector charts for OsmAnd. Very long trips may need more memory: `NOAA_ROUTE_JAVA_OPTS=-Xmx2g` (the default is 1 GB).
 
 > **Not a certified navigation system.** The command-line planner is the same planning aid as the app. Check every leg against a current chart before you run it.
 

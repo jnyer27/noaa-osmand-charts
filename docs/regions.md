@@ -56,7 +56,7 @@ Further down are **Chart maps for OsmAnd** (each chart map you have, with its st
 
 <img src="region-card.jpg" alt="Region 05 card: route planning data up to date with Delete route data, the chart map for OsmAnd with its sizes and two download buttons, and vector charts ready with an update available and buttons to update, open in OsmAnd, show in Files and delete" width="300">
 
-The card has three parts. **Close** at the bottom returns to the Regions screen.
+The card has these parts. **Close** at the bottom returns to the Regions screen.
 
 ### Route planning data
 
@@ -71,6 +71,10 @@ The data the planner uses, a few MB. The status says whether it is downloaded an
 ### Chart and base map for this app
 
 **Chart for this app** is NOAA's chart for **View map**; **Base map for this app (OpenStreetMap)** is the roads, towns, county lines and marinas drawn under it (see [Planning: base map](planning.html)). Each has **Download**, **Cancel download** while it runs, **Update** when a newer build is published, and **Delete**. They stay in the app; neither is an OsmAnd map. While a download waits, the status adds Android's reason (queued, waiting for Wi-Fi, waiting for a network).
+
+### Tide predictions
+
+Shown once the region's route data is downloaded: "N of M NOAA tide stations saved for offline use, a year ahead each." NOAA's predicted highs and lows for every tide station in the region are fetched in the background on Wi-Fi (about 10 KB saved per station, about 3 MB for a region of 220 stations), nearest your position first, and refreshed on Wi-Fi when under 30 days are left. A station you open on the chart, or one a planned trip needs, is fetched on any network. See [Tides on the map](planning.html#tides-on-the-map).
 
 ### Chart map for OsmAnd
 

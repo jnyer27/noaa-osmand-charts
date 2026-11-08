@@ -258,7 +258,11 @@ object ChartTiles {
         for (i in 0 until legs) {
             val flagged = if (Gpx.flagged(route.legs[i])) 1 else 0
             val note = jsonString(Gpx.legText(route, i))
-            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"leg\",\"leg\":${i + 1},\"flagged\":$flagged,\"note\":$note}," +
+            // For the tide graph on a check leg: shallow water, and the shallowest sounding near it as the report prints it
+            val leg = route.legs[i]
+            val low = leg.lowM?.let { String.format(java.util.Locale.US, ",\"lowFt\":%.1f", it / Pack.FT) } ?: ""
+            val shoal = if (leg.shoalM > 0) 1 else 0
+            feature("{\"type\":\"Feature\",\"properties\":{\"kind\":\"leg\",\"leg\":${i + 1},\"flagged\":$flagged,\"shoal\":$shoal$low,\"note\":$note}," +
                 "\"geometry\":{\"type\":\"LineString\",\"coordinates\":[${coord(route.points[i])},${coord(route.points[i + 1])}]}}")
             val a = route.points[i]
             val b = route.points[i + 1]
@@ -283,8 +287,12 @@ object ChartTiles {
         return sb.toString()
     }
 
-    /** A tapped leg: its row in the report, whether it is a check, and its sentence. */
-    class LegPick(val leg: Int, val flagged: Boolean, val note: String)
+    /**
+     * A tapped leg: its row in the report, whether it is a check, and its sentence; whether it
+     * is in shallow water and its shallowest nearby sounding in feet (null when none, or for a
+     * route opened from a GPX file).
+     */
+    class LegPick(val leg: Int, val flagged: Boolean, val note: String, val shoal: Boolean = false, val lowFt: Double? = null)
 
     /**
      * The leg nearest a tap, or null when the tap is farther than [maxM] from every leg.
@@ -309,7 +317,8 @@ object ChartTiles {
             if (d <= best) {
                 val n = (props["leg"] as? Double)?.toInt() ?: continue
                 best = d
-                pick = LegPick(n, (props["flagged"] as? Double) == 1.0, props["note"] as? String ?: "")
+                pick = LegPick(n, (props["flagged"] as? Double) == 1.0, props["note"] as? String ?: "",
+                    (props["shoal"] as? Double) == 1.0, props["lowFt"] as? Double)
             }
         }
         return pick
@@ -641,6 +650,7 @@ object ChartTiles {
     "restricted": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "cables": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "search": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "tides": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
   },
   "layers": [
@@ -761,6 +771,14 @@ object ChartTiles {
       "layout": {"text-field": "!", "text-font": ["$FONT"],
         "text-size": 13, "text-allow-overlap": true, "text-ignore-placement": true},
       "paint": {"text-color": "#ffffff"}},
+    {"id": "tide-station", "type": "circle", "source": "tides", "minzoom": 9,
+      "paint": {"circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 4, 13, 7],
+        "circle-color": ["case", ["get", "saved"], "#00838f", "#ffffff"],
+        "circle-stroke-color": ["case", ["get", "saved"], "#ffffff", "#00838f"], "circle-stroke-width": 2}},
+    {"id": "tide-label", "type": "symbol", "source": "tides", "minzoom": 11,
+      "layout": {"text-field": ["get", "name"], "text-font": ["$FONT"], "text-size": 11, "text-offset": [0, 1.1],
+        "text-anchor": "top", "text-optional": true},
+      "paint": {"text-color": "#006064", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "search-pin", "type": "circle", "source": "search",
       "paint": {"circle-radius": 9, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#d500f9", "circle-stroke-width": 3}},
     {"id": "search-label", "type": "symbol", "source": "search",

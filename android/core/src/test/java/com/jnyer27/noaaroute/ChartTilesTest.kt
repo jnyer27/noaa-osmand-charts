@@ -60,6 +60,13 @@ class ChartTilesTest {
         val piles = ChartTiles.legPickAt(json, 39.295, -76.35)!!
         assertEquals(3, piles.leg)
         assertTrue(piles.flagged)
+        // The leg's shallow water and nearest sounding, for the tide graph
+        assertFalse(piles.shoal)
+        assertNull(piles.lowFt)
+        val sounded = Route("s", route.points.take(2), listOf(Leg(0.4 * Planner.NM, 90.0, 80.0, 0.55, emptyList())), 3.0, 10.0, 20.0, emptyList())
+        val shallow = ChartTiles.legPickAt(ChartTiles.routeGeoJson(sounded), 39.315, -76.39)!!
+        assertTrue(shallow.shoal && shallow.flagged)
+        assertEquals(1.8, shallow.lowFt!!, 1e-9) // 0.55 m, printed 1.8 ft in the report
         // A fingertip at high zoom is a few meters: a tap 500 m off the leg is not on it
         assertNull(ChartTiles.legPickAt(json, 39.31, -76.37, maxM = 20.0))
 

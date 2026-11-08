@@ -66,6 +66,55 @@ object ChartDepthRoute {
         }
     }
 
+    /**
+     * What the chart says at one spot: the depth areas containing it (dredged areas
+     * included) and the soundings within [radiusM], nearest first, each with its
+     * distance in meters. From the most detailed chart covering the spot; null when none
+     * does or it will not read.
+     */
+    class Spot(val areas: List<ChartDepth.Area>, val soundings: List<Pair<ChartDepth.Sounding, Double>>)
+
+    fun spot(p: LatLon, charts: List<ChartDepthChart>, radiusM: Double = 150.0): Spot? {
+        val chart = charts.filter { p.lon in it.bounds[0]..it.bounds[2] && p.lat in it.bounds[1]..it.bounds[3] }
+            .minByOrNull { it.span } ?: return null
+        val reader = try { chart.open() } catch (_: Exception) { return null }
+        try {
+            // Depth areas: the most detailed zoom that has one here (a coarse chart's
+            // features stop at its band's zoom, 11 or 13, and are drawn larger beyond)
+            val zooms = (listOf(chart.zoom, 16, 15, 13, 11)).filter { it <= chart.zoom }.distinct().sortedDescending()
+            var areas = emptyList<ChartDepth.Area>()
+            for (z in zooms) {
+                val n = 1 shl z
+                val x = lonX(p.lon, z).coerceIn(0, n - 1)
+                val y = latY(p.lat, z).coerceIn(0, n - 1)
+                val here = load(reader, z, x, y).filter { it.contains(p) }
+                if (here.isNotEmpty()) { areas = here; break }
+            }
+            // Soundings are in the tiles from zoom 14
+            val dLat = radiusM / 111_320.0
+            val dLon = radiusM / (111_320.0 * Math.cos(Math.toRadians(p.lat)))
+            val seen = HashSet<Long>()
+            val found = ArrayList<Pair<ChartDepth.Sounding, Double>>()
+            for (z in zooms.filter { it >= 14 }) {
+                for ((x, y) in tiles(p.lon - dLon, p.lat - dLat, p.lon + dLon, p.lat + dLat, z)) {
+                    val bytes = try { reader.tile(z, x, (1 shl z) - 1 - y) } catch (_: Exception) { null } ?: continue
+                    for (snd in ChartDepth.soundingsInTile(bytes, z, x, y)) {
+                        val d = Planner.distanceM(p, snd.p)
+                        if (d > radiusM) continue
+                        // The same sounding at two zooms: keep it once
+                        val key = Math.round(snd.p.lat * 1e5) * 100_000_000L + Math.round(snd.p.lon * 1e5)
+                        if (seen.add(key)) found.add(snd to d)
+                    }
+                }
+            }
+            return Spot(areas, found.sortedBy { it.second })
+        } catch (_: Exception) {
+            return null
+        } finally {
+            try { reader.close() } catch (_: Exception) { }
+        }
+    }
+
     /** True if any route point lies inside [bounds]: only those charts are opened. */
     fun hits(bounds: DoubleArray, route: Route) =
         route.points.any { it.lon in bounds[0]..bounds[2] && it.lat in bounds[1]..bounds[3] }

@@ -13,6 +13,8 @@ import com.jnyer27.noaaroute.PlanException
 import com.jnyer27.noaaroute.Planner
 import com.jnyer27.noaaroute.Regions
 import com.jnyer27.noaaroute.Route
+import com.jnyer27.noaaroute.RouteTides
+import com.jnyer27.noaaroute.TideCache
 import java.io.File
 import java.io.PrintStream
 import java.text.SimpleDateFormat
@@ -47,10 +49,11 @@ class Options(
     val name: String?, val out: File?, val packs: File?, val offline: Boolean, val beta: Boolean,
     val json: Boolean, val quiet: Boolean, val checks: Boolean,
     val chartDepth: Boolean = true, val charts: File? = null,
+    val tides: Boolean = false, val tideDate: java.time.LocalDate? = null,
 )
 
 class Cli(private val out: PrintStream, private val err: PrintStream, private val baseUrl: String? = null,
-          private val chartBaseUrl: String? = null) {
+          private val chartBaseUrl: String? = null, private val tideBaseUrl: String? = null) {
     companion object {
         const val RELEASES = "https://github.com/jnyer27/noaa-osmand-charts/releases/download/"
         const val CREATOR = "NOAA Route (command line)"
@@ -74,6 +77,10 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             |      --no-check-markers  no check markers in the GPX
             |      --no-chart-depth  skip the check of each leg against the chart's depth areas
             |                        (saves downloading the region chart, about 30 MB a region)
+            |      --tides           today's NOAA tide predictions near the start and destination, and the
+            |                        day's range on legs flagged for shallow water (fetched from NOAA,
+            |                        about 70 KB a station, kept in ~/.cache/noaa-route/tides)
+            |      --tide-date DATE  tides for DATE (YYYY-MM-DD) instead of today; implies --tides
             |  -n, --name NAME       route name (default route_YYYYMMDD_HHMM)
             |  -o, --out FILE        GPX file (default NAME.gpx in the current folder)
             |      --packs DIR       route data folder (default ~/.cache/noaa-route/packs)
@@ -110,6 +117,8 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             var checks = true
             var chartDepth = true
             var charts: File? = null
+            var tides = false
+            var tideDate: java.time.LocalDate? = null
             var i = 0
             fun value(opt: String): String {
                 if (i + 1 >= args.size) throw UsageException("$opt needs a value")
@@ -137,6 +146,12 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
                     "--no-check-markers" -> checks = false
                     "--no-chart-depth" -> chartDepth = false
                     "--charts" -> charts = File(value(a))
+                    "--tides" -> tides = true
+                    "--tide-date" -> {
+                        val v = value(a)
+                        tideDate = try { java.time.LocalDate.parse(v) } catch (_: Exception) { throw UsageException("--tide-date: not a date (YYYY-MM-DD): $v") }
+                        tides = true
+                    }
                     "-n", "--name" -> name = value(a)
                     "-o", "--out" -> outFile = File(value(a))
                     "--packs" -> packs = File(value(a))
@@ -152,7 +167,7 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
                 from ?: throw UsageException("Give a start with -f"), to ?: throw UsageException("Give a destination with -t"),
                 vias, depth ?: throw UsageException("Give a safe operating depth in feet with -d"),
                 air, noBridges, buf, inside, moveEnds, resolve, name, outFile, packs, offline, beta, json, quiet, checks,
-                chartDepth, charts,
+                chartDepth, charts, tides, tideDate,
             )
         }
 
@@ -164,6 +179,7 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             System.getenv("NOAA_ROUTE_PACKS")?.let { File(it) } ?: File(cacheRoot(), if (beta) "packs-beta" else "packs")
 
         /** Default region chart folder: $NOAA_ROUTE_CHARTS, else <cache>/noaa-route/charts. */
+        fun defaultTides(): File = System.getenv("NOAA_ROUTE_TIDES")?.let { File(it) } ?: File(cacheRoot(), "tides")
         fun defaultCharts(): File = System.getenv("NOAA_ROUTE_CHARTS")?.let { File(it) } ?: File(cacheRoot(), "charts")
 
         /** Chart regions the route passes through, sampled every ~1 km (as in the app). */
@@ -271,14 +287,22 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             // Each leg against the chart's depth areas, as the app does after planning
             val (depthCharts, depthLine) = if (o.chartDepth) findDepthCharts(o, planned) else emptyList<ChartDepthChart>() to
                 "chart depth check: off (--no-chart-depth)"
-            val r = ChartDepthRoute.annotate(planned, depthCharts)
+            val tideCache = if (o.tides) TideCache(defaultTides(), tideBaseUrl ?: TideCache.BASE, offline = o.offline) else null
+            val zone = java.time.ZoneId.systemDefault()
+            val tideDay = o.tideDate ?: java.time.LocalDate.now(zone)
+            fun withTides(rt: Route): RouteTides = tideCache?.let {
+                if (!o.offline) log("Tide predictions from NOAA")
+                it.forRoute(rt, tideDay, zone)
+            } ?: RouteTides(rt, emptyList())
+            val tides = withTides(ChartDepthRoute.annotate(planned, depthCharts))
+            val r = tides.route
             val used = usedPacks(charts, r)
             val datum = Pack.datumName(used.flatMap { it.datums })
-            write(gpxFile, r, datum, o.checks, pts)
+            write(gpxFile, r, datum, o.checks, pts, tides.lines)
             val trip = listOf("start: ${Coords.format(o.from)}") + o.vias.mapIndexed { k, v -> "via ${k + 1}: ${Coords.format(v)}" } +
                 listOf("destination: ${Coords.format(o.to)}") +
                 listOfNotNull("Stay inside: on (no open ocean)".takeIf { o.inside }, "Move ends to navigable water: on".takeIf { o.moveEnds })
-            val after = listOf(
+            val after = tides.lines + listOf(
                 "charts: " + used.joinToString(", ") { pk -> pk.areaName.substringBefore(":") + " (built ${pk.created.take(10)})" },
                 depthLine,
                 "planned " + SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()) + " in %.1f s".format(Locale.US, sec))
@@ -289,15 +313,16 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
                 val res = try { planner.resolveChecks(r, pts, o.bufM, o.inside) { log(it) } } catch (e: OutOfMemoryError) { null }
                 resolveSummary = res?.summary ?: "Out of memory while avoiding checks."
                 if (res != null && res.resolved + res.partly > 0) {
-                    val ar = ChartDepthRoute.annotate(res.route, depthCharts)
+                    val at = withTides(ChartDepthRoute.annotate(res.route, depthCharts))
+                    val ar = at.route
                     val f = File(gpxFile.absoluteFile.parentFile, "${gpxFile.nameWithoutExtension}_adjusted.gpx")
-                    write(f, ar, datum, o.checks, pts)
+                    write(f, ar, datum, o.checks, pts, at.lines)
                     adjusted = ar to f
                 }
             }
 
             if (o.json) {
-                out.println(json(r, gpxFile, adjusted, resolveSummary, used, datum, depthLine))
+                out.println(json(r, gpxFile, adjusted, resolveSummary, used, datum, depthLine, tides.lines))
             } else {
                 out.println(Gpx.report(r, trip, after, o.bufM, datum, "Saved to ${gpxFile.path}"))
                 resolveSummary?.let { out.println(); out.println(it) }
@@ -360,13 +385,13 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             try { Pack(f) } catch (e: Exception) { log("Skipping ${f.name}: ${e.message}"); null }
         }
 
-    private fun write(f: File, r: Route, datum: String, checks: Boolean, pts: List<LatLon>) {
+    private fun write(f: File, r: Route, datum: String, checks: Boolean, pts: List<LatLon>, extra: List<String> = emptyList()) {
         f.absoluteFile.parentFile?.mkdirs()
-        f.writeText(Gpx.write(r, datum, checks, pts, CREATOR))
+        f.writeText(Gpx.write(r, datum, checks, pts, CREATOR, extra))
     }
 
     private fun json(r: Route, gpx: File, adjusted: Pair<Route, File>?, resolveSummary: String?, used: List<Pack>, datum: String,
-                     depthLine: String): String {
+                     depthLine: String, tideLines: List<String>): String {
         fun routeJson(rt: Route, f: File) = "{\"name\":${jsonStr(rt.name)},\"gpx\":${jsonStr(f.path)}," +
             "\"nm\":${"%.2f".format(Locale.US, rt.totalNm)},\"legs\":${rt.legs.size}," +
             "\"checkLegs\":${rt.legs.count { Gpx.flagged(it) }},\"checkRuns\":${Gpx.checkRuns(rt).size}," +
@@ -375,6 +400,7 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             (adjusted?.let { (ar, f) -> ",\"adjusted\":${routeJson(ar, f)}" } ?: "") +
             (resolveSummary?.let { ",\"resolve\":${jsonStr(it)}" } ?: "") +
             ",\"datum\":${jsonStr(datum)},\"regions\":[${used.joinToString(",") { jsonStr(it.areaId) }}]," +
-            "\"chartDepth\":${jsonStr(depthLine.removePrefix("chart depth check: "))}}"
+            "\"chartDepth\":${jsonStr(depthLine.removePrefix("chart depth check: "))}" +
+            (if (tideLines.isEmpty()) "" else ",\"tides\":[${tideLines.joinToString(",") { jsonStr(it) }}]") + "}"
     }
 }

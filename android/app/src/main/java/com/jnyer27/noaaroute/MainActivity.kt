@@ -255,6 +255,7 @@ class MainActivity : Activity() {
             override fun afterTextChanged(e: Editable?) { ui.removeCallbacks(tripCheck); ui.postDelayed(tripCheck, 500) }
         })
         PackStore.schedule(this, store.auto == true) // keeps the daily update job after app updates
+        TideStore.schedule(this) // tide stations for the downloaded regions, on Wi-Fi; nothing to do when all are saved
         catalog = store.cachedCatalog()
         openCharts()
         refreshCatalog(quiet = true)
@@ -567,6 +568,7 @@ class MainActivity : Activity() {
                     synchronized(failed) { failed.add(a.id) }
                 }
             }
+            if (errors.size < todo.size) TideStore.schedule(this) // the new regions' tide stations
             ui.post {
                 downloading.removeAll(todo.map { it.id }.toSet())
                 store.dropReplaced(catalog)
@@ -971,6 +973,25 @@ class MainActivity : Activity() {
                 .show()
         })
 
+        // Tide predictions for the region's stations (fetched on Wi-Fi once its route data is in)
+        if (area != null && have != null) {
+            box.addView(label("Tide predictions"))
+            val tideText = TextView(this).apply { text = "Counting saved tide stations..." }
+            box.addView(tideText)
+            Thread { // not the worker: a region download there can take minutes
+                val c = TideStore(this).cache
+                val ts = c.stationsIn(area.bbox)
+                val saved = ts.count { c.isSaved(it.id) }
+                val msg = when {
+                    ts.isEmpty() && c.stations().isEmpty() -> "NOAA's tide station list is not downloaded yet. The app gets it on Wi-Fi."
+                    ts.isEmpty() -> "No NOAA tide stations in this region."
+                    else -> "$saved of ${ts.size} NOAA tide stations saved for offline use, a year ahead each. " +
+                        if (saved < ts.size) "The rest are fetched on Wi-Fi in the background." else "Refreshed on Wi-Fi when under 30 days are left."
+                }
+                ui.post { tideText.text = msg }
+            }.start()
+        }
+
         // The in-app chart, then the OpenStreetMap base map, from the same catalog
         fun appSection(store: ChartTileStore, heading: String, note: String) {
             val set = store.catalogSets().firstOrNull { it.ncds == code } ?: return
@@ -1351,9 +1372,21 @@ class MainActivity : Activity() {
     /** Air draft from the form, or null when the field is empty. The planner treats empty the same way. */
     private fun formAir(): Double? = air.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 300 }
 
-    /** The Middle River chart alone, shaded for the safe depth on the form (3 ft if that field is empty). */
+    /** Safe operating depth from the form, in feet (a decimal comma is read too), or null when it is not 0-40. */
+    private fun formDepth(): Double? =
+        depth.text.toString().trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 && it < 40 }
+
+    /**
+     * The chart, shaded for the safe depth on the form. The depth is saved, so it is there
+     * after a restart; one that cannot be read is said, and the map uses 3 ft.
+     */
     private fun showChart() {
-        val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: 3.0
+        val typed = formDepth()
+        val text = depth.text.toString().trim()
+        if (typed != null) prefs.edit().putString("depth", text).apply()
+        else toast(if (text.isEmpty()) "Safe operating depth is empty: the map is shaded for 3 ft."
+            else "Safe operating depth \"$text\" is not feet from 0 to 40: the map is shaded for 3 ft.")
+        val d = typed ?: 3.0
         val i = Intent(this, ChartMapActivity::class.java).putExtra(ChartMapActivity.EXTRA_DEPTH, d)
         formAir()?.let { i.putExtra(ChartMapActivity.EXTRA_AIR, it) }
         @Suppress("DEPRECATION") startActivityForResult(i, REQ_CHART)
@@ -1364,6 +1397,16 @@ class MainActivity : Activity() {
      * Middle River chart) whose shoal limit is under the safe depth. No chart for the
      * leg leaves the route as planned.
      */
+    /**
+     * Today's predicted tides near the trip's ends for the report and GPX, and the day's range
+     * on legs flagged for shallow water; saved predictions work offline, missing ones are
+     * fetched on any network (about 70 KB each). Never fails the plan.
+     */
+    private fun withTides(r: Route): RouteTides = try {
+        val zone = java.time.ZoneId.systemDefault()
+        TideStore(this).cache.forRoute(r, java.time.LocalDate.now(zone), zone)
+    } catch (_: Exception) { RouteTides(r, emptyList()) }
+
     private fun withChartDepth(r: Route): Route = try { ChartDepthSource(this).annotate(r) } catch (_: Exception) { r }
 
     /** The chart screen for this route. A downloaded catalog chart that covers it, otherwise Middle River. */
@@ -1442,7 +1485,7 @@ class MainActivity : Activity() {
         val vias = via.text.toString().split(";").filter { it.isNotBlank() }.map {
             Coords.parse(it) ?: run { toast("Bad via point: $it"); return }
         }
-        val d = depth.text.toString().toDoubleOrNull()?.takeIf { it > 0 && it < 40 } ?: run { toast("Depth must be feet, 0-40"); return }
+        val d = formDepth() ?: run { toast("Depth must be feet, 0-40"); return }
         val airFt = try {
             Planner.airDraftFt(air.text.toString(), skipBridges.isChecked)
         } catch (e: PlanException) {
@@ -1468,11 +1511,14 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
-                val used = usedPacks(p, r)
+                val planned0 = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
+                val used = usedPacks(p, planned0)
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val pts = listOf(a) + vias + listOf(b)
-                val (uri, savedAs) = saveGpx(r, datum, markChecks, pts)
+                ui.post { status.text = "Tide predictions..." }
+                val tides = withTides(planned0)
+                val r = tides.route
+                val (uri, savedAs) = saveGpx(r, datum, markChecks, pts, tides.lines)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside },
                     "Move ends to navigable water: on".takeIf { moveToWater })
@@ -1483,7 +1529,7 @@ class MainActivity : Activity() {
                     gpxUri = uri
                     planned = Planned(pts, stayInside, markChecks, datum, trip, used)
                     resolveButton.visibility = if (Gpx.checkRuns(r).isNotEmpty()) View.VISIBLE else View.GONE
-                    showReport(r, trip, afterLines(used, sec), datum, saved)
+                    showReport(r, trip, tides.lines + afterLines(used, sec), datum, saved)
                     status.text = Gpx.warnings(r).first()
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
@@ -1524,13 +1570,14 @@ class MainActivity : Activity() {
                     }
                     return@execute
                 }
-                val ar = withChartDepth(res.route)
-                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks, pl.pts)
+                val tides = withTides(withChartDepth(res.route))
+                val ar = tides.route
+                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks, pl.pts, tides.lines)
                 ui.post {
                     route = ar
                     gpxUri = uri
                     val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
-                    showReport(ar, pl.trip, afterLines(pl.used, sec), pl.datum, saved)
+                    showReport(ar, pl.trip, tides.lines + afterLines(pl.used, sec), pl.datum, saved)
                     status.text = res.summary
                     resolveButton.visibility = if (Gpx.checkRuns(ar).isNotEmpty()) View.VISIBLE else View.GONE
                     resolveButton.isEnabled = true
@@ -1600,9 +1647,9 @@ class MainActivity : Activity() {
     }
 
     /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). [trip] is written so Use as trip can restore via points. */
-    private fun saveGpx(r: Route, datum: String, checks: Boolean, trip: List<LatLon> = emptyList()): Pair<Uri, String> {
+    private fun saveGpx(r: Route, datum: String, checks: Boolean, trip: List<LatLon> = emptyList(), extra: List<String> = emptyList()): Pair<Uri, String> {
         val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
-        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks, trip).toByteArray()) }
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks, trip, extra = extra).toByteArray()) }
         return uri to name
     }
 
