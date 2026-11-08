@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased (branch core-module)
+
+Planning:
+- **Chart depth notes appear once on an adjusted route.** After **Try to avoid checks**, a leg the adjusted route kept unchanged listed its "crosses N m of a depth area..." note twice. Routes and which legs are flagged are unchanged.
+
 ## 2026-11-08: documentation (app and route packs unchanged)
 
 - **The Termux route planner (`noaa-route.py`) is frozen.** Its routing was last updated on 2026-10-16 and no longer matches the app, so its routes can differ from the app's. The README says so; use the app for planning.

@@ -51,7 +51,9 @@ object ChartDepthRoute {
                     val areas = areas(chart, reader, a, b, cache)
                     if (areas.isNotEmpty()) legCovers.add(ChartDepth.Cover(chart.bounds, chart.span, areas))
                 }
-                val extra = ChartDepth.notes(a, b, route.depthFt, legCovers)
+                // A leg kept from an annotated route (Try to avoid checks replans only the
+                // stretches it changes) already has its notes: add each one once
+                val extra = ChartDepth.notes(a, b, route.depthFt, legCovers).filter { it !in leg.notes }
                 if (extra.isEmpty()) legs.add(leg)
                 else { changed = true; legs.add(Leg(leg.distM, leg.bearing, leg.shoalM, leg.lowM, leg.notes + extra)) }
             }
