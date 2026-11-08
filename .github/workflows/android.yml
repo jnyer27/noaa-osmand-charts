@@ -37,20 +37,32 @@ jobs:
           command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
           xmllint --noout --schema app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
 
-      # The command-line planner on the released route data and region chart: the "Maryland Marina
-      # to Ego Alley" reference route (24-29 nm) with Try to avoid checks and the chart depth check,
-      # then the GPX files against GPX 1.1
+      # The command-line planner as released (the zip's jar and launcher) on the released route data
+      # and region chart: the "Maryland Marina to Ego Alley" reference route (24-29 nm) with Try to
+      # avoid checks and the chart depth check, then the GPX files against GPX 1.1
       - name: Command-line planner
         env:
-          NOAA_ROUTE_CWD: ${{ runner.temp }}
           NOAA_ROUTE_PACKS: ${{ runner.temp }}/cli-packs
           NOAA_ROUTE_CHARTS: ${{ runner.temp }}/cli-charts
         run: |
-          gradle --no-daemon -q :cli:run --args="-f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 --resolve -n cli-ego-alley"
-          gradle --no-daemon -q :cli:run --args="-f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --json -q" > "$RUNNER_TEMP/cli.json"
-          cat "$RUNNER_TEMP/cli.json"
-          python3 -c "import json,sys; j=json.load(open(sys.argv[1])); nm=j['route']['nm']; cd=j['chartDepth']; print('nm', nm, '| chart depth:', cd); sys.exit(0 if 24 <= nm <= 29 and cd == 'Region 04 chart' else 1)" "$RUNNER_TEMP/cli.json"
-          for f in "$RUNNER_TEMP"/cli-ego-alley*.gpx; do xmllint --noout --schema app/src/test/resources/gpx.xsd "$f"; done
+          gradle --no-daemon -q :cli:cliZip
+          cp cli/build/dist/noaa-route.zip "$GITHUB_WORKSPACE/noaa-route.zip"
+          rm -rf "$RUNNER_TEMP/cli" && unzip -q cli/build/dist/noaa-route.zip -d "$RUNNER_TEMP/cli"
+          nr="$RUNNER_TEMP/cli/noaa-route/noaa-route"
+          "$nr" --version
+          cd "$RUNNER_TEMP"
+          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 --resolve -n cli-ego-alley
+          "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --json -q > cli.json
+          cat cli.json
+          python3 -c "import json,sys; j=json.load(open(sys.argv[1])); nm=j['route']['nm']; cd=j['chartDepth']; print('nm', nm, '| chart depth:', cd); sys.exit(0 if 24 <= nm <= 29 and cd == 'Region 04 chart' else 1)" cli.json
+          for f in cli-ego-alley*.gpx; do xmllint --noout --schema "$GITHUB_WORKSPACE/android/app/src/test/resources/gpx.xsd" "$f"; done
+          # A bad option is exit code 2
+          rc=0; "$nr" --bogus 2>/dev/null || rc=$?; test $rc -eq 2
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: noaa-route-cli
+          path: noaa-route.zip
 
       - name: Signing key
         env:
@@ -98,3 +110,20 @@ jobs:
             --notes "Version $version, built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}: $change
 
           Install noaa-route.apk over the previous version. Not for navigation."
+
+      - name: Publish to cli release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          # Like the app release: recreated per build, same download URL
+          # .../releases/download/cli/noaa-route.zip. Not marked latest (the app is).
+          version="0.1.${GITHUB_RUN_NUMBER}"
+          change="$(git log -1 --format=%s)"
+          gh release delete cli --yes --cleanup-tag 2>/dev/null || true
+          gh release create cli noaa-route.zip --target "$GITHUB_SHA" --latest=false \
+            --title "noaa-route command line $version ($(date -u +%Y-%m-%d))" \
+            --notes "Version $version, built $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_SHA::7}: $change
+
+          The NOAA Route app's planner on the command line, for Windows, macOS, Linux and Termux. Needs Java 17 or later. Unzip and run noaa-route (noaa-route.cmd on Windows) --help. Not for navigation."

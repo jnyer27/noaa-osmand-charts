@@ -83,6 +83,7 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
             |      --json            print a JSON summary instead of the report
             |  -q, --quiet           no progress messages
             |  -h, --help            this help
+            |      --version         print the version
             |
             |Exit codes: 0 planned, 1 no route, 2 bad input, 3 route data could not be downloaded.
             |NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
@@ -181,6 +182,10 @@ class Cli(private val out: PrintStream, private val err: PrintStream, private va
     private fun log(msg: String) { if (!quiet) err.println(msg) }
 
     fun run(args: Array<String>): Int {
+        if ("--version" in args) {
+            out.println("noaa-route " + (Cli::class.java.`package`?.implementationVersion ?: "dev"))
+            return Exit.OK
+        }
         val parsed = try {
             parse(args)
         } catch (e: UsageException) {

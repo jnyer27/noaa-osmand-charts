@@ -1,0 +1,10 @@
+#!/bin/sh
+# noaa-route: NOAA Route's planner on the command line (macOS, Linux, Termux).
+# Needs Java 17 or later. NOAA_ROUTE_JAVA_OPTS replaces the default -Xmx1g (e.g. -Xmx2g for long trips).
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! command -v java >/dev/null 2>&1; then
+  echo "noaa-route needs Java 17 or later (Termux: pkg install openjdk-21)." >&2
+  exit 2
+fi
+# shellcheck disable=SC2086
+exec java ${NOAA_ROUTE_JAVA_OPTS:--Xmx1g} -jar "$dir/noaa-route.jar" "$@"
