@@ -95,8 +95,107 @@ class TideSeries(val station: String, val extremes: List<TideExtreme>) {
     }
 }
 
-/** NOAA CO-OPS tide predictions: parsing their JSON, and the nearest stations to a point. */
+/** A station with its saved predictions. */
+class TideAt(val station: TideStation, val series: TideSeries)
+
+/** NOAA CO-OPS tide predictions: parsing their JSON, the nearest stations, and the report's tide lines. */
 object Tides {
+    /** Every place a tide shows says this. */
+    const val PREDICTED = "predicted, feet above chart datum (MLLW)"
+    /** Said with every tide shown: the route's depths stay charted depths at MLLW. */
+    const val CAVEAT = "Predicted, not observed. Wind and pressure can move the water feet from this, " +
+        "most of all on the Chesapeake in a northwest wind."
+    private val CLOCK = DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US)
+    private val DAY_NAME = DateTimeFormatter.ofPattern("EEE MMM d", java.util.Locale.US)
+
+    fun clock(minute: Long, zone: ZoneId): String =
+        CLOCK.format(Instant.ofEpochSecond(minute * 60).atZone(zone)).lowercase(java.util.Locale.US)
+
+    private fun ft(v: Double) = String.format(java.util.Locale.US, "%.1f", v).replace("-0.0", "0.0")
+
+    /** "low 0.4 ft 12:17 am, high 1.1 ft 5:16 am, ..." for [date], or null with none saved. */
+    fun dayText(s: TideSeries, date: LocalDate, zone: ZoneId): String? {
+        val day = s.day(date, zone)
+        if (day.isEmpty()) return null
+        return day.joinToString(", ") { (if (it.high) "high " else "low ") + ft(it.feet) + " ft " + clock(it.minute, zone) }
+    }
+
+    /** The report's line for each station: "tides at North Point, Sun Nov 8 (predicted, ...): low 0.4 ft 12:17 am, ...". */
+    fun reportLines(ats: List<TideAt>, date: LocalDate, zone: ZoneId): List<String> = ats.mapNotNull { t ->
+        dayText(t.series, date, zone)?.let { "tides at ${t.station.name}, ${DAY_NAME.format(date)} ($PREDICTED): $it" }
+    }
+
+    /** "now 1.2 ft and rising" at [minute], or null outside the saved highs and lows. */
+    fun nowText(s: TideSeries, minute: Long): String? {
+        val h = s.height(minute) ?: return null
+        val next = s.extremes.firstOrNull { it.minute > minute } ?: return "now ${ft(h)} ft"
+        return "now ${ft(h)} ft and " + (if (next.high) "rising" else "falling") + " to ${if (next.high) "high" else "low"} " +
+            ft(next.feet) + " ft"
+    }
+
+    private const val NOTE = "tide today at "
+
+    /** True for the tide note [annotate] adds (information only, whatever the station's name says). */
+    fun isNote(note: String) = note.startsWith(NOTE)
+
+    /**
+     * Adds the day's predicted tide range at the nearest station (within 30 km of the leg's
+     * middle) to every leg flagged for shallow water. Information only: the leg stays flagged
+     * and routing is unchanged. A note already there is not added again.
+     */
+    fun annotate(route: Route, ats: List<TideAt>, date: LocalDate, zone: ZoneId): Route {
+        if (ats.isEmpty()) return route
+        var changed = false
+        val legs = route.legs.mapIndexed { i, leg ->
+            if (leg.shoalM <= 0 || i + 1 >= route.points.size) return@mapIndexed leg
+            val a = route.points[i]
+            val b = route.points[i + 1]
+            val mid = LatLon((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)
+            val t = nearest(ats.map { it.station }, mid).firstOrNull()?.let { s -> ats.first { it.station.id == s.id } }
+                ?: return@mapIndexed leg
+            val r = t.series.range(date, zone) ?: return@mapIndexed leg
+            val note = "$NOTE${t.station.name}: ${ft(r.first)} to ${ft(r.second)} ft above chart datum (predicted)"
+            if (note in leg.notes) leg else { changed = true; Leg(leg.distM, leg.bearing, leg.shoalM, leg.lowM, leg.notes + note) }
+        }
+        return if (!changed) route
+        else Route(route.name, route.points, legs, route.depthFt, route.airFt, route.resM, route.messages, route.guideM)
+    }
+
+    /** Where to look up tides for a route: its ends and the middle of each leg flagged for shallow water. */
+    fun routePoints(route: Route): List<LatLon> {
+        val out = ArrayList<LatLon>()
+        route.points.firstOrNull()?.let { out.add(it) }
+        route.points.lastOrNull()?.let { out.add(it) }
+        for ((i, leg) in route.legs.withIndex()) {
+            if (leg.shoalM <= 0 || i + 1 >= route.points.size) continue
+            val a = route.points[i]; val b = route.points[i + 1]
+            out.add(LatLon((a.lat + b.lat) / 2, (a.lon + b.lon) / 2))
+        }
+        return out
+    }
+
+    /** Tide stations for the chart: id, name, and whether predictions are saved. */
+    fun stationsGeoJson(stations: List<TideStation>, saved: Set<String>): String = buildString {
+        append("{\"type\":\"FeatureCollection\",\"features\":[")
+        stations.forEachIndexed { k, s ->
+            if (k > 0) append(',')
+            append("{\"type\":\"Feature\",\"properties\":{\"id\":").append(quote(s.id))
+            append(",\"name\":").append(quote(s.name)).append(",\"saved\":").append(s.id in saved)
+            append(String.format(java.util.Locale.US, "},\"geometry\":{\"type\":\"Point\",\"coordinates\":[%.5f,%.5f]}}", s.lon, s.lat))
+        }
+        append("]}")
+    }
+
+    private fun quote(s: String) = buildString {
+        append('"')
+        for (c in s) when (c) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            else -> if (c < ' ') append(' ') else append(c)
+        }
+        append('"')
+    }
+
     private val GMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     /** The stations from mdapi stations.json?type=tidepredictions. */

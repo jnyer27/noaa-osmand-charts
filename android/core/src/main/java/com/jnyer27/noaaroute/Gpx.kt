@@ -55,7 +55,7 @@ object Gpx {
         (note.contains("entry restricted") || note.contains("entry prohibited")) && !note.contains("may be prohibited")
 
     /** A leg to look at: shoal water, a note asking for a check, or a navigation limit. */
-    fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { it.contains("check") || navigationLimit(it) }
+    fun flagged(l: Leg) = l.shoalM > 0 || l.notes.any { !Tides.isNote(it) && (it.contains("check") || navigationLimit(it)) }
 
     /** One leg's sentence, the same text the GPX route point carries. */
     fun legText(r: Route, k: Int) = legDesc(r.legs[k], r.depthFt)
@@ -68,7 +68,7 @@ object Gpx {
 
     /** Which colour a leg row takes. 0 is ordinary text. Restricted water wins, then shoal water. */
     fun legMark(l: Leg): Int {
-        val notes = l.notes
+        val notes = l.notes.filterNot { Tides.isNote(it) } // a station's name is not a bridge or cable
         if (notes.any { navigationLimit(it) }) return MARK_RESTRICTED
         if (l.shoalM > 0) return MARK_SHOAL
         if (notes.any { it.contains("cable") }) return MARK_CABLE
@@ -90,7 +90,7 @@ object Gpx {
         else lines.add("$n ${if (n == 1) "leg" else "legs"} to check, in ${runs.size} ${if (runs.size == 1) "stretch" else "stretches"}. Look at each one on a current chart before you go.")
         val shoal = r.legs.count { it.shoalM > 0 }
         if (shoal > 0) lines.add("$shoal ${if (shoal == 1) "leg is" else "legs are"} in water that may be under your ${num(r.depthFt)} ft.")
-        fun named(pred: (String) -> Boolean) = r.legs.flatMap { it.notes }.filter(pred).distinct()
+        fun named(pred: (String) -> Boolean) = r.legs.flatMap { it.notes }.filter { !Tides.isNote(it) && pred(it) }.distinct()
         val bridges = named { it.contains("bridge") || it.contains("span (vertical clearance") || it.contains("span (clearance") }
         if (bridges.isNotEmpty()) lines.add("${bridges.size} ${if (bridges.size == 1) "bridge" else "bridges"}: ${bridges.joinToString("; ")}")
         val cables = named { it.contains("cable") }
@@ -132,9 +132,9 @@ object Gpx {
         return notes.joinToString("; ") + ". Check the chart and the water."
     }
 
-    /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. [trip] is the start, via points and destination, written so opening the file can set them again. */
+    /** The route as GPX; flagged route points are named "check", and [checks] adds the check markers and their symbols. [trip] is the start, via points and destination, written so opening the file can set them again. [extra] lines (tides) end the route's description. */
     fun write(r: Route, datum: String = "MLLW", checks: Boolean = true, trip: List<LatLon> = emptyList(),
-              creator: String = "NOAA Route (Android)"): String {
+              creator: String = "NOAA Route (Android)", extra: List<String> = emptyList()): String {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"${esc(creator)}\" xmlns=\"http://www.topografix.com/GPX/1/1\" " +
@@ -158,7 +158,8 @@ object Gpx {
         val head = String.format(Locale.US, "%.1f nm, planned for %s ft depth at %s from NOAA ENC.%s", r.totalNm, num(r.depthFt), datum, clearance)
         val warn = warnings(r).joinToString(" ")
         val tripLine = if (trip.size >= 2) " Trip points: " + trip.joinToString("; ") { String.format(Locale.US, "%.5f,%.5f", it.lat, it.lon) } else ""
-        sb.append("<desc>${esc("$head $warn$tripLine")}</desc>\n")
+        val extraLine = extra.joinToString("") { " " + it.replaceFirstChar { c -> c.uppercaseChar() } + if (it.endsWith(".")) "" else "." }
+        sb.append("<desc>${esc("$head $warn$extraLine$tripLine")}</desc>\n")
         for ((k, p) in r.points.withIndex()) {
             var label = when (k) {
                 0 -> "Start"

@@ -11,8 +11,8 @@ import java.io.File
 /**
  * Tide predictions on the phone ([TideCache] in :core): the stations inside the downloaded
  * regions' route data are fetched in the background on Wi-Fi ([TideJob]), a year at a time,
- * and refreshed when under 30 days are left; the stations nearest a planned trip's ends are
- * fetched on any network right after planning (about 70 KB each). Blocking calls: run them
+ * and refreshed when under 30 days are left; the stations a planned trip needs are fetched
+ * on any network while planning (TideCache.forRoute, about 70 KB each). Blocking calls: run them
  * off the UI thread.
  */
 class TideStore(private val ctx: Context) {
@@ -62,13 +62,6 @@ class TideStore(private val ctx: Context) {
         }
         val start = ctx.getSharedPreferences("noaaroute", Context.MODE_PRIVATE).getString("start", null)
         return start?.let { Coords.parse(it) }
-    }
-
-    /** The nearest station to each point (within 30 km), fetched if needed; failures are skipped. */
-    fun ensureNear(points: List<LatLon>): List<TideSeries> {
-        val stations = try { cache.refreshStations() } catch (_: Exception) { cache.stations() }
-        return points.flatMap { Tides.nearest(stations, it) }.distinctBy { it.id }
-            .mapNotNull { s -> try { cache.ensure(s.id) } catch (_: Exception) { null } }
     }
 }
 

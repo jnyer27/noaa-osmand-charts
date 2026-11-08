@@ -20,6 +20,8 @@ class TideCache(
     val dir: File,
     private val base: String = BASE,
     private val sleep: (Long) -> Unit = { Thread.sleep(it) },
+    /** Saved predictions only: nothing is fetched. */
+    private val offline: Boolean = false,
 ) {
     companion object {
         const val BASE = "https://api.tidesandcurrents.noaa.gov/"
@@ -117,6 +119,41 @@ class TideCache(
         return ids.filter { it in failed }
     }
 
+    /**
+     * The nearest station to each of [points] (within 30 km) with its highs and lows, fetched
+     * if needed, at most [max] stations, in the points' order; stations that cannot be had are
+     * skipped. The station list is fetched first if none is saved.
+     */
+    fun near(points: List<LatLon>, now: Long = System.currentTimeMillis(), max: Int = 8): List<TideAt> {
+        val stations = try { refreshStations(now) } catch (_: Exception) { return emptyList() }
+        return points.flatMap { Tides.nearest(stations, it) }.distinctBy { it.id }.take(max)
+            .mapNotNull { s -> try { TideAt(s, ensure(s.id, now)) } catch (_: Exception) { null } }
+    }
+
+    /**
+     * Tides for a planned route on [date] in [zone]: the report lines for the stations nearest
+     * the start and the destination (with [Tides.CAVEAT]), and the route with the day's range
+     * added to legs flagged for shallow water ([Tides.annotate]). Saved predictions work
+     * offline; missing ones are fetched (about a second each).
+     */
+    fun forRoute(route: Route, date: java.time.LocalDate, zone: java.time.ZoneId, now: Long = System.currentTimeMillis()): RouteTides {
+        if (route.points.size < 2) return RouteTides(route, emptyList())
+        val ats = near(Tides.routePoints(route), now)
+        val stations = stations()
+        val endIds = listOf(route.points.first(), route.points.last())
+            .mapNotNull { Tides.nearest(stations, it).firstOrNull()?.id }.distinct()
+        if (endIds.isEmpty() && ats.isEmpty()) {
+            val why = if (stations.isEmpty()) "the NOAA station list could not be fetched" else "no NOAA tide station within 30 km of the start or destination"
+            return RouteTides(route, listOf("tides: none ($why)"))
+        }
+        val ends = endIds.mapNotNull { id -> ats.firstOrNull { it.station.id == id } }
+        val lines = Tides.reportLines(ends, date, zone).toMutableList()
+        if (ends.size < endIds.size) lines.add("tides: predictions for " + endIds.filter { id -> ends.none { it.station.id == id } }
+            .joinToString(", ") { id -> stations.first { it.id == id }.name } + " are not saved and NOAA could not be reached")
+        if (lines.isNotEmpty()) lines.add("tides: ${Tides.CAVEAT}")
+        return RouteTides(Tides.annotate(route, ats, date, zone), lines)
+    }
+
     /** Stations inside [bounds] (west, south, east, north), e.g. a region's box. */
     fun stationsIn(bounds: DoubleArray): List<TideStation> = stations().filter {
         it.lon in bounds[0]..bounds[2] && it.lat in bounds[1]..bounds[3]
@@ -124,6 +161,7 @@ class TideCache(
 
     /** GET [url] as text. 403, 429 and 5xx wait and retry: 4, 8, 16, 32 s (five tries in all). */
     private fun get(url: String): String {
+        if (offline) throw Exception("offline: NOAA tides not fetched")
         var wait = 4_000L
         for (attempt in 1..5) {
             val c = URL(url).openConnection() as HttpURLConnection
@@ -148,3 +186,6 @@ class TideCache(
         throw Exception("NOAA tides did not answer")
     }
 }
+
+/** A route with tide notes on its shallow legs, and the report's tide lines. */
+class RouteTides(val route: Route, val lines: List<String>)

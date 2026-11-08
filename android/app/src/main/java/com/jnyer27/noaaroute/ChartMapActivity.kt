@@ -113,6 +113,8 @@ class ChartMapActivity : Activity() {
     @Volatile private var restrictedJson: String? = null
     @Volatile private var cablesJson: String? = null
     @Volatile private var packNotes: List<Note> = emptyList()
+    @Volatile private var tidesJson: String? = null
+    @Volatile private var tideStations: List<TideStation> = emptyList()
     /** "04:<sha>" for a region chart, or "bundled". Skip a redraw when it has not changed. */
     private var shownKey: String? = null
     /** Region charts drawn now: every downloaded one, so panning across a seam shows both. */
@@ -338,7 +340,8 @@ class ChartMapActivity : Activity() {
             }
             loaded.addOnCameraIdleListener { paintScale(); if (overlayOn && !destroyed) refreshOverlay() }
             loaded.addOnMapClickListener { latLng ->
-                showLeg(latLng.latitude, latLng.longitude) || showNotes(latLng.latitude, latLng.longitude)
+                showLeg(latLng.latitude, latLng.longitude) || showTide(latLng.latitude, latLng.longitude) ||
+                    showNotes(latLng.latitude, latLng.longitude)
             }
             loaded.addOnMapLongClickListener { latLng -> showPoint(latLng.latitude, latLng.longitude); true }
             present()
@@ -517,6 +520,7 @@ class ChartMapActivity : Activity() {
             shown.clear()
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
             showRestricted(st)
+            showTides(st)
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
             if (!framed) {
@@ -684,6 +688,7 @@ class ChartMapActivity : Activity() {
         sb.append(if (airFt == null) "Overhead cables are dashed red: no air draft is set, so none was checked. "
             else "Overhead cables are dashed, red when the clearance is under your air draft or not charted, navy when it clears. ")
         sb.append("Tap a restricted area or a cable for its rule or clearance. ")
+        sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
         sb.append("The blue dot is your GPS position. Press and hold the chart to set the start or destination there or add a via point.")
@@ -1143,6 +1148,80 @@ class ChartMapActivity : Activity() {
                 runOnUiThread { if (!destroyed) apply(style) }
             }
         } catch (_: RejectedExecutionException) { }
+    }
+
+    /**
+     * NOAA tide stations in the downloaded regions (and any with predictions saved), on
+     * their own thread: the station list may have to be fetched first (about 2 MB, once).
+     */
+    private fun showTides(st: Style) {
+        fun apply(target: Style?) { tidesJson?.let { (target?.getSource("tides") as? GeoJsonSource)?.setGeoJson(it) } }
+        if (tidesJson != null) { apply(st); return }
+        Thread {
+            try {
+                val cache = TideStore(this).cache
+                val all = cache.stations().ifEmpty { try { cache.refreshStations() } catch (_: Exception) { emptyList() } }
+                val saved = all.filter { cache.isSaved(it.id) }
+                val shown = (TideStore(this).wanted(all) + saved).distinctBy { it.id }
+                tideStations = shown
+                tidesJson = Tides.stationsGeoJson(shown, saved.map { it.id }.toSet())
+                runOnUiThread { if (!destroyed) apply(style) }
+            } catch (e: Exception) {
+                Log.w("ChartMap", "tide stations failed", e)
+            }
+        }.start()
+    }
+
+    /**
+     * A tap on a tide station: today's predicted highs and lows, the height now and a curve
+     * of the day, with the via and destination buttons. A station without saved predictions
+     * is fetched (about 70 KB) while the box is open.
+     */
+    private fun showTide(lat: Double, lon: Double): Boolean {
+        if ((map?.cameraPosition?.zoom ?: 0.0) < 9.0) return false
+        val station = Tides.nearest(tideStations, LatLon(lat, lon), maxM = fingerM(lat)).firstOrNull() ?: return false
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        val text = TextView(this).apply { textSize = 15f; setPadding(dp(20), dp(8), dp(20), 0) }
+        val curve = TideCurveView(this, systemNight()).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150)).apply { setMargins(dp(12), dp(8), dp(12), 0) }
+        }
+        val caveat = TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), dp(4)); text = Tides.CAVEAT }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(curve); addView(caveat) }
+        fun fill(series: TideSeries?, failed: String?) {
+            val now = Tides.minuteOf(java.time.Instant.now())
+            val day = series?.let { Tides.dayText(it, today, zone) }
+            text.text = when {
+                day != null -> "Today (${Tides.PREDICTED}):\n" + day.split(", ").joinToString("\n") +
+                    (Tides.nowText(series!!, now)?.let { "\n\n" + it.replaceFirstChar { c -> c.uppercaseChar() } } ?: "")
+                failed != null -> failed
+                else -> "Getting this station's predictions from NOAA..."
+            }
+            curve.visibility = if (day != null) View.VISIBLE else View.GONE
+            if (day != null) curve.show(series!!, today, zone, now)
+        }
+        val cache = TideStore(this).cache
+        val saved = cache.series(station.id)
+        fill(saved, null)
+        val stale = saved == null || saved.day(today, zone).isEmpty() || cache.needsFetch(station.id)
+        if (stale) Thread {
+            val got = try { cache.ensure(station.id) } catch (_: Exception) { null }
+            val ok = got?.day(today, zone)?.isNotEmpty() == true
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                if (ok || saved == null) fill(got ?: saved, if (got == null) "Not downloaded yet, and NOAA could not be reached. " +
+                    "It comes with the region's tides on Wi-Fi, or when a trip near it is planned." else "NOAA has no predictions for today here.")
+                if (got != null && saved == null) { tidesJson = null; style?.let { showTides(it) } }
+            }
+        }.start()
+        AlertDialog.Builder(this)
+            .setTitle("Tides: ${station.name}" + if (station.state.isNotEmpty()) ", ${station.state}" else "")
+            .setView(box)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
+            .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
+            .show()
+        return true
     }
 
     /**

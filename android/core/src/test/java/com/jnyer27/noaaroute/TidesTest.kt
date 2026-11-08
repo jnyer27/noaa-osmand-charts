@@ -131,6 +131,77 @@ class TidesTest {
         } finally { f.delete() }
     }
 
+    private fun northPoint(): TideAt {
+        val st = Tides.parseStations(res("stations.json")).first { it.id == "8574857" }
+        return TideAt(st, Tides.parseHiLo("8574857", res("northpoint-hilo-gmt.json")))
+    }
+
+    @Test
+    fun reportLineInLocalTime() {
+        // 2026-11-08 is EST: NOAA's GMT 05:21, 10:28, 16:38, 23:17 are 12:21 am, 5:28 am, 11:38 am, 6:17 pm
+        val lines = Tides.reportLines(listOf(northPoint()), LocalDate.of(2026, 11, 8), ny)
+        assertEquals(listOf("tides at North Point, Sun Nov 8 (predicted, feet above chart datum (MLLW)): " +
+            "low 0.4 ft 12:21 am, high 1.1 ft 5:28 am, low 0.1 ft 11:38 am, high 1.6 ft 6:17 pm"), lines)
+        assertTrue(Tides.reportLines(listOf(northPoint()), LocalDate.of(2027, 1, 1), ny).isEmpty())
+    }
+
+    @Test
+    fun nowSaysRisingOrFalling() {
+        val s = northPoint().series
+        assertEquals("now 0.1 ft and rising to high 1.6 ft", Tides.nowText(s, minute("2026-11-08 16:40")))
+        assertTrue(Tides.nowText(s, minute("2026-11-08 12:00"))!!.contains("falling to low 0.1 ft"))
+        assertNull(Tides.nowText(s, minute("2027-01-01 00:00")))
+    }
+
+    private fun route(shoal: Double) = Route("r",
+        listOf(LatLon(39.20, -76.44), LatLon(39.19, -76.43), LatLon(39.18, -76.42)),
+        listOf(Leg(1000.0, 135.0, 0.0, null, emptyList()), Leg(1000.0, 135.0, shoal, 0.6, listOf("200 m where charted depth may be under 5 ft"))),
+        5.0, null, 20.0, emptyList())
+
+    @Test
+    fun shallowLegsGetTheDaysRange() {
+        val r = Tides.annotate(route(200.0), listOf(northPoint()), LocalDate.of(2026, 11, 8), ny)
+        assertTrue(r.legs[0].notes.isEmpty())
+        val note = "tide today at North Point: 0.1 to 1.6 ft above chart datum (predicted)"
+        assertEquals(listOf("200 m where charted depth may be under 5 ft", note), r.legs[1].notes)
+        // Still flagged, and the note itself is not a check
+        assertTrue(Gpx.flagged(r.legs[1]))
+        assertFalse(note.contains("check"))
+        // A station named for a bridge does not make the leg a bridge leg
+        val bridge = TideAt(TideStation("1", "Mill Creek bridge", "MD", 39.19, -76.43, false, "8574680"), northPoint().series)
+        val rb = Tides.annotate(route(0.0).let { Route(it.name, it.points, listOf(it.legs[0], Leg(1000.0, 135.0, 1.0, null, emptyList())), 5.0, 10.0, 20.0, emptyList()) },
+            listOf(bridge), LocalDate.of(2026, 11, 8), ny)
+        assertTrue(Tides.isNote(rb.legs[1].notes.single()))
+        assertEquals(Gpx.MARK_SHOAL, Gpx.legMark(rb.legs[1]))
+        assertTrue(Gpx.warnings(rb).none { it.contains("bridge") })
+        // Once only
+        assertEquals(2, Tides.annotate(r, listOf(northPoint()), LocalDate.of(2026, 11, 8), ny).legs[1].notes.size)
+        // Not on legs without shallow water, not with no station near
+        val clear = route(0.0)
+        assertTrue(Tides.annotate(clear, listOf(northPoint()), LocalDate.of(2026, 11, 8), ny) === clear)
+        val far = TideAt(Tides.parseStations(res("stations.json")).first { it.id == "9414290" }, northPoint().series)
+        assertEquals(1, Tides.annotate(route(200.0), listOf(far), LocalDate.of(2026, 11, 8), ny).legs[1].notes.size)
+        // Ends and the shallow leg's middle
+        assertEquals(3, Tides.routePoints(route(200.0)).size)
+        assertEquals(2, Tides.routePoints(clear).size)
+    }
+
+    @Test
+    fun stationsForTheChart() {
+        val st = Tides.parseStations(res("stations.json")).take(2)
+        val g = MiniJson.parse(Tides.stationsGeoJson(st, setOf(st[1].id))) as Map<*, *>
+        val f = g["features"] as List<*>
+        assertEquals(2, f.size)
+        val p = (f[1] as Map<*, *>)["properties"] as Map<*, *>
+        assertEquals(st[1].name, p["name"])
+        assertEquals(true, p["saved"])
+        assertEquals(false, ((f[0] as Map<*, *>)["properties"] as Map<*, *>)["saved"])
+        val c = ((f[1] as Map<*, *>)["geometry"] as Map<*, *>)["coordinates"] as List<*>
+        assertEquals(st[1].lon, (c[0] as Number).toDouble(), 1e-5)
+        assertTrue(Tides.stationsGeoJson(listOf(TideStation("1", "A \"B\" \\ C", "", 1.0, 2.0, true, null)), emptySet())
+            .let { (MiniJson.parse(it) as Map<*, *>).isNotEmpty() })
+    }
+
     // TideCache against a local server standing in for NOAA
 
     private lateinit var server: HttpServer
@@ -208,6 +279,16 @@ class TidesTest {
         assertEquals(19, c.ensure("8574680", now).extremes.size)
         assertEquals(listOf(4_000L, 8_000L), slept)
         assertEquals(3, hits.size)
+    }
+
+    @Test
+    fun nearSkipsWhatItCannotGet() {
+        val c = cache()
+        // Maryland Marina: North Point is nearest (NOAA has none for it here), Baltimore for a point by Fort McHenry
+        val got = c.near(listOf(LatLon(39.32371, -76.39998), LatLon(39.2667, -76.5783), LatLon(30.0, -60.0)), now)
+        assertEquals(listOf("8574680"), got.map { it.station.id })
+        server.stop(0)
+        assertTrue(TideCache(Files.createTempDirectory("tides2").toFile(), "http://127.0.0.1:1/", sleep = { }).near(listOf(LatLon(39.3, -76.4)), now).isEmpty())
     }
 
     @Test

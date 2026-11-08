@@ -1385,6 +1385,16 @@ class MainActivity : Activity() {
      * Middle River chart) whose shoal limit is under the safe depth. No chart for the
      * leg leaves the route as planned.
      */
+    /**
+     * Today's predicted tides near the trip's ends for the report and GPX, and the day's range
+     * on legs flagged for shallow water; saved predictions work offline, missing ones are
+     * fetched on any network (about 70 KB each). Never fails the plan.
+     */
+    private fun withTides(r: Route): RouteTides = try {
+        val zone = java.time.ZoneId.systemDefault()
+        TideStore(this).cache.forRoute(r, java.time.LocalDate.now(zone), zone)
+    } catch (_: Exception) { RouteTides(r, emptyList()) }
+
     private fun withChartDepth(r: Route): Route = try { ChartDepthSource(this).annotate(r) } catch (_: Exception) { r }
 
     /** The chart screen for this route. A downloaded catalog chart that covers it, otherwise Middle River. */
@@ -1489,13 +1499,14 @@ class MainActivity : Activity() {
         worker.execute {
             val t0 = System.currentTimeMillis()
             try {
-                val r = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
-                val used = usedPacks(p, r)
+                val planned0 = withChartDepth(Planner(p).plan(routeName, listOf(a) + vias + listOf(b), d, airFt, BUF_M, stayInside, moveToWater) { msg -> ui.post { status.text = msg } })
+                val used = usedPacks(p, planned0)
                 val datum = Pack.datumName(used.flatMap { it.datums })
                 val pts = listOf(a) + vias + listOf(b)
-                val (uri, savedAs) = saveGpx(r, datum, markChecks, pts)
-                // Tides at the trip's ends, for next time and offline (any network, ~70 KB each)
-                Thread { try { TideStore(this).ensureNear(listOf(a, b)) } catch (_: Exception) { } }.start()
+                ui.post { status.text = "Tide predictions..." }
+                val tides = withTides(planned0)
+                val r = tides.route
+                val (uri, savedAs) = saveGpx(r, datum, markChecks, pts, tides.lines)
                 val sec = (System.currentTimeMillis() - t0) / 1000.0
                 val trip = tripLines(a, vias, b) + listOfNotNull("Stay inside: on (no open ocean)".takeIf { stayInside },
                     "Move ends to navigable water: on".takeIf { moveToWater })
@@ -1506,7 +1517,7 @@ class MainActivity : Activity() {
                     gpxUri = uri
                     planned = Planned(pts, stayInside, markChecks, datum, trip, used)
                     resolveButton.visibility = if (Gpx.checkRuns(r).isNotEmpty()) View.VISIBLE else View.GONE
-                    showReport(r, trip, afterLines(used, sec), datum, saved)
+                    showReport(r, trip, tides.lines + afterLines(used, sec), datum, saved)
                     status.text = Gpx.warnings(r).first()
                     actions.visibility = View.VISIBLE
                     planButton.isEnabled = true; packButton.isEnabled = true
@@ -1547,13 +1558,14 @@ class MainActivity : Activity() {
                     }
                     return@execute
                 }
-                val ar = withChartDepth(res.route)
-                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks, pl.pts)
+                val tides = withTides(withChartDepth(res.route))
+                val ar = tides.route
+                val (uri, savedAs) = saveGpx(ar, pl.datum, pl.checks, pl.pts, tides.lines)
                 ui.post {
                     route = ar
                     gpxUri = uri
                     val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
-                    showReport(ar, pl.trip, afterLines(pl.used, sec), pl.datum, saved)
+                    showReport(ar, pl.trip, tides.lines + afterLines(pl.used, sec), pl.datum, saved)
                     status.text = res.summary
                     resolveButton.visibility = if (Gpx.checkRuns(ar).isNotEmpty()) View.VISIBLE else View.GONE
                     resolveButton.isEnabled = true
@@ -1623,9 +1635,9 @@ class MainActivity : Activity() {
     }
 
     /** Write the GPX into Download/noaa-charts/routes; returns (uri, file name). [trip] is written so Use as trip can restore via points. */
-    private fun saveGpx(r: Route, datum: String, checks: Boolean, trip: List<LatLon> = emptyList()): Pair<Uri, String> {
+    private fun saveGpx(r: Route, datum: String, checks: Boolean, trip: List<LatLon> = emptyList(), extra: List<String> = emptyList()): Pair<Uri, String> {
         val (uri, name) = DownloadFiles.target(this, ROUTES_DIR, r.name, "gpx", "application/gpx+xml")
-        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks, trip).toByteArray()) }
+        contentResolver.openOutputStream(uri, "wt")!!.use { it.write(Gpx.write(r, datum, checks, trip, extra = extra).toByteArray()) }
         return uri to name
     }
 
