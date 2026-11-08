@@ -56,11 +56,11 @@ class TideSeries(val station: String, val extremes: List<TideExtreme>) {
         return extremes.filter { it.minute in from until to }
     }
 
-    /** Lowest and highest predicted height on [date] in [zone], from that day's curve (every 6 minutes). */
+    /** Lowest and highest predicted height on [date] in [zone]: its highs and lows, and the curve at midnight either end. */
     fun range(date: LocalDate, zone: ZoneId): Pair<Double, Double>? {
         val from = date.atStartOfDay(zone).toEpochSecond() / 60
         val to = date.plusDays(1).atStartOfDay(zone).toEpochSecond() / 60
-        val hs = (from..to step 6).mapNotNull { height(it) }
+        val hs = listOfNotNull(height(from), height(to)) + day(date, zone).map { it.feet }
         return if (hs.isEmpty()) null else hs.min() to hs.max()
     }
 
