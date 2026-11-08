@@ -97,7 +97,7 @@ fi
 log="$cache/routes.log"
 rc=0
 PACK_DIR="$packs" AREAS_JSON="$areas" "$gradle" -p "$repo/android" --no-daemon \
-  testReleaseUnitTest --tests '*AreaRoutesTest' -i > "$log" 2>&1 || rc=$?
+  :core:test --tests '*AreaRoutesTest' -i > "$log" 2>&1 || rc=$?
 grep -E 'PASS\?|REFUSED' "$log" | sed 's/^ *//' || true
 if [ $rc -ne 0 ]; then
   if grep -q 'Reference route failures:' "$log"; then

@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "NoaaRoute"
-include(":app")
+include(":app", ":core")

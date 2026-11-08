@@ -30,7 +30,7 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: Unit tests
-        run: gradle --no-daemon testReleaseUnitTest
+        run: gradle --no-daemon :core:test testReleaseUnitTest
 
       - name: GPX output is valid GPX 1.1
         run: |
