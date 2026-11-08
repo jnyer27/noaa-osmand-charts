@@ -74,7 +74,7 @@ object ChartDepthRoute {
      */
     class Spot(val areas: List<ChartDepth.Area>, val soundings: List<Pair<ChartDepth.Sounding, Double>>)
 
-    fun spot(p: LatLon, charts: List<ChartDepthChart>, radiusM: Double = 150.0): Spot? {
+    fun spot(p: LatLon, charts: List<ChartDepthChart>, radiusM: Double = SpotReport.ESTIMATE_RADIUS_M): Spot? {
         val chart = charts.filter { p.lon in it.bounds[0]..it.bounds[2] && p.lat in it.bounds[1]..it.bounds[3] }
             .minByOrNull { it.span } ?: return null
         val reader = try { chart.open() } catch (_: Exception) { return null }

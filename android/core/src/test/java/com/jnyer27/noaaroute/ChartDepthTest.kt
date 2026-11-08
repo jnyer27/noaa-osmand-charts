@@ -142,13 +142,14 @@ class ChartDepthTest {
         val a = SpotReport.analyse(spot, 3.0)
         assertEquals(listOf("Depth area: 0 to 6 ft, may be under your 3 ft.",
             "Shallowest sounding within 150 m: 5 ft, 40 m away.", "Nearest sounding: 7 ft, 12 m away.",
-            "Too few soundings close by to estimate the depth here."), a.lines)
+            "Too few soundings to estimate the depth here (it needs 3 within 500 m, the nearest within 200 m)."), a.lines)
         assertNull(a.estimateFt)
         assertEquals(5.0, a.lowFt!!, 0.0)
         assertEquals("the 5 ft sounding 40 m away", a.basis)
         // A dredged channel with no soundings: its charted depth
         val ch = SpotReport.analyse(ChartDepthRoute.Spot(listOf(ChartDepth.Area(listOf(knoll), 4, 4, dredged = true)), emptyList()), 5.0)
-        assertEquals(listOf("Dredged area: charted 4 ft, under your 5 ft.", "No sounding charted within 150 m."), ch.lines)
+        assertEquals(listOf("Dredged area: charted 4 ft, under your 5 ft.", "No sounding charted within 150 m.",
+            "Too few soundings to estimate the depth here (it needs 3 within 500 m, the nearest within 200 m)."), ch.lines)
         assertEquals(4.0, ch.lowFt!!, 0.0)
         val none = SpotReport.analyse(ChartDepthRoute.Spot(emptyList(), emptyList()), 3.0)
         assertNull(none.lowFt)
@@ -167,10 +168,17 @@ class ChartDepthTest {
         assertEquals(3.0, SpotReport.estimate(ChartDepthRoute.Spot(listOf(area), listOf(at(3, 2.0), at(6, 50.0))))!!, 0.0)
         // Kept within the depth area: 9 ft soundings around a spot in the 0-6 ft area say at most 6
         assertEquals(6.0, SpotReport.estimate(ChartDepthRoute.Spot(listOf(area), listOf(at(9, 10.0), at(9, 20.0), at(9, 30.0))))!!, 0.0)
-        // Too few, or all too far
+        // Too few, or the nearest too far
         assertNull(SpotReport.estimate(ChartDepthRoute.Spot(listOf(area), listOf(at(4, 10.0), at(6, 20.0)))))
-        assertNull(SpotReport.estimate(ChartDepthRoute.Spot(listOf(area), listOf(at(4, 80.0), at(6, 90.0), at(6, 100.0)))))
+        assertNull(SpotReport.estimate(ChartDepthRoute.Spot(listOf(area), listOf(at(4, 210.0), at(6, 220.0), at(6, 300.0)))))
         val text = SpotReport.analyse(ChartDepthRoute.Spot(listOf(area), listOf(at(4, 10.0), at(6, 20.0), at(6, 30.0))), 5.0).lines.last()
-        assertTrue(text, text.startsWith("Estimated charted depth here: about 4.5 ft, from the 3 nearest soundings (closer ones count more, kept within the 0 to 6 ft depth area)."))
+        assertTrue(text, text.startsWith("Estimated charted depth here: about 4.5 ft, from the 3 nearest soundings, 10 to 30 m away (closer ones count more, kept within the 0 to 6 ft depth area)."))
+        // Jason's spot off Hart-Miller (39.25090 N, 76.39075 W, Region 04 chart): two soundings within
+        // 150 m, the rest 297-486 m out. The 150 m lines use only the two; the estimate uses all seven
+        val hm = listOf(at(6, 34.0), at(2, 132.0), at(16, 297.0), at(4, 335.0), at(9, 395.0), at(9, 428.0), at(3, 486.0), at(18, 509.0))
+        val r = SpotReport.analyse(ChartDepthRoute.Spot(listOf(area), hm), 3.0)
+        assertTrue(r.lines.toString(), r.lines.contains("Shallowest sounding within 150 m: 2 ft, 132 m away, under your 3 ft."))
+        assertEquals(5.88, r.estimateFt!!, 0.01)
+        assertTrue(r.lines.last(), r.lines.last().contains("from the 7 nearest soundings, 34 to 486 m away"))
     }
 }

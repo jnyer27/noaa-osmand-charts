@@ -15,11 +15,16 @@ object SpotReport {
      */
     class Analysis(val lines: List<String>, val lowFt: Double?, val basis: String?, val estimateFt: Double? = null)
 
-    /** Soundings used for the estimate: the nearest this many, within the search radius. */
+    /** Soundings used for the estimate: the nearest this many, within [ESTIMATE_RADIUS_M]. */
     const val ESTIMATE_SOUNDINGS = 8
+    /**
+     * How far the estimate looks: chart soundings on the Chesapeake are often 300-500 m apart
+     * (39.2509 N, 76.3908 W has two within 150 m and five more by 490 m).
+     */
+    const val ESTIMATE_RADIUS_M = 500.0
     /** At least this many soundings, and the nearest within [ESTIMATE_NEAR_M], to estimate at all. */
     const val ESTIMATE_MIN = 3
-    const val ESTIMATE_NEAR_M = 75.0
+    const val ESTIMATE_NEAR_M = 200.0
     /** A sounding this close is the depth there. */
     private const val ON_SOUNDING_M = 5.0
 
@@ -30,7 +35,7 @@ object SpotReport {
      * Soundings are sparse and the bottom between them is unknown: an estimate, not a depth.
      */
     fun estimate(spot: ChartDepthRoute.Spot): Double? {
-        val near = spot.soundings.sortedBy { it.second }.take(ESTIMATE_SOUNDINGS)
+        val near = spot.soundings.filter { it.second <= ESTIMATE_RADIUS_M }.sortedBy { it.second }.take(ESTIMATE_SOUNDINGS)
         if (near.isEmpty()) return null
         if (near[0].second <= ON_SOUNDING_M) return clamp(near[0].first.ft.toDouble(), spot)
         if (near.size < ESTIMATE_MIN || near[0].second > ESTIMATE_NEAR_M) return null
@@ -80,7 +85,7 @@ object SpotReport {
         if (dredged != null) lines.add("Dredged area: charted ${dredged.d1} ft" +
             (if (dredged.d1 < depthFt) ", under your $d ft" else "") + ".")
         val r = String.format(Locale.US, "%.0f m", radiusM)
-        val soundings = spot.soundings
+        val soundings = spot.soundings.filter { it.second <= radiusM }
         val shallow = soundings.minWithOrNull(compareBy<Pair<ChartDepth.Sounding, Double>> { it.first.ft }.thenBy { it.second })
         if (shallow == null) lines.add("No sounding charted within $r.")
         else {
@@ -97,12 +102,16 @@ object SpotReport {
         }
         val est = estimate(spot)
         if (est != null) {
-            val n = minOf(spot.soundings.size, ESTIMATE_SOUNDINGS)
-            lines.add(String.format(Locale.US, "Estimated charted depth here: about %.1f ft, from the %d nearest soundings " +
-                "(closer ones count more%s). The bottom between soundings is not charted.", est, n,
+            val used = spot.soundings.filter { it.second <= ESTIMATE_RADIUS_M }.sortedBy { it.second }.take(ESTIMATE_SOUNDINGS)
+            val span = if (used.size == 1 || used[0].second <= ON_SOUNDING_M) "the sounding ${dist(used[0].second)} away"
+                else "the ${used.size} nearest soundings, ${dist(used.first().second).removeSuffix(" m")} to ${dist(used.last().second)} away"
+            lines.add(String.format(Locale.US, "Estimated charted depth here: about %.1f ft, from %s " +
+                "(closer ones count more%s). The bottom between soundings is not charted.", est, span,
                 if (depare != null) ", kept within the ${depare.d1} to ${depare.d2} ft depth area" else ""))
-        } else if (shallow != null) {
-            lines.add("Too few soundings close by to estimate the depth here.")
+        } else {
+            val e = String.format(Locale.US, "%.0f m", ESTIMATE_RADIUS_M)
+            lines.add("Too few soundings to estimate the depth here (it needs 3 within $e, the nearest within " +
+                String.format(Locale.US, "%.0f m", ESTIMATE_NEAR_M) + ").")
         }
         return Analysis(lines, low, basis, est)
     }
