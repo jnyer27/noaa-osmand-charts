@@ -45,7 +45,6 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -119,7 +118,8 @@ class ChartMapActivity : Activity() {
     /** Predicted depth: soundings and contour labels show charted depth plus the tide now (off each time the chart opens). */
     private var predictedOn = false
     private var predictedNote = ""
-    private val predictedSaved = HashMap<String, Array<PropertyValue<*>>>()
+    /** Sounding and contour label layers showing the tide; put back to the chart's own expressions when off. */
+    private val predictedLayers = HashSet<String>()
     private var predictedSeries: TideSeries? = null
     private val predictedFetching = HashSet<String>()
     private val predictedFailed = HashSet<String>()
@@ -554,7 +554,7 @@ class ChartMapActivity : Activity() {
             routeJson?.let { (st.getSource("route") as? GeoJsonSource)?.setGeoJson(it) }
             showRestricted(st)
             showTides(st)
-            predictedSaved.clear() // the new style's sounding layers start charted
+            predictedLayers.clear() // the new style's sounding layers start charted
             if (predictedOn) refreshPredicted()
             loaded.setMinZoomPreference(8.0)
             loaded.setMaxZoomPreference(18.0)
@@ -679,11 +679,47 @@ class ChartMapActivity : Activity() {
         val p = LatLon(lat, lon)
         AlertDialog.Builder(this)
             .setTitle(Coords.format(p))
-            .setItems(arrayOf("Set as start", "Add as via point", "Set as destination")) { _, which ->
-                returnPick(when (which) { 0 -> PICK_START; 1 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
+            .setItems(arrayOf("Depth and tide here", "Set as start", "Add as via point", "Set as destination")) { _, which ->
+                if (which == 0) showSpot(lat, lon)
+                else returnPick(when (which) { 1 -> PICK_START; 2 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * Depth and tide at a pressed spot: the chart's depth area, dredged depth and soundings
+     * within 150 m (read from the downloaded chart tiles off the UI thread), then the nearest
+     * station's tide with a red dotted line at the tide the shallowest of them needs for the
+     * safe operating depth, and the times above it today.
+     */
+    private fun showSpot(lat: Double, lon: Double) {
+        val p = LatLon(lat, lon)
+        Thread {
+            val spot = try { ChartDepthSource(this).spot(p) } catch (_: Exception) { null }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                val a = spot?.let { SpotReport.analyse(it, depthFt) }
+                val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                val text = a?.lines?.joinToString("\n") ?: "No downloaded chart covers this spot."
+                content.addView(TextView(this).apply { textSize = 15f; setPadding(dp(20), dp(12), dp(20), 0)
+                    this.text = text + "\n\nCharted depths are feet above chart datum (MLLW). Safe operating depth ${ChartTiles.depthText(depthFt)} ft." })
+                val station = Tides.nearest(tideStations, p).firstOrNull()
+                if (station != null) {
+                    val km = Planner.distanceM(p, station.point) / 1000.0
+                    content.addView(tidePanel(station, String.format(java.util.Locale.US, "\nTide at %s, the nearest station (%.1f km):", station.name, km),
+                        spotNeed(a?.lowFt, a?.basis)))
+                } else content.addView(TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), 0)
+                    this.text = "No NOAA tide station within 30 km, or the station list is not downloaded yet." })
+                AlertDialog.Builder(this)
+                    .setTitle("Depth and tide: ${Coords.format(p)}")
+                    .setView(android.widget.ScrollView(this).apply { addView(content) })
+                    .setPositiveButton("Close", null)
+                    .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
+                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
+                    .show()
+            }
+        }.start()
     }
 
     /** Back to the planning screen with the point. It fills the field there; Plan route plans it. */
@@ -738,7 +774,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position. Press and hold the chart to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -1231,8 +1267,18 @@ class ChartMapActivity : Activity() {
     private fun refreshPredicted() {
         val st = style ?: return
         fun charted(note: String) {
-            for ((id, props) in predictedSaved) (st.getLayer(id) as? SymbolLayer)?.setProperties(*props)
-            predictedSaved.clear()
+            // The chart's own label and colors, as ChartTiles.STYLE writes them (MapLibre's
+            // getters hand back plain values that do not set paint properties again)
+            val field = Expression.raw("[\"to-string\",[\"get\",\"ft\"]]")
+            val sounding = Expression.raw(String.format(java.util.Locale.US,
+                "[\"case\",[\"<\",[\"get\",\"ft\"],%s],[\"to-color\",\"#9b1c1c\"],[\"to-color\",\"#1a1a1a\"]]", depthFt.toString()))
+            for (id in predictedLayers) {
+                val sym = st.getLayer(id) as? SymbolLayer ?: continue
+                val contour = id.substringBefore('@').substringBefore('~') == "depcnt-label"
+                sym.setProperties(PropertyFactory.textField(field),
+                    if (contour) PropertyFactory.textColor("#2c5270") else PropertyFactory.textColor(sounding))
+            }
+            predictedLayers.clear()
             setPredictedNote(note)
         }
         if (!predictedOn) { charted(""); return }
@@ -1267,7 +1313,7 @@ class ChartMapActivity : Activity() {
             val base = layer.id.substringBefore('@').substringBefore('~')
             if (base != "soundg" && base != "depcnt-label") continue
             val sym = layer as? SymbolLayer ?: continue
-            if (layer.id !in predictedSaved) predictedSaved[layer.id] = arrayOf<PropertyValue<*>>(sym.textField, sym.textColor)
+            predictedLayers.add(layer.id)
             sym.setProperties(PropertyFactory.textField(field), PropertyFactory.textColor(color))
         }
         setPredictedNote(Tides.predictedKey(TideAt(station, series), minute, java.time.ZoneId.systemDefault()) ?: "")
@@ -1281,6 +1327,16 @@ class ChartMapActivity : Activity() {
 
     /** What a check leg needs from the tide: the height to draw, and why (or why there is none). */
     private class TideNeed(val feet: Double?, val text: String)
+
+    /** The tide line for a spot: [lowFt] charted, described by [basis]. */
+    private fun spotNeed(lowFt: Double?, basis: String?): TideNeed {
+        val d = ChartTiles.depthText(depthFt)
+        if (lowFt == null || basis == null) return TideNeed(null, "No charted depth here to work out the tide needed.")
+        val need = depthFt - lowFt
+        if (need <= 0) return TideNeed(null, "Your $d ft is there at chart datum over $basis.")
+        return TideNeed(need, String.format(java.util.Locale.US,
+            "Red dotted line: %.1f ft of tide gives your %s ft over %s. Shallower water may be uncharted.", need, d, basis))
+    }
 
     private fun tideNeed(pick: ChartTiles.LegPick): TideNeed? {
         if (!pick.shoal) return null

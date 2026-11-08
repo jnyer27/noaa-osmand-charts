@@ -2,6 +2,7 @@ package com.jnyer27.noaaroute
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.cos
@@ -122,4 +123,32 @@ class ChartDepthTest {
         assertTrue(notes.toString(), notes.any { it.contains("may be under your 5 ft") && meters(it) >= 50.0 })
     }
 
+    @Test
+    fun theKnollTileHasItsFiveFootSounding() {
+        val bytes = javaClass.classLoader!!.getResourceAsStream("knoll-z15.pbf.gz")!!.readBytes()
+        val s = ChartDepth.soundingsInTile(bytes, 15, 9431, 12521)
+        assertEquals(13, s.size)
+        val knollTop = LatLon(39.01210, -76.38587)
+        val near = s.minByOrNull { Planner.distanceM(knollTop, it.p) }!!
+        assertEquals(5, near.ft)
+        assertTrue(Planner.distanceM(knollTop, near.p) < 10.0)
+    }
+
+    @Test
+    fun spotReportSaysWhatTheChartSaysHere() {
+        val p = LatLon(39.0120, -76.3859)
+        val spot = ChartDepthRoute.Spot(listOf(ChartDepth.Area(listOf(knoll), 0, 6)),
+            listOf(ChartDepth.Sounding(p, 7) to 12.0, ChartDepth.Sounding(p, 5) to 40.0))
+        val a = SpotReport.analyse(spot, 3.0)
+        assertEquals(listOf("Depth area: 0 to 6 ft, may be under your 3 ft.",
+            "Shallowest sounding within 150 m: 5 ft, 40 m away.", "Nearest sounding: 7 ft, 12 m away."), a.lines)
+        assertEquals(5.0, a.lowFt!!, 0.0)
+        assertEquals("the 5 ft sounding 40 m away", a.basis)
+        // A dredged channel with no soundings: its charted depth
+        val ch = SpotReport.analyse(ChartDepthRoute.Spot(listOf(ChartDepth.Area(listOf(knoll), 4, 4, dredged = true)), emptyList()), 5.0)
+        assertEquals(listOf("Dredged area: charted 4 ft, under your 5 ft.", "No sounding charted within 150 m."), ch.lines)
+        assertEquals(4.0, ch.lowFt!!, 0.0)
+        val none = SpotReport.analyse(ChartDepthRoute.Spot(emptyList(), emptyList()), 3.0)
+        assertNull(none.lowFt)
+    }
 }
