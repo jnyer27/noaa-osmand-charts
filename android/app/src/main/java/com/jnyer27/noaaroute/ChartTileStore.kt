@@ -56,9 +56,17 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
      */
     private val catalogFile = File(ctx.filesDir, if (kind == Kind.CHART) "chart-catalog.json" else "basemap-catalog.json")
     val base: String = if (kind == Kind.CHART) BuildConfig.CHART_BASE else BuildConfig.BASEMAP_BASE
+    /**
+     * Where the saved catalog came from. A test APK reads the beta release and the app
+     * after it reads main (or the other way round), and files keep their names but not
+     * their checksums: a catalog saved from another release is not used.
+     */
+    private val catalogBaseFile = File(ctx.filesDir, catalogFile.name + ".base")
 
-    fun catalogSets(): List<ChartTiles.TileSet> =
-        try { ChartTiles.tileSets(catalogFile.readText(), kind.key) } catch (_: Exception) { emptyList() }
+    fun catalogSets(): List<ChartTiles.TileSet> = try {
+        if (catalogBaseFile.readText() != base) emptyList()
+        else ChartTiles.tileSets(catalogFile.readText(), kind.key)
+    } catch (_: Exception) { emptyList() }
 
     /** Fetch the vector catalog from [base] (branch builds read vector-maps-beta) and return its tile sets. */
     fun refreshCatalog(): List<ChartTiles.TileSet> {
@@ -76,6 +84,7 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
             val text = c.inputStream.bufferedReader().readText()
             ChartTiles.tileSets(text, kind.key) // parses, or throws before the saved copy is replaced
             catalogFile.writeText(text)
+            catalogBaseFile.writeText(base)
         } finally { c.disconnect() }
     }
 
@@ -265,14 +274,23 @@ class ChartTileStore(private val ctx: Context, val kind: Kind = Kind.CHART) {
         val src = partial(e.file)
         if (!src.isFile) throw Exception("the downloaded ${e.file} is gone; download it again")
         val got = sha256(src)
-        if (got != e.sha256) throw Exception("${e.file} is damaged (checksum); download it again")
+        var want = e.sha256
+        if (got != want) {
+            // The entry's sha came from the saved catalog, which can be older than the
+            // file just downloaded (rebuilt since, or saved from another release):
+            // the file is good if the current catalog lists it with this sha
+            try { fetchCatalog() } catch (_: Exception) { }
+            val now = catalogSets().firstOrNull { it.ncds == e.ncds && it.file == e.file }
+            if (now != null && now.sha256 == got) want = got
+            else throw Exception("${e.file} is damaged (checksum); download it again")
+        }
         val dest = File(dir, e.file)
         if (dest.exists()) dest.delete()
         if (!src.renameTo(dest)) {
             src.copyTo(dest, overwrite = true)
             src.delete()
         }
-        put(e.copy(state = State.READY, readySha = e.sha256, download = -1, error = null))
+        put(e.copy(state = State.READY, sha256 = want, readySha = want, download = -1, error = null))
         ChartMaps.notifyChart(ctx, "Region ${e.ncds} ${kind.what} ready", "Open View map to see it.", null)
     }
 

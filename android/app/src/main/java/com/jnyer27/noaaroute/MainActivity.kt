@@ -519,6 +519,7 @@ class MainActivity : Activity() {
                 store.cachedCatalog()
             }
             chartTiles.refreshCatalog() // its own copy: a branch APK lists the branch's charts
+            baseTiles.refreshCatalog() // the base map's too, or its checksums can be a rebuild behind
             ui.post {
                 catalog = list
                 if (store.dropReplaced(list)) openCharts()
