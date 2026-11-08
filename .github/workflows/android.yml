@@ -37,17 +37,19 @@ jobs:
           command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
           xmllint --noout --schema app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
 
-      # The command-line planner on the released route data: the "Maryland Marina to Ego Alley"
-      # reference route (24-29 nm) with Try to avoid checks, then both GPX files against GPX 1.1
+      # The command-line planner on the released route data and region chart: the "Maryland Marina
+      # to Ego Alley" reference route (24-29 nm) with Try to avoid checks and the chart depth check,
+      # then the GPX files against GPX 1.1
       - name: Command-line planner
         env:
           NOAA_ROUTE_CWD: ${{ runner.temp }}
           NOAA_ROUTE_PACKS: ${{ runner.temp }}/cli-packs
+          NOAA_ROUTE_CHARTS: ${{ runner.temp }}/cli-charts
         run: |
           gradle --no-daemon -q :cli:run --args="-f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 --resolve -n cli-ego-alley"
           gradle --no-daemon -q :cli:run --args="-f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --json -q" > "$RUNNER_TEMP/cli.json"
           cat "$RUNNER_TEMP/cli.json"
-          python3 -c "import json,sys; nm=json.load(open(sys.argv[1]))['route']['nm']; print('nm', nm); sys.exit(0 if 24 <= nm <= 29 else 1)" "$RUNNER_TEMP/cli.json"
+          python3 -c "import json,sys; j=json.load(open(sys.argv[1])); nm=j['route']['nm']; cd=j['chartDepth']; print('nm', nm, '| chart depth:', cd); sys.exit(0 if 24 <= nm <= 29 and cd == 'Region 04 chart' else 1)" "$RUNNER_TEMP/cli.json"
           for f in "$RUNNER_TEMP"/cli-ego-alley*.gpx; do xmllint --noout --schema app/src/test/resources/gpx.xsd "$f"; done
 
       - name: Signing key

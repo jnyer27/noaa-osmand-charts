@@ -29,6 +29,10 @@ tasks.named<JavaExec>("run") {
 
 dependencies {
     implementation(project(":core"))
+    // Reads the region chart (MBTiles, SQLite) for the depth check. Ships native SQLite for
+    // Windows, macOS and Linux; slf4j-nop keeps its logging quiet.
+    implementation("org.xerial:sqlite-jdbc:3.46.1.0")
+    runtimeOnly("org.slf4j:slf4j-nop:2.0.13")
     testImplementation("junit:junit:4.13.2")
 }
 

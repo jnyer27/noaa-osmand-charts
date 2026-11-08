@@ -16,13 +16,48 @@ import java.security.MessageDigest
 class PackCache(val dir: File, private val catalogFile: File, private val base: String) {
     init { dir.mkdirs() }
 
-    private fun httpGet(url: String): HttpURLConnection {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 20000
-        c.readTimeout = 60000
-        c.instanceFollowRedirects = true
-        if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for $url")
-        return c
+    companion object {
+        fun httpGet(url: String): HttpURLConnection {
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.connectTimeout = 20000
+            c.readTimeout = 60000
+            c.instanceFollowRedirects = true
+            if (c.responseCode != 200) throw Exception("HTTP ${c.responseCode} for $url")
+            return c
+        }
+
+        /**
+         * Download [url] to [dest], checked against [sha256] before it replaces [dest]
+         * (anything still reading the old file keeps it until reopened). [progress] gets
+         * (bytes so far, [size]) every 500 KB.
+         */
+        fun fetchChecked(url: String, dest: File, sha256: String, size: Long, progress: (Long, Long) -> Unit = { _, _ -> }) {
+            // A name of our own: the app and the background job may both be at it
+            val part = File(dest.parentFile, "${dest.name}.${System.nanoTime()}.part")
+            try {
+                val md = MessageDigest.getInstance("SHA-256")
+                httpGet(url).inputStream.use { inp ->
+                    part.outputStream().use { out ->
+                        val buf = ByteArray(1 shl 16)
+                        var got = 0L
+                        var last = 0L
+                        while (true) {
+                            val r = inp.read(buf)
+                            if (r < 0) break
+                            out.write(buf, 0, r)
+                            md.update(buf, 0, r)
+                            got += r
+                            if (got - last > 500_000) { last = got; progress(got, size) }
+                        }
+                    }
+                }
+                val sha = md.digest().joinToString("") { "%02x".format(it) }
+                if (sha != sha256) throw Exception("download check failed, try again")
+                if (!part.renameTo(dest)) throw Exception("could not save ${dest.name}")
+            } finally {
+                part.delete()
+            }
+        }
     }
 
     /** The published catalog; the last copy fetched stays usable offline. */
@@ -47,31 +82,11 @@ class PackCache(val dir: File, private val catalogFile: File, private val base: 
 
     /** Download a pack (checked against the catalog's SHA-256) and put it in place. */
     fun download(a: AreaInfo, progress: (Long, Long) -> Unit = { _, _ -> }) {
-        // A name of our own: the app and the background job may both be at it
-        val part = File(dir, "${a.id}.${System.nanoTime()}.part")
         try {
-            val md = MessageDigest.getInstance("SHA-256")
-            httpGet(base + a.file).inputStream.use { inp ->
-                part.outputStream().use { out ->
-                    val buf = ByteArray(1 shl 16)
-                    var got = 0L
-                    var last = 0L
-                    while (true) {
-                        val r = inp.read(buf)
-                        if (r < 0) break
-                        out.write(buf, 0, r)
-                        md.update(buf, 0, r)
-                        got += r
-                        if (got - last > 500_000) { last = got; progress(got, a.size) }
-                    }
-                }
-            }
-            val sha = md.digest().joinToString("") { "%02x".format(it) }
-            if (sha != a.sha256) throw Exception("download check failed, try again")
-            // Rename over the old file: anything still reading it keeps the old copy until reopened
-            if (!part.renameTo(File(dir, "${a.id}.bin"))) throw Exception("could not save ${a.file}")
-        } finally {
-            part.delete()
+            fetchChecked(base + a.file, File(dir, "${a.id}.bin"), a.sha256, a.size, progress)
+        } catch (e: Exception) {
+            if (e.message?.startsWith("could not save") == true) throw Exception("could not save ${a.file}")
+            throw e
         }
     }
 
