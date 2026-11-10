@@ -7,7 +7,7 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 ## Unreleased: county names on the base map (branch county-labels)
 
 View map:
-- **County lines are labeled.** The base map's thin purple dashed county lines, which run out over the water, now carry the county's name on each side of the line from zoom 11 (more labels from zoom 13), with the state added where the line is a state line. Names come from the Census Bureau's county boundaries. Needs the rebuilt base map (Update on the region).
+- **County lines are labeled.** County and state lines (thin purple dashes, out over the water too) now come from the Census Bureau's county boundaries and carry the county's name on each side of the line from zoom 11 (more labels from zoom 13), with the line running between the two names and the state added on state lines. OpenStreetMap's county lines were dropped: they sat up to a few hundred meters off the Census lines in places (the Gunpowder River), which put both names on one side. Needs the rebuilt base map (Update on the region); until then the region shows no county or state lines.
 
 ## 2026-11-08: depth estimate (app 0.1.255, route packs build 166 unchanged)
 

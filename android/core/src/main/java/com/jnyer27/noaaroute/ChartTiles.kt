@@ -595,23 +595,27 @@ object ChartTiles {
 
     /**
      * OpenStreetMap base map (Protomaps basemap layers v4, trimmed by tools/build_basemap.sh
-     * to roads, places, boundaries and boating pois). No water or land fill: the chart's own.
+     * to roads, places, boundaries and boating pois, plus `counties`: Census county and state lines and
+     * their name labels, tools/county_labels.py). No water or land fill: the chart's own.
      */
     private const val BASE_LAYERS = """
     {"id": "osm-boundary", "type": "line", "source": "osm", "source-layer": "boundaries",
-      "filter": ["match", ["get", "kind"], ["country", "region", "county"], true, false],
+      "filter": ["==", ["get", "kind"], "country"],
+      "paint": {"line-color": "#7e57c2", "line-opacity": 0.7, "line-dasharray": [3, 2], "line-width": 1.6}},
+    {"id": "osm-county-line", "type": "line", "source": "osm", "source-layer": "counties",
+      "filter": ["==", ["geometry-type"], "LineString"],
       "paint": {"line-color": "#7e57c2", "line-opacity": 0.7, "line-dasharray": [3, 2],
-        "line-width": ["match", ["get", "kind"], "county", 1.0, 1.6]}},
+        "line-width": ["match", ["get", "state"], 1, 1.6, 1.0]}},
     {"id": "osm-county-label", "type": "symbol", "source": "osm", "source-layer": "counties", "minzoom": 11,
-      "filter": ["==", ["get", "rank"], 0],
+      "filter": ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "rank"], 0]],
       "layout": {"text-field": ["concat", ["get", "a"], "\n", ["get", "b"]], "text-font": ["$FONT"],
-        "text-size": 11, "text-line-height": 1.6, "text-max-width": 30, "text-rotate": ["get", "rot"],
+        "text-size": 11, "text-line-height": 1.8, "text-max-width": 30, "text-rotate": ["get", "rot"],
         "text-rotation-alignment": "map", "text-pitch-alignment": "map", "text-padding": 20},
       "paint": {"text-color": "#5e35b1", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "osm-county-label-more", "type": "symbol", "source": "osm", "source-layer": "counties", "minzoom": 13,
-      "filter": ["==", ["get", "rank"], 1],
+      "filter": ["all", ["==", ["geometry-type"], "Point"], ["==", ["get", "rank"], 1]],
       "layout": {"text-field": ["concat", ["get", "a"], "\n", ["get", "b"]], "text-font": ["$FONT"],
-        "text-size": 11, "text-line-height": 1.6, "text-max-width": 30, "text-rotate": ["get", "rot"],
+        "text-size": 11, "text-line-height": 1.8, "text-max-width": 30, "text-rotate": ["get", "rot"],
         "text-rotation-alignment": "map", "text-pitch-alignment": "map", "text-padding": 20},
       "paint": {"text-color": "#5e35b1", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
     {"id": "osm-rail", "type": "line", "source": "osm", "source-layer": "roads", "minzoom": 11,

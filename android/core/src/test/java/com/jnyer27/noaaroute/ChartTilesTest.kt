@@ -202,7 +202,10 @@ class ChartTilesTest {
         val county = layers.first { it["id"] == "osm-county-label~1" }
         assertEquals("counties", county["source-layer"])
         assertEquals(listOf("concat", listOf("get", "a"), "\n", listOf("get", "b")), obj(county["layout"])["text-field"])
-        assertTrue(ids.indexOf("osm-county-label-more~0") > ids.indexOf("osm-boundary~1"))
+        assertTrue(ids.indexOf("osm-county-label-more~0") > ids.indexOf("osm-county-line~1"))
+        // County and state lines come from the same Census lines as the labels, not OpenStreetMap's
+        assertEquals("counties", layers.first { it["id"] == "osm-county-line~0" }["source-layer"])
+        assertEquals(listOf("==", listOf("get", "kind"), "country"), layers.first { it["id"] == "osm-boundary~0" }["filter"])
         // Above every region's land fill, under contours, soundings, marks and the route
         assertTrue(ids.indexOf("lndare~1") < ids.indexOf("osm-boundary~0"))
         assertTrue(ids.indexOf("osm-place~1") < ids.indexOf("depcnt"))
