@@ -201,8 +201,11 @@ class ChartTilesTest {
         // County names on the county lines, one name each side (tools/county_labels.py)
         val county = layers.first { it["id"] == "osm-county-label~1" }
         assertEquals("counties", county["source-layer"])
+        // Closer labels as you zoom in, so a line keeps a name on screen to the map's zoom 18
+        assertEquals(listOf(11.0, 13.0, 15.0, 17.0), (0..3).map { r ->
+            (layers.first { it["id"] == (if (r == 0) "osm-county-label~0" else "osm-county-label-$r~0") }["minzoom"] as Number).toDouble() })
         assertEquals(listOf("concat", listOf("get", "a"), "\n", listOf("get", "b")), obj(county["layout"])["text-field"])
-        assertTrue(ids.indexOf("osm-county-label-more~0") > ids.indexOf("osm-county-line~1"))
+        assertTrue(ids.indexOf("osm-county-label-3~0") > ids.indexOf("osm-county-line~1"))
         // County and state lines come from the same Census lines as the labels, not OpenStreetMap's
         assertEquals("counties", layers.first { it["id"] == "osm-county-line~0" }["source-layer"])
         assertEquals(listOf("==", listOf("get", "kind"), "country"), layers.first { it["id"] == "osm-boundary~0" }["filter"])

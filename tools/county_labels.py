@@ -8,23 +8,24 @@ from the Census TIGER/Line county file (public domain; its polygons run out into
 water to the legal county limits, unlike the shoreline-clipped cartographic files):
 
   lines:  {"state": 0|1}                  every line between two counties (1 = state line)
-  labels: {"a": "Harford County", "b": "Baltimore County", "rot": 33.0, "rank": 0|1}
+  labels: {"a": "Harford County", "b": "Baltimore County", "rot": 33.0, "rank": 0-3}
 
 Neighboring TIGER counties share exact vertices, so a line between two counties is the
 run of ring segments both have. A shapefile ring keeps its polygon on the right, so the
-county on each side is exact. A label point lies on the line every SPACING_M; the app
+county on each side is exact. A label point lies on the line every STEP_M; the app
 draws `a` above and `b` below, rotated by `rot` (MapLibre text-rotate, degrees
 clockwise, reading along the line), so the line runs through the gap between them. Across
-a state line each name gets its state (Kent County, MD). rank 0 is every RANK0_EVERY'th
-label, for the lower zooms. Pure Python (no GDAL), so it also runs on the phone. Output is
+a state line each name gets its state (Kent County, MD). The rank sets how close in
+the label shows (RANKS; the chart shows 0 from zoom 11, 1 from 13, 2 from 15, 3 from 17),
+so a line has a label on screen at any zoom. Pure Python (no GDAL), so it also runs on the phone. Output is
 newline-delimited GeoJSON features for tippecanoe.
 
   tools/county_labels.py <tl_YYYY_us_county.zip> <west,south,east,north> > counties.geojsonl
 """
 import json, math, struct, sys, zipfile
 
-SPACING_M = 1500.0      # between labels along a line
-RANK0_EVERY = 4         # every 4th label (6 km) also shows at lower zooms
+STEP_M = 187.5          # between label points along a line; each rank shows from a zoom:
+RANKS = (32, 8, 2)      # rank 0 every 32 steps (6 km), 1 every 8 (1.5 km), 2 every 2 (375 m), 3 the rest
 MIN_LINE_M = 300.0      # shorter lines get no label
 TANGENT_M = 200.0       # the line's direction is taken over +-this along it
 PAD_DEG = 0.05          # lines are kept this far outside the box (labels only inside)
@@ -166,10 +167,10 @@ def main():
         if state:
             a_name += ", " + STATES.get(right["st"], right["st"])
             b_name += ", " + STATES.get(left["st"], left["st"])
-        t = min(SPACING_M / 2, total / 2)
+        t = min(STEP_M / 2, total / 2)
         k = 0
         while t < total:
-            here, t, k = t, t + SPACING_M, k + 1
+            here, t, k = t, t + STEP_M, k + 1
             x, y = at(here)
             if not (w <= x <= e and s <= y <= n):
                 continue
@@ -187,7 +188,7 @@ def main():
             top_is_right = math.cos(math.radians(rot - (travel + 90))) > 0
             a, b = (a_name, b_name) if top_is_right else (b_name, a_name)
             out({"type": "Point", "coordinates": [round(x, 6), round(y, 6)]},
-                {"a": a, "b": b, "rot": round(rot, 1), "rank": 0 if (k - 1) % RANK0_EVERY == 0 else 1})
+                {"a": a, "b": b, "rot": round(rot, 1), "rank": next((r for r, m in enumerate(RANKS) if (k - 1) % m == 0), len(RANKS))})
             nlabels += 1
     print(f"{nlines} lines, {nlabels} labels", file=sys.stderr)
 
