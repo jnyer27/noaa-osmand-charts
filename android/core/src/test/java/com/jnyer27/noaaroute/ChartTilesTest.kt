@@ -198,6 +198,11 @@ class ChartTilesTest {
         val ids = layers.map { it["id"] as String }
         assertEquals("ids unique", ids.size, ids.toSet().size)
         assertEquals("osm1", layers.first { it["id"] == "osm-highway~1" }["source"])
+        // County names on the county lines, one name each side (tools/county_labels.py)
+        val county = layers.first { it["id"] == "osm-county-label~1" }
+        assertEquals("counties", county["source-layer"])
+        assertEquals(listOf("concat", listOf("get", "a"), "\n", listOf("get", "b")), obj(county["layout"])["text-field"])
+        assertTrue(ids.indexOf("osm-county-label-more~0") > ids.indexOf("osm-boundary~1"))
         // Above every region's land fill, under contours, soundings, marks and the route
         assertTrue(ids.indexOf("lndare~1") < ids.indexOf("osm-boundary~0"))
         assertTrue(ids.indexOf("osm-place~1") < ids.indexOf("depcnt"))

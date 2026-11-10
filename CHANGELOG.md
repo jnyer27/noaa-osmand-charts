@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: county names on the base map (branch county-labels)
+
+View map:
+- **County lines are labeled.** The base map's thin purple dashed county lines, which run out over the water, now carry the county's name on each side of the line from zoom 11 (more labels from zoom 13), with the state added where the line is a state line. Names come from the Census Bureau's county boundaries. Needs the rebuilt base map (Update on the region).
+
 ## 2026-11-08: depth estimate (app 0.1.255, route packs build 166 unchanged)
 
 View map:
