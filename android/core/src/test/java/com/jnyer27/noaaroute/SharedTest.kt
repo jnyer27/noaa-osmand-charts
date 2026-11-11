@@ -102,4 +102,14 @@ class SharedTest {
         assertNull(Shared.gpxLine("""<gpx><wpt lat="39.1" lon="-76.1"/></gpx>"""))
         assertNull(Shared.gpxLine("not gpx"))
     }
+
+    @Test
+    fun readTextUnzipsAGpxgz() {
+        val gpx = """<gpx><rte><name><![CDATA[testiboat]]></name><rtept lat="39.324859" lon="-76.401748"/><rtept lat="39.319515" lon="-76.402549"/></rte></gpx>"""
+        val z = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(z).use { it.write(gpx.toByteArray()) }
+        assertEquals(gpx, Shared.readText(java.io.ByteArrayInputStream(z.toByteArray())))
+        assertEquals(gpx, Shared.readText(java.io.ByteArrayInputStream(gpx.toByteArray())))
+        assertEquals("testiboat", Shared.gpxLine(gpx)!!.first)
+    }
 }

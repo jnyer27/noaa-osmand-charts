@@ -1631,23 +1631,15 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Up to 20 MB of a file as text. */
-    private fun readText(uri: Uri): String = contentResolver.openInputStream(uri)?.use { s ->
-        val out = java.io.ByteArrayOutputStream()
-        val buf = ByteArray(1 shl 16)
-        while (out.size() < 20_000_000) {
-            val n = s.read(buf)
-            if (n < 0) break
-            out.write(buf, 0, n)
-        }
-        out.toString("UTF-8")
-    }.orEmpty()
+    /** Up to 20 MB of a file as text; a gzipped file (.gpxgz, .gpx.gz) is unzipped. */
+    private fun readText(uri: Uri): String = contentResolver.openInputStream(uri)?.use { Shared.readText(it) }.orEmpty()
 
     /** Import GPX: pick a file (any type: GPX files often come without a GPX mime type). */
     private fun pickGpx() {
         if (charts == null) { toast("Download route data for planning first (Regions)."); return }
         val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
-            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "text/plain"))
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "text/plain",
+                "application/gzip", "application/x-gzip"))
         try {
             @Suppress("DEPRECATION") startActivityForResult(i, REQ_IMPORT)
         } catch (_: Exception) {

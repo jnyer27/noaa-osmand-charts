@@ -109,6 +109,26 @@ object Shared {
         .replace("&apos;", "'").replace("&amp;", "&").trim()
 
     /**
+     * Up to [limit] bytes of a stream as UTF-8 text. A gzipped stream (i-Boating's .gpxgz,
+     * or .gpx.gz) is unzipped first, by its magic bytes, whatever the file is called.
+     */
+    fun readText(input: java.io.InputStream, limit: Int = 20_000_000): String {
+        val b = java.io.BufferedInputStream(input)
+        b.mark(2)
+        val gz = b.read() == 0x1f && b.read() == 0x8b
+        b.reset()
+        val s = if (gz) java.util.zip.GZIPInputStream(b) else b
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(1 shl 16)
+        while (out.size() < limit) {
+            val n = s.read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+        }
+        return out.toString("UTF-8")
+    }
+
+    /**
      * The line a GPX file draws, for Import GPX: the first route with 2 or more points, else
      * every track point in file order (all segments), else the waypoints in order. The name
      * is the route's or track's own when it has one. Null when there is no line.
