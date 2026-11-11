@@ -88,6 +88,9 @@ class ChartMapActivity : Activity() {
         const val PICK_START = "start"
         const val PICK_VIA = "via"
         const val PICK_DEST = "dest"
+        /** Delete leg: [EXTRA_PICK_LEG] (1-based) loses its end waypoint on the planning screen. */
+        const val PICK_DELETE = "deleteLeg"
+        const val EXTRA_PICK_LEG = "pickLeg"
     }
 
     private lateinit var mapView: MapView
@@ -735,6 +738,19 @@ class ChartMapActivity : Activity() {
             content.addView(TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), 0)
                 text = "No NOAA tide station within 30 km, or the station list is not downloaded yet." })
         }
+        content.addView(Button(this).apply {
+            text = "Delete leg ${pick.leg}"
+            isAllCaps = false
+            contentDescription = "Delete leg ${pick.leg}: join the legs on either side with a straight line, checked again"
+            setOnClickListener {
+                setResult(RESULT_OK, Intent().putExtra(EXTRA_PICK_ACTION, PICK_DELETE).putExtra(EXTRA_PICK_LEG, pick.leg))
+                finish()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(16), dp(12), dp(16), 0)
+        })
+        content.addView(TextView(this).apply { textSize = 12f; setPadding(dp(20), dp(2), dp(20), 0)
+            text = "Removes the waypoint at the end of this leg; the legs on either side become one straight leg, checked again and saved as a new route file." })
         AlertDialog.Builder(this)
             .setTitle(if (pick.flagged) "Leg ${pick.leg}: check" else "Leg ${pick.leg}")
             .setView(android.widget.ScrollView(this).apply { addView(content) })

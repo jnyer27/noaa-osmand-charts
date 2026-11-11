@@ -200,6 +200,51 @@ class PlannerTest {
     }
 
     @Test
+    fun deleteLegJoinsTheLegsAndFlagsALineAcrossLand() {
+        Pack(headlandPack()).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val pts = listOf(cellCenter(400, 260), cellCenter(251, 100))
+            val r = planner.plan("t", pts, 3.0, null)
+            assertTrue("rounds the headland in more than one leg", r.legs.size >= 2)
+            // Delete the first leg: the start now runs straight to the second waypoint's
+            // successor. Deleting until one leg is left cuts straight across the headland.
+            var e = r
+            while (e.legs.size > 1) e = planner.deleteLeg(e, 1, pts)
+            assertEquals("t_edited", e.name)
+            assertEquals(listOf(pts[0], pts[1]), e.points)
+            val l = e.legs.single()
+            assertTrue(l.notes.toString(), l.notes.any { it.startsWith("crosses about") && it.endsWith(": check") })
+            assertTrue(l.notes.contains(Planner.JOINED_NOTE))
+            assertTrue(Gpx.flagged(l))
+            assertEquals(Planner.distanceM(pts[0], pts[1]), l.distM, 1.0)
+            assertTrue(e.messages.last().startsWith("Leg 1 deleted on the chart"))
+            // One leg: nothing to remove
+            try { planner.deleteLeg(e, 1, pts); fail("one leg") } catch (x: PlanException) { }
+        }
+    }
+
+    @Test
+    fun deleteLegInOpenWaterIsNotFlaggedAndKeepsViaPoints() {
+        Pack(headlandPack()).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            // Two legs through open water, a via point between them
+            val via = cellCenter(100, 300)
+            val pts = listOf(cellCenter(100, 250), via, cellCenter(100, 400))
+            val r = planner.plan("t", pts, 3.0, null)
+            val atVia = r.points.indexOf(via)
+            assertTrue(atVia > 0)
+            try { planner.deleteLeg(r, atVia, pts); fail("via point removed") } catch (x: PlanException) {
+                assertTrue(x.message!!.contains("via points"))
+            }
+            // Without the via as a user point the join is open water: no check
+            val e = planner.deleteLeg(r, atVia, listOf(pts[0], pts[2]))
+            val l = e.legs[atVia - 1]
+            assertTrue(l.notes.toString(), l.notes.none { it.startsWith("crosses about") })
+            assertTrue(!Gpx.flagged(l))
+        }
+    }
+
+    @Test
     fun startOnLandKeepsItsWaterWaypoint() {
         Pack(headlandPack()).use { pack ->
             val start = cellCenter(300, 250) // 5 cells inside the land block

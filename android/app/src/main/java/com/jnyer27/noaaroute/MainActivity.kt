@@ -1432,6 +1432,10 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_CHART || resultCode != RESULT_OK || data == null) return
+        if (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION) == ChartMapActivity.PICK_DELETE) {
+            deleteLeg(data.getIntExtra(ChartMapActivity.EXTRA_PICK_LEG, 0))
+            return
+        }
         if (!data.hasExtra(ChartMapActivity.EXTRA_PICK_LAT)) return
         val p = LatLon(data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LAT, 0.0), data.getDoubleExtra(ChartMapActivity.EXTRA_PICK_LON, 0.0))
         val pos = Coords.format(p)
@@ -1587,6 +1591,44 @@ class MainActivity : Activity() {
                 ui.post { status.text = "Out of memory while avoiding checks."; planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true }
             } catch (e: Exception) {
                 ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true; resolveButton.isEnabled = true }
+            }
+        }
+    }
+
+    /**
+     * Delete leg from the chart: the leg's end waypoint goes and its neighbours become one
+     * straight leg, checked again (Planner.deleteLeg). Saved as its own GPX (<name>_edited);
+     * the chart reopens on it. A refusal (one leg, or a via point) stays here with the reason.
+     */
+    private fun deleteLeg(leg: Int) {
+        val p = charts ?: return
+        val r = route ?: return
+        val pl = planned ?: return
+        planButton.isEnabled = false
+        packButton.isEnabled = false
+        status.text = "Deleting leg $leg..."
+        worker.execute {
+            val t0 = System.currentTimeMillis()
+            try {
+                val e = Planner(p).deleteLeg(r, leg, pl.pts, BUF_M, pl.stayInside)
+                val tides = withTides(withChartDepth(e))
+                val er = tides.route
+                val (uri, savedAs) = saveGpx(er, pl.datum, pl.checks, pl.pts, tides.lines)
+                val sec = (System.currentTimeMillis() - t0) / 1000.0
+                ui.post {
+                    route = er
+                    gpxUri = uri
+                    val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the original route file is unchanged)"
+                    showReport(er, pl.trip, tides.lines + afterLines(pl.used, sec), pl.datum, saved)
+                    status.text = er.messages.last()
+                    resolveButton.visibility = if (Gpx.checkRuns(er).isNotEmpty()) View.VISIBLE else View.GONE
+                    planButton.isEnabled = true; packButton.isEnabled = true
+                    if (!isFinishing) showOnMap()
+                }
+            } catch (e: PlanException) {
+                ui.post { status.text = e.message; planButton.isEnabled = true; packButton.isEnabled = true }
+            } catch (e: Exception) {
+                ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true }
             }
         }
     }

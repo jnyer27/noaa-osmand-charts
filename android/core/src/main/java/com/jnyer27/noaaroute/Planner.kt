@@ -170,6 +170,8 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         // Canal share its single 20 m cell. Wrecks, rocks and other obstructions stay walls.
         private const val SOFT_COST = 5f
         private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
+        /** On a leg made by Delete leg: a straight line the planner did not choose. */
+        const val JOINED_NOTE = "a straight leg you made with Delete leg, not planned"
         // Rounding of the distance range in a hazard note (meters)
         private const val NOTE_STEP_M = 5.0
         internal const val HZ_SOUNDING = 0
@@ -2904,6 +2906,62 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         val text = Resolution.summary(runs.size, resolved, partly, extra)
         return Resolution(Route(r.name + "_adjusted", wps, legs, r.depthFt, r.airFt, r.resM, r.messages + text, r.guideM),
             runs.size, resolved, partly, extra)
+    }
+
+    /**
+     * Delete leg on the chart: leg [leg] (1-based) loses its end waypoint (the last leg its
+     * start, since its end is the destination), and the legs on either side become one
+     * straight leg. That leg is checked like a planned one (depth, hazards, piers, bridges,
+     * cables, restricted areas) and also for what the planner never lets a leg cross: land,
+     * water charted under the safe depth, structures. Those get a check note. Your via points
+     * are not removed this way.
+     */
+    fun deleteLeg(r: Route, leg: Int, userPts: List<LatLon>, bufM: Double = 60.0, stayInside: Boolean = false): Route {
+        if (r.legs.size < 2) throw PlanException("This route has one leg: there is no waypoint to remove.")
+        if (leg !in 1..r.legs.size) throw PlanException("There is no leg $leg on this route.")
+        val j = if (leg < r.legs.size) leg else leg - 1
+        val wp = r.points[j]
+        if (userPts.any { abs(it.lat - wp.lat) < 1e-7 && abs(it.lon - wp.lon) < 1e-7 })
+            throw PlanException("Leg $leg ${if (leg < r.legs.size) "ends" else "starts"} at one of your via points. " +
+                "To drop it, remove it from Via points and plan again.")
+        inside = stayInside
+        val p = r.points[j - 1]
+        val q = r.points[j + 1]
+        val a = area(listOf(p, q), 1.0)
+        val g = buildGrid(a, r.depthFt * Pack.FT, r.airFt?.let { it * Pack.FT }, bufM)
+        val i0 = a.cell(p)
+        val i1 = a.cell(q)
+        val seen = HashSet<String>()
+        for ((k, l) in r.legs.withIndex()) if (k != j - 1 && k != j) seen.addAll(l.notes)
+        val made = legs(a, g, listOf(p, q), intArrayOf(i0, i1), seen, r.airFt).single()
+        // Cells a planned leg never crosses; a point you put on land keeps its own way to the water
+        val lc = lineCells(a, i0, i1)
+        var s0 = 0
+        while (s0 < lc.size && !g.ok[lc[s0]]) s0++
+        var e0 = lc.size - 1
+        while (e0 >= s0 && !g.ok[lc[e0]]) e0--
+        val walls = (s0..e0).count { !g.ok[lc[it]] }
+        val notes = ArrayList<String>()
+        if (walls > 0) {
+            val m = max(a.res, walls * made.distM / max(lc.size, 1))
+            val ft = if (r.depthFt % 1.0 == 0.0) "%.0f".format(Locale.US, r.depthFt) else "%.1f".format(Locale.US, r.depthFt)
+            notes.add("crosses about ${(m / 10).roundToInt() * 10} m of land, water charted under your $ft ft, or a structure the planner keeps off: check")
+        }
+        val old = r.legs[j - 1].notes + r.legs[j].notes
+        if (OFF_WATER in old) notes.add(OFF_WATER)
+        notes.addAll(made.notes)
+        notes.add(JOINED_NOTE)
+        val joined = Leg(made.distM, made.bearing, made.shoalM, made.lowM, notes.distinct())
+        val legs = r.legs.toMutableList()
+        legs[j - 1] = joined
+        legs.removeAt(j)
+        val pts = r.points.toMutableList()
+        pts.removeAt(j)
+        val name = if (r.name.endsWith("_edited")) r.name else r.name + "_edited"
+        val msg = String.format(Locale.US, "Leg %d deleted on the chart: legs %d and %d joined as one straight leg (%.2f nm, was %.2f nm)%s.",
+            leg, j, j + 1, joined.distM / NM, (r.legs[j - 1].distM + r.legs[j].distM) / NM,
+            if (walls > 0) ", which crosses water or land the planner keeps off: check it" else "")
+        return Route(name, pts, legs, r.depthFt, r.airFt, r.resM, r.messages + msg, r.guideM)
     }
 
     /** The grid with what causes checks as walls (shallow water too unless [shallowOk]); the stretch's ends stay open. */
