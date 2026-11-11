@@ -162,6 +162,17 @@ object ChartTiles {
     /** Below this speed a GPS bearing is noise. Course-up keeps the last heading. */
     const val COURSE_SPEED_MPS = 0.5f
 
+    /** GPS fixes asked for this often on the chart (the receiver's usual 1 Hz). */
+    const val GPS_INTERVAL_MS = 1000L
+
+    /** A GPS fix this recent beats network fixes, and the speed shown is this fresh. */
+    const val GPS_FRESH_MS = 10000L
+
+    /** Speed over ground for the chart, in mph to a tenth; "-- mph" when unknown. */
+    fun speedText(speedMps: Float?): String =
+        if (speedMps == null || !speedMps.isFinite() || speedMps < 0) "-- mph"
+        else String.format(Locale.US, "%.1f mph", speedMps * 3600.0 / 1609.344)
+
     /** Degrees clockwise from north, in 0..360. */
     fun normalizeBearing(deg: Double): Double {
         val d = deg % 360.0

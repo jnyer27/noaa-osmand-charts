@@ -422,6 +422,16 @@ class ChartTilesTest {
     }
 
     @Test
+    fun speedInMph() {
+        assertEquals("-- mph", ChartTiles.speedText(null))
+        assertEquals("-- mph", ChartTiles.speedText(Float.NaN))
+        assertEquals("0.0 mph", ChartTiles.speedText(0f))
+        // 6 knots = 3.0867 m/s = 6.9 mph
+        assertEquals("6.9 mph", ChartTiles.speedText(3.0867f))
+        assertEquals("22.4 mph", ChartTiles.speedText(10f))
+    }
+
+    @Test
     fun followAndCompass() {
         assertEquals(0.0, ChartTiles.mapBearing(false, 90f, 3f, 40.0), 0.001)
         assertEquals(90.0, ChartTiles.mapBearing(true, 90f, 3f, 0.0), 0.001)

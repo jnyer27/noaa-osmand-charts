@@ -147,6 +147,11 @@ class ChartMapActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { loc -> showFix(loc) }
+    /** When the last GPS (not network) fix came, for ignoring coarse network fixes in between. */
+    private var lastGpsMs = 0L
+    private var speedLabel: TextView? = null
+    /** No fix for a while: the speed is no longer known. */
+    private val speedStale = Runnable { speedLabel?.text = ChartTiles.speedText(null) }
     private var followButton: Button? = null
     /** Search items from the drawn charts, base maps and route packs; loaded on first search. */
     @Volatile private var searchItems: List<MapSearch.Item>? = null
@@ -299,8 +304,18 @@ class ChartMapActivity : Activity() {
             paintControl(this, chrome)
             setOnClickListener { showSearch() }
         }
+        speedLabel = TextView(this).apply {
+            text = ChartTiles.speedText(null)
+            textSize = 20f
+            gravity = Gravity.CENTER
+            minimumHeight = dp(48)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            paintControl(this, chrome)
+            contentDescription = "Speed over ground"
+        }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(speedLabel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(searchButton)
             addView(followButton)
             addView(compass)
@@ -775,7 +790,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground. The box above Search is your GPS speed over ground in mph. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -955,7 +970,7 @@ class ChartMapActivity : Activity() {
             try {
                 if (!lm.isProviderEnabled(p)) continue
                 lm.getLastKnownLocation(p)?.let { showFix(it) }
-                lm.requestLocationUpdates(p, 2000L, 2f, listener, Looper.getMainLooper())
+                lm.requestLocationUpdates(p, ChartTiles.GPS_INTERVAL_MS, 0f, listener, Looper.getMainLooper())
             } catch (_: SecurityException) {
                 // Permission was withdrawn between the check and the request.
             } catch (_: Exception) { }
@@ -963,7 +978,19 @@ class ChartMapActivity : Activity() {
     }
 
     private fun showFix(loc: Location) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val fixMs = loc.elapsedRealtimeNanos / 1_000_000
+        if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsMs = maxOf(lastGpsMs, fixMs)
+        // A network fix between GPS fixes is coarse and has no speed: it made the dot jump
+        else if (lastGpsMs > 0 && now - lastGpsMs < ChartTiles.GPS_FRESH_MS) return
         lastFix = loc
+        // The last known fix on opening can be old: its speed is not shown
+        val left = ChartTiles.GPS_FRESH_MS - (now - fixMs)
+        uiHandler.removeCallbacks(speedStale)
+        if (left > 0) {
+            speedLabel?.text = ChartTiles.speedText(loc.speed.takeIf { loc.hasSpeed() })
+            uiHandler.postDelayed(speedStale, left)
+        } else speedLabel?.text = ChartTiles.speedText(null)
         val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
         if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
             heldCourse = bearing
@@ -1144,6 +1171,8 @@ class ChartMapActivity : Activity() {
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume(); if (style != null) listen() }
     override fun onPause() {
+        uiHandler.removeCallbacks(speedStale)
+        speedLabel?.text = ChartTiles.speedText(null)
         try { getSystemService(LocationManager::class.java).removeUpdates(listener) } catch (_: Exception) {}
         mapView.onPause(); super.onPause()
     }
