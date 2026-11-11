@@ -8,6 +8,8 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 
 View map:
 - **Heading line.** While Follow is on and the boat is moving, a blue line runs from the blue GPS dot along your course over ground to past the edge of the chart. It goes away when the boat stops (under 0.5 m/s the GPS course is noise) or Follow turns off.
+- **One minute ahead.** A ring labeled "1 min" on the heading line marks where the boat will be in 60 seconds at the current speed.
+- **Look ahead in Course up.** With Follow and Course up on, the boat sits three quarters of the way down the screen, so most of the chart is ahead. North up keeps the boat centered.
 - **Speed in mph.** A box above Search shows GPS speed over ground in mph, "-- mph" until a fix comes or after 10 seconds without one.
 - **GPS every second** on the chart (was every 2 seconds or 2 m), so the dot, heading line and Course up keep up. A coarse network fix no longer moves the dot while GPS fixes are coming.
 

@@ -418,6 +418,16 @@ class ChartTilesTest {
         val json = obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0, 45.0, 20000.0)))
         val kinds = arr(json["features"]).map { obj(obj(it)["geometry"])["type"] }
         assertEquals(listOf("LineString", "Point"), kinds)
+        // With a speed, a marker where the boat will be in a minute: 3 m/s due east = 180 m
+        val withSpeed = arr(obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0, 90.0, 20000.0, 3.0)))["features"]).map { obj(it) }
+        assertEquals(listOf("heading", "here", "ahead"), withSpeed.map { obj(it["properties"])["kind"] })
+        val c = arr(obj(withSpeed[2]["geometry"])["coordinates"]).map { (it as Number).toDouble() }
+        assertEquals(180.0, (c[0] + 76.0) * 111194.93 * Math.cos(Math.toRadians(39.0)), 0.5)
+        assertEquals(39.0, c[1], 1e-9)
+        // Course up: center 1/4 of the screen ahead along the bearing, so the boat sits 3/4 down
+        val t = ChartTiles.lookAheadTarget(39.0, -76.0, 0.0, 2.0, 800.0)
+        assertEquals(400.0, (t.lat - 39.0) * 111194.93, 0.5)
+        assertEquals(-76.0, t.lon, 1e-9)
         assertEquals(listOf("Point"), arr(obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0)))["features"]).map { obj(obj(it)["geometry"])["type"] })
     }
 

@@ -790,7 +790,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground. The box above Search is your GPS speed over ground in mph. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -1014,7 +1014,8 @@ class ChartMapActivity : Activity() {
                 else 20000.0
             lengthM = lengthM.coerceIn(500.0, 200000.0)
         }
-        (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude, course, lengthM))
+        (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(
+            ChartTiles.gpsGeoJson(loc.latitude, loc.longitude, course, lengthM, if (loc.hasSpeed()) loc.speed.toDouble() else 0.0))
     }
 
     private fun onFollowTapped() {
@@ -1064,8 +1065,16 @@ class ChartMapActivity : Activity() {
         if (destroyed) return
         val z = loaded.cameraPosition.zoom
         val zoom = if (z < 13.0) 15.0 else z
+        // Course up: the boat 3/4 of the way down, so most of the screen is ahead
+        var target = LatLng(loc.latitude, loc.longitude)
+        if (courseUp) {
+            val mpd = loaded.projection.getMetersPerPixelAtLatitude(loc.latitude) * Math.pow(2.0, z - zoom)
+            val heightDp = mapView.height / resources.displayMetrics.density.toDouble()
+            val t = ChartTiles.lookAheadTarget(loc.latitude, loc.longitude, bearing, mpd, heightDp)
+            target = LatLng(t.lat, t.lon)
+        }
         val pos = CameraPosition.Builder()
-            .target(LatLng(loc.latitude, loc.longitude))
+            .target(target)
             .zoom(zoom)
             .bearing(bearing)
             .tilt(0.0)

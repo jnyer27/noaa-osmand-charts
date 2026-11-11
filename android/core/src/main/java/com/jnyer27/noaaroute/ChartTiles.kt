@@ -471,18 +471,37 @@ object ChartTiles {
         else -> "0"
     }
 
+    /** Seconds ahead for the marker on the heading line. */
+    const val AHEAD_S = 60.0
+
+    /** In Course up while following, the boat sits this far down the screen, so 3/4 of it is ahead. */
+    const val LOOK_AHEAD_DOWN = 0.75
+
     /**
-     * The boat's position, and with [courseDeg] a heading line from it [lengthM] along that
-     * course (a rhumb line, so it is straight on the chart).
+     * The boat's position ("kind": "here"), and with [courseDeg] a heading line from it
+     * [lengthM] along that course (a rhumb line, so it is straight on the chart) and a
+     * marker ("kind": "ahead") where the boat will be in [AHEAD_S] at [speedMps].
      */
-    fun gpsGeoJson(lat: Double, lon: Double, courseDeg: Double? = null, lengthM: Double = 0.0): String {
-        val here = String.format(Locale.US, "[%.6f,%.6f]", lon, lat)
-        val point = "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"Point\",\"coordinates\":$here}}"
+    fun gpsGeoJson(lat: Double, lon: Double, courseDeg: Double? = null, lengthM: Double = 0.0, speedMps: Double = 0.0): String {
+        fun pt(p: LatLon, kind: String) = "{\"type\":\"Feature\",\"properties\":{\"kind\":\"$kind\"}," +
+            "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", p.lon, p.lat)}}}"
+        val point = pt(LatLon(lat, lon), "here")
         if (courseDeg == null || !courseDeg.isFinite() || !(lengthM > 0)) return "{\"type\":\"FeatureCollection\",\"features\":[$point]}"
         val end = rhumbEnd(lat, lon, courseDeg, lengthM)
-        val there = String.format(Locale.US, "[%.6f,%.6f]", end.lon, end.lat)
-        val line = "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[$here,$there]}}"
-        return "{\"type\":\"FeatureCollection\",\"features\":[$line,$point]}"
+        val line = "{\"type\":\"Feature\",\"properties\":{\"kind\":\"heading\"},\"geometry\":{\"type\":\"LineString\",\"coordinates\":" +
+            String.format(Locale.US, "[[%.6f,%.6f],[%.6f,%.6f]]", lon, lat, end.lon, end.lat) + "}}"
+        val aheadM = speedMps * AHEAD_S
+        val ahead = if (aheadM.isFinite() && aheadM > 0) "," + pt(rhumbEnd(lat, lon, courseDeg, aheadM), "ahead") else ""
+        return "{\"type\":\"FeatureCollection\",\"features\":[$line,$point$ahead]}"
+    }
+
+    /**
+     * Where to center the camera in Course up so the boat sits [LOOK_AHEAD_DOWN] of the way
+     * down a map [heightDp] tall: ahead of it along the map's [bearingDeg] (screen up).
+     */
+    fun lookAheadTarget(lat: Double, lon: Double, bearingDeg: Double, metersPerDp: Double, heightDp: Double): LatLon {
+        val m = (LOOK_AHEAD_DOWN - 0.5) * heightDp * metersPerDp
+        return if (m.isFinite() && m > 0) rhumbEnd(lat, lon, bearingDeg, m) else LatLon(lat, lon)
     }
 
     /** The point [distM] from a start along a constant [courseDeg] (true), on a sphere. */
@@ -881,9 +900,15 @@ object ChartTiles {
     {"id": "gps-heading", "type": "line", "source": "gps", "filter": ["==", ["geometry-type"], "LineString"],
       "layout": {"line-cap": "round"},
       "paint": {"line-color": "#1a73e8", "line-width": 2.5, "line-opacity": 0.85}},
-    {"id": "gps-halo", "type": "circle", "source": "gps", "filter": ["==", ["geometry-type"], "Point"],
+    {"id": "gps-ahead", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "ahead"],
+      "paint": {"circle-radius": 5, "circle-color": "#ffffff", "circle-stroke-color": "#1a73e8", "circle-stroke-width": 2.5}},
+    {"id": "gps-ahead-label", "type": "symbol", "source": "gps", "filter": ["==", ["get", "kind"], "ahead"],
+      "layout": {"text-field": "1 min", "text-font": ["$FONT"], "text-size": 11, "text-anchor": "left",
+        "text-offset": [0.8, 0], "text-allow-overlap": true, "text-ignore-placement": true},
+      "paint": {"text-color": "#1a73e8", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "gps-halo", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
-    {"id": "gps", "type": "circle", "source": "gps", "filter": ["==", ["geometry-type"], "Point"],
+    {"id": "gps", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
       "paint": {"circle-radius": 6, "circle-color": "#1a73e8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}}
   ]
 }
