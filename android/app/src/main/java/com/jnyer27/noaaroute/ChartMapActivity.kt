@@ -745,16 +745,31 @@ class ChartMapActivity : Activity() {
     }
 
     /** Press and hold: use that spot as the start, a via point or the destination on the planning screen. */
+    /** The temporary orange ring at a pressed spot, or none. */
+    private fun markPress(p: LatLon?) {
+        if (destroyed) return
+        (style?.getSource("press") as? GeoJsonSource)?.setGeoJson(ChartTiles.pressGeoJson(p))
+    }
+
+    /** Show a dialog at the bottom of the screen, so the marked spot above it stays in view. */
+    private fun showLow(b: AlertDialog.Builder, onDismiss: () -> Unit) {
+        val d = b.create()
+        d.window?.setGravity(Gravity.BOTTOM)
+        d.setOnDismissListener { onDismiss() }
+        d.show()
+    }
+
     private fun showPoint(lat: Double, lon: Double) {
         val p = LatLon(lat, lon)
-        AlertDialog.Builder(this)
+        markPress(p)
+        var keep = false
+        showLow(AlertDialog.Builder(this)
             .setTitle(Coords.format(p))
             .setItems(arrayOf("Depth and tide here", "Set as start", "Add as via point", "Set as destination")) { _, which ->
-                if (which == 0) showSpot(lat, lon)
+                if (which == 0) { keep = true; showSpot(lat, lon) }
                 else returnPick(when (which) { 1 -> PICK_START; 2 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            .setNegativeButton("Cancel", null)) { if (!keep) markPress(null) }
     }
 
     /**
@@ -781,13 +796,13 @@ class ChartMapActivity : Activity() {
                         spotNeed(a?.lowFt, a?.basis), a?.estimateFt))
                 } else content.addView(TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), 0)
                     this.text = "No NOAA tide station within 30 km, or the station list is not downloaded yet." })
-                AlertDialog.Builder(this)
+                markPress(p)
+                showLow(AlertDialog.Builder(this)
                     .setTitle("Depth and tide: ${Coords.format(p)}")
                     .setView(android.widget.ScrollView(this).apply { addView(content) })
                     .setPositiveButton("Close", null)
                     .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
-                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
-                    .show()
+                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }) { markPress(null) }
             }
         }.start()
     }
@@ -844,7 +859,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart (an orange ring marks the spot) for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
