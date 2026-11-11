@@ -7,7 +7,7 @@ NOAA Route is a planning aid, not a certified navigation system. Check every leg
 ## Unreleased: pressed spot marker (branch press-pin)
 
 View map:
-- **Press and hold marks the spot.** An orange ring shows where you pressed while the choices (Depth and tide here, Set as start, Add as via point, Set as destination) and the depth and tide box are open; it clears when you close them. Those boxes now open at the bottom of the screen so the spot stays in view.
+- **Press and hold marks the spot.** An orange ring shows where you pressed while the choices (Depth and tide here, Set as start, Add as via point, Set as destination) and the depth and tide box are open; it clears when you close them. The map moves the spot near the top and the boxes open below it, never covering it (long ones scroll); Follow holds the map still until you close them.
 
 ## 2026-11-11: heading line and smoother Follow (app 0.1.269, route packs build 166 unchanged)
 

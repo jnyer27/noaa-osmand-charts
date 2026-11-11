@@ -488,6 +488,9 @@ object ChartTiles {
         else -> "0"
     }
 
+    /** A pressed spot is moved this far down the chart, with its boxes below it. */
+    const val PRESS_SPOT_Y = 0.22
+
     /** The temporary marker at a pressed spot (orange ring), or none for null. */
     fun pressGeoJson(p: LatLon?): String =
         if (p == null) "{\"type\":\"FeatureCollection\",\"features\":[]}"

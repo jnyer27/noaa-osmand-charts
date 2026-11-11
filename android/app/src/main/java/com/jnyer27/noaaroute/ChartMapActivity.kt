@@ -175,6 +175,8 @@ class ChartMapActivity : Activity() {
     private var compassLabel: TextView? = null
     private var courseButton: Button? = null
     private var following = false
+    /** A box about a pressed spot is open: Follow does not move the map, so the spot stays clear of it. */
+    private var pressOpen = false
     /** A pinch is in progress: GPS fixes do not move the camera until it ends. */
     private var scaling = false
     private var courseUp = false
@@ -751,12 +753,48 @@ class ChartMapActivity : Activity() {
         (style?.getSource("press") as? GeoJsonSource)?.setGeoJson(ChartTiles.pressGeoJson(p))
     }
 
-    /** Show a dialog at the bottom of the screen, so the marked spot above it stays in view. */
-    private fun showLow(b: AlertDialog.Builder, onDismiss: () -> Unit) {
+    /**
+     * Show a box about a pressed spot without covering it: the map moves so the spot sits
+     * [ChartTiles.PRESS_SPOT_Y] down the chart, and the box opens at the bottom, no taller than
+     * the room under the spot (its content scrolls). While a box is open Follow does not move
+     * the map ([pressOpen]). [onDismiss] says whether another box for the spot follows.
+     */
+    private fun showLow(b: AlertDialog.Builder, p: LatLon, onDismiss: () -> Boolean) {
+        pressOpen = true
+        val spotY = bringUp(p)
         val d = b.create()
         d.window?.setGravity(Gravity.BOTTOM)
-        d.setOnDismissListener { onDismiss() }
+        d.setOnDismissListener { if (!onDismiss()) pressOpen = false }
         d.show()
+        val win = d.window ?: return
+        val decor = win.decorView
+        decor.post {
+            if (spotY == null || destroyed) return@post
+            val frame = android.graphics.Rect()
+            window.decorView.getWindowVisibleDisplayFrame(frame)
+            val room = (frame.bottom - spotY - dp(28)).toInt()
+            if (room > dp(120) && decor.height > room)
+                win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, room)
+        }
+    }
+
+    /** Move the map so [p] sits near the top of the chart; returns its y on the screen in px. */
+    private fun bringUp(p: LatLon): Float? {
+        val m = map ?: return null
+        val h = mapView.height.toFloat()
+        val w = mapView.width.toFloat()
+        if (h <= 0f || w <= 0f) return null
+        val proj = m.projection
+        val pt = proj.toScreenLocation(LatLng(p.lat, p.lon))
+        val want = (h * ChartTiles.PRESS_SPOT_Y).toFloat()
+        if (pt.y > h * (ChartTiles.PRESS_SPOT_Y + 0.08) || pt.y < h * 0.12) {
+            val c = proj.fromScreenLocation(android.graphics.PointF(w / 2 + (pt.x - w / 2), h / 2 + (pt.y - want)))
+            m.cancelTransitions()
+            m.moveCamera(CameraUpdateFactory.newLatLng(c))
+        }
+        val loc = IntArray(2)
+        mapView.getLocationOnScreen(loc)
+        return loc[1] + m.projection.toScreenLocation(LatLng(p.lat, p.lon)).y
     }
 
     private fun showPoint(lat: Double, lon: Double) {
@@ -769,7 +807,7 @@ class ChartMapActivity : Activity() {
                 if (which == 0) { keep = true; showSpot(lat, lon) }
                 else returnPick(when (which) { 1 -> PICK_START; 2 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
             }
-            .setNegativeButton("Cancel", null)) { if (!keep) markPress(null) }
+            .setNegativeButton("Cancel", null), p) { if (!keep) markPress(null); keep }
     }
 
     /**
@@ -802,7 +840,7 @@ class ChartMapActivity : Activity() {
                     .setView(android.widget.ScrollView(this).apply { addView(content) })
                     .setPositiveButton("Close", null)
                     .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
-                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }) { markPress(null) }
+                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }, p) { markPress(null); false }
             }
         }.start()
     }
@@ -1174,7 +1212,7 @@ class ChartMapActivity : Activity() {
      */
     private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false, glideMs: Int = 0) {
         val loaded = map ?: return
-        if (destroyed || scaling) return
+        if (destroyed || scaling || pressOpen) return
         val z = loaded.cameraPosition.zoom
         val zoom = if (snapZoom && z < 13.0) 15.0 else z
         // Course up: the boat 3/4 of the way down, so most of the screen is ahead
