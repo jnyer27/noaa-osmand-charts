@@ -11,6 +11,7 @@ import android.content.res.Configuration
 import android.database.sqlite.SQLiteDatabase
 import android.location.Location
 import android.location.LocationListener
+import android.animation.ValueAnimator
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +20,8 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.animation.LinearInterpolator
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.text.Editable
@@ -36,6 +39,8 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.gestures.MoveGestureDetector
+import org.maplibre.android.gestures.StandardScaleGestureDetector
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapView
@@ -72,6 +77,7 @@ class ChartMapActivity : Activity() {
         const val EXTRA_ROUTE = "route"
         const val EXTRA_ROUTE_JSON = "routeJson"
         private const val BASE_PREF = "baseMap"
+        private const val LAYERS_PREF = "chartLayersOpen"
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
@@ -147,6 +153,20 @@ class ChartMapActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("noaaroute", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
     private val listener = LocationListener { loc -> showFix(loc) }
+    /** When the last GPS (not network) fix came, for ignoring coarse network fixes in between. */
+    private var lastGpsMs = 0L
+    private var speedLabel: TextView? = null
+    /** When a fix last showed the boat moving (elapsedRealtime), for keeping the screen on. */
+    private var lastMovingMs = 0L
+    /** The previous accepted fix's time, so the camera glides for about the gap between fixes. */
+    private var prevFixMs = 0L
+    /** Where the dot is drawn now: it glides from here to each new fix, in step with the camera. */
+    private var shownLat = Double.NaN
+    private var shownLon = Double.NaN
+    private var dotGlide: ValueAnimator? = null
+    private val awakeCheck = Runnable { paintAwake() }
+    /** No fix for a while: the speed is no longer known. */
+    private val speedStale = Runnable { speedLabel?.text = ChartTiles.speedText(null) }
     private var followButton: Button? = null
     /** Search items from the drawn charts, base maps and route packs; loaded on first search. */
     @Volatile private var searchItems: List<MapSearch.Item>? = null
@@ -155,12 +175,12 @@ class ChartMapActivity : Activity() {
     private var compassLabel: TextView? = null
     private var courseButton: Button? = null
     private var following = false
+    /** A pinch is in progress: GPS fixes do not move the camera until it ends. */
+    private var scaling = false
     private var courseUp = false
     private var heldCourse = 0.0
     private var lastFix: Location? = null
     private var wantFollow = false
-    /** Our own camera moves must not turn Follow off. */
-    private var movingCamera = false
     private val poll = object : Runnable {
         override fun run() {
             if (destroyed) return
@@ -243,17 +263,45 @@ class ChartMapActivity : Activity() {
                 if (on) uiHandler.post(predictedTick) else refreshPredicted()
             }
         }
-        val panel = LinearLayout(this).apply {
+        // The layer checkboxes fold away behind a small Layers tab (remembered), to free the chart
+        val layers = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(baseToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(predictedToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        frame.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.TOP
+        val layersTab = TextView(this).apply {
+            textSize = 14f
+            minimumHeight = dp(40)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            paintControl(this, chrome)
+            isClickable = true
+            contentDescription = "Show or hide the chart layers"
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(layersTab, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(layers, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val panelParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.START
             setMargins(dp(8), dp(8), dp(8), 0)
-        })
+        }
+        frame.addView(panel, panelParams)
+        fun paintLayers(open: Boolean) {
+            layers.visibility = if (open) View.VISIBLE else View.GONE
+            layersTab.text = if (open) "Layers ▲" else "Layers ▼"
+            panelParams.width = if (open) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT
+            panel.layoutParams = panelParams
+        }
+        paintLayers(prefs.getBoolean(LAYERS_PREF, true))
+        layersTab.setOnClickListener {
+            val open = layers.visibility != View.VISIBLE
+            prefs.edit().putBoolean(LAYERS_PREF, open).apply()
+            paintLayers(open)
+        }
         courseUp = prefs.getBoolean(ChartTiles.COURSE_PREF, false)
         followButton = Button(this).apply {
             text = "Follow"
@@ -299,8 +347,18 @@ class ChartMapActivity : Activity() {
             paintControl(this, chrome)
             setOnClickListener { showSearch() }
         }
+        speedLabel = TextView(this).apply {
+            text = ChartTiles.speedText(null)
+            textSize = 20f
+            gravity = Gravity.CENTER
+            minimumHeight = dp(48)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            paintControl(this, chrome)
+            contentDescription = "Speed over ground"
+        }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            addView(speedLabel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(searchButton)
             addView(followButton)
             addView(compass)
@@ -354,13 +412,24 @@ class ChartMapActivity : Activity() {
             loaded.uiSettings.isRotateGesturesEnabled = false
             loaded.uiSettings.isTiltGesturesEnabled = false
             loaded.uiSettings.isCompassEnabled = false
-            loaded.addOnCameraMoveStartedListener { reason ->
-                val gesture = reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
-                if (gesture && !movingCamera) {
-                    following = ChartTiles.stillFollowing(following, true)
-                    paintFollow()
+            // A one-finger pan ends Follow. A pinch or double-tap zoom keeps it, at your zoom.
+            // (Camera-move reasons could not tell: with a fix every second the app's own
+            // animation was running half the time, and gestures then went unnoticed.)
+            loaded.addOnMoveListener(object : MapLibreMap.OnMoveListener {
+                override fun onMoveBegin(detector: MoveGestureDetector) {
+                    if (detector.pointersCount == 1 && !scaling) {
+                        following = ChartTiles.stillFollowing(following, true)
+                        paintFollow()
+                    }
                 }
-            }
+                override fun onMove(detector: MoveGestureDetector) {}
+                override fun onMoveEnd(detector: MoveGestureDetector) {}
+            })
+            loaded.addOnScaleListener(object : MapLibreMap.OnScaleListener {
+                override fun onScaleBegin(detector: StandardScaleGestureDetector) { scaling = true }
+                override fun onScale(detector: StandardScaleGestureDetector) {}
+                override fun onScaleEnd(detector: StandardScaleGestureDetector) { scaling = false }
+            })
             loaded.addOnCameraMoveListener { paintCompass(); paintScale() }
             mapView.addOnDidFailLoadingMapListener { message ->
                 if (destroyed) return@addOnDidFailLoadingMapListener
@@ -369,6 +438,7 @@ class ChartMapActivity : Activity() {
             }
             loaded.addOnCameraIdleListener {
                 paintScale()
+                if (following) paintGps()
                 if (overlayOn && !destroyed) refreshOverlay()
                 if (predictedOn && !destroyed) refreshPredicted()
             }
@@ -774,7 +844,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -954,7 +1024,7 @@ class ChartMapActivity : Activity() {
             try {
                 if (!lm.isProviderEnabled(p)) continue
                 lm.getLastKnownLocation(p)?.let { showFix(it) }
-                lm.requestLocationUpdates(p, 2000L, 2f, listener, Looper.getMainLooper())
+                lm.requestLocationUpdates(p, ChartTiles.GPS_INTERVAL_MS, 0f, listener, Looper.getMainLooper())
             } catch (_: SecurityException) {
                 // Permission was withdrawn between the check and the request.
             } catch (_: Exception) { }
@@ -962,15 +1032,81 @@ class ChartMapActivity : Activity() {
     }
 
     private fun showFix(loc: Location) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val fixMs = loc.elapsedRealtimeNanos / 1_000_000
+        if (loc.provider == LocationManager.GPS_PROVIDER) lastGpsMs = maxOf(lastGpsMs, fixMs)
+        // A network fix between GPS fixes is coarse and has no speed: it made the dot jump
+        else if (lastGpsMs > 0 && now - lastGpsMs < ChartTiles.GPS_FRESH_MS) return
         lastFix = loc
+        if (loc.hasSpeed() && loc.speed >= ChartTiles.COURSE_SPEED_MPS && now - fixMs < ChartTiles.GPS_FRESH_MS)
+            lastMovingMs = maxOf(lastMovingMs, fixMs)
+        // The last known fix on opening can be old: its speed is not shown
+        val left = ChartTiles.GPS_FRESH_MS - (now - fixMs)
+        uiHandler.removeCallbacks(speedStale)
+        if (left > 0) {
+            speedLabel?.text = ChartTiles.speedText(loc.speed.takeIf { loc.hasSpeed() })
+            uiHandler.postDelayed(speedStale, left)
+        } else speedLabel?.text = ChartTiles.speedText(null)
         val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
         if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
             heldCourse = bearing
-        val st = style
-        if (st != null && !destroyed)
-            (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude))
-        if (following) moveToFix(loc, bearing)
+        val glide = ChartTiles.glideMs(fixMs - prevFixMs)
+        if (following) moveToFix(loc, bearing, glideMs = glide)
+        prevFixMs = fixMs
+        glideDot(loc.latitude, loc.longitude, glide)
         paintFollow()
+    }
+
+    /**
+     * Slide the dot (with its heading line and 1 minute ring) from where it is drawn to the
+     * new fix at a steady pace over [ms], like the camera, so it does not hop each second.
+     * The first fix, or one more than [ChartTiles.GLIDE_MAX_M] away, jumps.
+     */
+    private fun glideDot(lat: Double, lon: Double, ms: Int) {
+        dotGlide?.cancel()
+        dotGlide = null
+        val fromLat = shownLat
+        val fromLon = shownLon
+        val far = !fromLat.isFinite() || !fromLon.isFinite() ||
+            LatLng(fromLat, fromLon).distanceTo(LatLng(lat, lon)) > ChartTiles.GLIDE_MAX_M
+        if (far || destroyed) {
+            shownLat = lat
+            shownLon = lon
+            return
+        }
+        dotGlide = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ms.toLong()
+            interpolator = LinearInterpolator()
+            addUpdateListener { a ->
+                val f = a.animatedFraction.toDouble()
+                shownLat = fromLat + (lat - fromLat) * f
+                shownLon = fromLon + (lon - fromLon) * f
+                paintGps()
+            }
+            start()
+        }
+    }
+
+    /**
+     * The blue dot, and while following and moving a heading line along the GPS course,
+     * twice the screen's diagonal long so it runs off the chart at any zoom.
+     */
+    private fun paintGps() {
+        val loc = lastFix ?: return
+        val st = style ?: return
+        if (destroyed) return
+        val lat = if (shownLat.isFinite()) shownLat else loc.latitude
+        val lon = if (shownLon.isFinite()) shownLon else loc.longitude
+        val course = ChartTiles.headingCourse(following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed)
+        var lengthM = 0.0
+        if (course != null) {
+            val b = try { map?.projection?.visibleRegion?.latLngBounds } catch (_: Exception) { null }
+            lengthM = if (b != null) 2 * LatLng(b.latitudeNorth, b.longitudeWest).distanceTo(LatLng(b.latitudeSouth, b.longitudeEast))
+                else 20000.0
+            lengthM = lengthM.coerceIn(500.0, 200000.0)
+        }
+        (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(
+            ChartTiles.gpsGeoJson(lat, lon, course, lengthM, if (loc.hasSpeed()) loc.speed.toDouble() else 0.0))
     }
 
     private fun onFollowTapped() {
@@ -1000,7 +1136,7 @@ class ChartMapActivity : Activity() {
         following = true
         paintFollow()
         val fix = lastFix
-        if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse))
+        if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse), snapZoom = true)
         else followButton?.text = "Waiting for GPS"
     }
 
@@ -1015,20 +1151,33 @@ class ChartMapActivity : Activity() {
         } catch (_: Exception) { false }
     }
 
-    private fun moveToFix(loc: Location, bearing: Double) {
+    /** Center on a fix. [snapZoom] (turning Follow on) zooms in to 15 from below 13; fixes keep your zoom. */
+    /**
+     * Center on a fix. [snapZoom] (turning Follow on) zooms in to 15 from below 13; fixes keep your zoom.
+     * With [glideMs] the camera moves at a steady pace (no easing) for about the time to the next
+     * fix, so the chart glides instead of hopping; a new fix mid-glide carries on from there.
+     */
+    private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false, glideMs: Int = 0) {
         val loaded = map ?: return
-        if (destroyed) return
+        if (destroyed || scaling) return
         val z = loaded.cameraPosition.zoom
-        val zoom = if (z < 13.0) 15.0 else z
+        val zoom = if (snapZoom && z < 13.0) 15.0 else z
+        // Course up: the boat 3/4 of the way down, so most of the screen is ahead
+        var target = LatLng(loc.latitude, loc.longitude)
+        if (courseUp) {
+            val mpd = loaded.projection.getMetersPerPixelAtLatitude(loc.latitude) * Math.pow(2.0, z - zoom)
+            val heightDp = mapView.height / resources.displayMetrics.density.toDouble()
+            val t = ChartTiles.lookAheadTarget(loc.latitude, loc.longitude, bearing, mpd, heightDp)
+            target = LatLng(t.lat, t.lon)
+        }
         val pos = CameraPosition.Builder()
-            .target(LatLng(loc.latitude, loc.longitude))
+            .target(target)
             .zoom(zoom)
             .bearing(bearing)
             .tilt(0.0)
             .build()
-        movingCamera = true
-        loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
-        mapView.postDelayed({ movingCamera = false }, 500)
+        if (glideMs > 0) loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), glideMs, false)
+        else loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
     }
 
     private fun resetNorth() {
@@ -1038,9 +1187,7 @@ class ChartMapActivity : Activity() {
         courseButton?.text = "North up"
         val loaded = map ?: return
         val cam = loaded.cameraPosition
-        movingCamera = true
         loaded.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).bearing(0.0).tilt(0.0).build()), 300)
-        mapView.postDelayed({ movingCamera = false }, 400)
         paintCompass()
         refreshKeySentence()
     }
@@ -1060,7 +1207,24 @@ class ChartMapActivity : Activity() {
         }
     }
 
+    /**
+     * Keep the screen on while following a moving boat, and for [ChartTiles.KEEP_AWAKE_MS]
+     * after it stops; then the phone's own timeout applies again.
+     */
+    private fun paintAwake() {
+        uiHandler.removeCallbacks(awakeCheck)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!destroyed && ChartTiles.keepAwake(following, lastMovingMs, now)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            uiHandler.postDelayed(awakeCheck, lastMovingMs + ChartTiles.KEEP_AWAKE_MS - now + 50)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun paintFollow() {
+        paintGps()
+        paintAwake()
         followButton?.text = when {
             following && lastFix == null -> "Waiting for GPS"
             following -> "Following"
@@ -1126,6 +1290,13 @@ class ChartMapActivity : Activity() {
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume(); if (style != null) listen() }
     override fun onPause() {
+        dotGlide?.cancel()
+        dotGlide = null
+        lastFix?.let { shownLat = it.latitude; shownLon = it.longitude }
+        uiHandler.removeCallbacks(awakeCheck)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        uiHandler.removeCallbacks(speedStale)
+        speedLabel?.text = ChartTiles.speedText(null)
         try { getSystemService(LocationManager::class.java).removeUpdates(listener) } catch (_: Exception) {}
         mapView.onPause(); super.onPause()
     }

@@ -4,6 +4,19 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: heading line (branch heading-line)
+
+View map:
+- **Heading line.** While Follow is on and the boat is moving, a blue line runs from the blue GPS dot along your course over ground to past the edge of the chart. It goes away when the boat stops (under 0.5 m/s the GPS course is noise) or Follow turns off.
+- **One minute ahead.** A ring labeled "1 min" on the heading line marks where the boat will be in 60 seconds at the current speed.
+- **Look ahead in Course up.** With Follow and Course up on, the boat sits three quarters of the way down the screen, so most of the chart is ahead. North up keeps the boat centered.
+- **Zoom while following.** Pinch or double-tap zoom keeps Follow on and the chart stays at your zoom (each fix zoomed it back in to 15, and with a fix every second a zoom was often missed). A one-finger pan still turns Follow off.
+- **Layers fold away.** The Base map, Route data and Predicted depth checkboxes hide behind a small Layers tab at the top left; tap it to show or hide them. The chart remembers which.
+- **Screen stays on underway.** While Follow is on and the boat is moving, the screen stays on; 5 minutes after the boat stops, or when Follow is off, the phone's own timeout applies again.
+- **The chart glides.** While following, the map moves at a steady pace between GPS fixes (about a second each) instead of hopping every second, and the blue dot, heading line and 1 minute ring glide with it.
+- **Speed in mph.** A box above Search shows GPS speed over ground in mph, "-- mph" until a fix comes or after 10 seconds without one.
+- **GPS every second** on the chart (was every 2 seconds or 2 m), so the dot, heading line and Course up keep up. A coarse network fix no longer moves the dot while GPS fixes are coming.
+
 ## 2026-11-11: county names on the base map (app 0.1.260, route packs build 166 unchanged)
 
 View map:

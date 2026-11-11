@@ -399,6 +399,69 @@ class ChartTilesTest {
     }
 
     @Test
+    fun headingLineRunsAlongTheCourseOnlyWhileFollowingAndMoving() {
+        assertNull(ChartTiles.headingCourse(false, 90f, 3f))
+        assertNull(ChartTiles.headingCourse(true, 90f, 0.2f))
+        assertNull(ChartTiles.headingCourse(true, null, 3f))
+        assertEquals(350.0, ChartTiles.headingCourse(true, -10f, 3f)!!, 1e-9)
+        // 1 nm due east of Maryland Marina: same latitude, 1852 m of longitude
+        val e = ChartTiles.rhumbEnd(39.32371, -76.39998, 90.0, 1852.0)
+        assertEquals(39.32371, e.lat, 1e-9)
+        assertEquals(1852.0, (e.lon + 76.39998) * 111194.93 * Math.cos(Math.toRadians(39.32371)), 1.0)
+        val n = ChartTiles.rhumbEnd(39.0, -76.0, 0.0, 1852.0)
+        assertEquals(-76.0, n.lon, 1e-9)
+        assertEquals(1.0 / 60, n.lat - 39.0, 1e-4)
+        // NE: the line keeps 45 degrees on the chart (Mercator), so equal stretched offsets
+        val ne = ChartTiles.rhumbEnd(39.0, -76.0, 45.0, 20000.0)
+        fun y(lat: Double) = Math.log(Math.tan(Math.PI / 4 + Math.toRadians(lat) / 2))
+        assertEquals(Math.toRadians(ne.lon + 76.0), y(ne.lat) - y(39.0), 1e-9)
+        val json = obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0, 45.0, 20000.0)))
+        val kinds = arr(json["features"]).map { obj(obj(it)["geometry"])["type"] }
+        assertEquals(listOf("LineString", "Point"), kinds)
+        // With a speed, a marker where the boat will be in a minute: 3 m/s due east = 180 m
+        val withSpeed = arr(obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0, 90.0, 20000.0, 3.0)))["features"]).map { obj(it) }
+        assertEquals(listOf("heading", "here", "ahead"), withSpeed.map { obj(it["properties"])["kind"] })
+        val c = arr(obj(withSpeed[2]["geometry"])["coordinates"]).map { (it as Number).toDouble() }
+        assertEquals(180.0, (c[0] + 76.0) * 111194.93 * Math.cos(Math.toRadians(39.0)), 0.5)
+        assertEquals(39.0, c[1], 1e-9)
+        // Course up: center 1/4 of the screen ahead along the bearing, so the boat sits 3/4 down
+        val t = ChartTiles.lookAheadTarget(39.0, -76.0, 0.0, 2.0, 800.0)
+        assertEquals(400.0, (t.lat - 39.0) * 111194.93, 0.5)
+        assertEquals(-76.0, t.lon, 1e-9)
+        assertEquals(listOf("Point"), arr(obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0)))["features"]).map { obj(obj(it)["geometry"])["type"] })
+    }
+
+    @Test
+    fun screenStaysOnWhileFollowingAMovingBoatAndFiveMinutesAfter() {
+        val five = 5 * 60 * 1000L
+        assertFalse(ChartTiles.keepAwake(true, 0L, 1000L))          // never moved
+        assertTrue(ChartTiles.keepAwake(true, 1000L, 1000L))
+        assertTrue(ChartTiles.keepAwake(true, 1000L, 1000L + five - 1))
+        assertFalse(ChartTiles.keepAwake(true, 1000L, 1000L + five)) // 5 minutes still
+        assertFalse(ChartTiles.keepAwake(false, 1000L, 2000L))       // Follow off
+    }
+
+    @Test
+    fun cameraGlidesForAboutTheGapBetweenFixes() {
+        assertEquals(1000, ChartTiles.glideMs(1000))
+        assertEquals(1000, ChartTiles.glideMs(0))          // first fix: the usual interval
+        assertEquals(1000, ChartTiles.glideMs(-5))
+        assertEquals(300, ChartTiles.glideMs(100))
+        assertEquals(1500, ChartTiles.glideMs(4000))
+        assertEquals(1000, ChartTiles.glideMs(3_600_000))  // after a long gap
+    }
+
+    @Test
+    fun speedInMph() {
+        assertEquals("-- mph", ChartTiles.speedText(null))
+        assertEquals("-- mph", ChartTiles.speedText(Float.NaN))
+        assertEquals("0.0 mph", ChartTiles.speedText(0f))
+        // 6 knots = 3.0867 m/s = 6.9 mph
+        assertEquals("6.9 mph", ChartTiles.speedText(3.0867f))
+        assertEquals("22.4 mph", ChartTiles.speedText(10f))
+    }
+
+    @Test
     fun followAndCompass() {
         assertEquals(0.0, ChartTiles.mapBearing(false, 90f, 3f, 40.0), 0.001)
         assertEquals(90.0, ChartTiles.mapBearing(true, 90f, 3f, 0.0), 0.001)

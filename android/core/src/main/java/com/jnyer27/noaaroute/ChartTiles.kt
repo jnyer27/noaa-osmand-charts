@@ -162,6 +162,34 @@ object ChartTiles {
     /** Below this speed a GPS bearing is noise. Course-up keeps the last heading. */
     const val COURSE_SPEED_MPS = 0.5f
 
+    /** GPS fixes asked for this often on the chart (the receiver's usual 1 Hz). */
+    const val GPS_INTERVAL_MS = 1000L
+
+    /** A GPS fix this recent beats network fixes, and the speed shown is this fresh. */
+    const val GPS_FRESH_MS = 10000L
+
+    /**
+     * How long the camera glides to a new fix: the gap since the last one ([GPS_INTERVAL_MS]
+     * when unknown), within 300-1500 ms, so it is still moving when the next fix comes.
+     */
+    fun glideMs(sinceLastFixMs: Long): Int =
+        (if (sinceLastFixMs in 1..60_000) sinceLastFixMs else GPS_INTERVAL_MS).coerceIn(300L, 1500L).toInt()
+
+    /** A new fix farther than this from the drawn dot (a jump in position) is not glided to. */
+    const val GLIDE_MAX_M = 500.0
+
+    /** While following, the screen stays on until this long after the boat last moved. */
+    const val KEEP_AWAKE_MS = 5 * 60 * 1000L
+
+    /** Keep the screen on: Follow is on and the boat moved (at [COURSE_SPEED_MPS] or more) within [KEEP_AWAKE_MS]. */
+    fun keepAwake(following: Boolean, lastMovingMs: Long, nowMs: Long): Boolean =
+        following && lastMovingMs > 0 && nowMs - lastMovingMs in 0 until KEEP_AWAKE_MS
+
+    /** Speed over ground for the chart, in mph to a tenth; "-- mph" when unknown. */
+    fun speedText(speedMps: Float?): String =
+        if (speedMps == null || !speedMps.isFinite() || speedMps < 0) "-- mph"
+        else String.format(Locale.US, "%.1f mph", speedMps * 3600.0 / 1609.344)
+
     /** Degrees clockwise from north, in 0..360. */
     fun normalizeBearing(deg: Double): Double {
         val d = deg % 360.0
@@ -460,11 +488,59 @@ object ChartTiles {
         else -> "0"
     }
 
-    fun gpsGeoJson(lat: Double, lon: Double): String =
-        "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{}," +
-            "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", lon, lat)}}}]} "
+    /** Seconds ahead for the marker on the heading line. */
+    const val AHEAD_S = 60.0
 
-            .trim()
+    /** In Course up while following, the boat sits this far down the screen, so 3/4 of it is ahead. */
+    const val LOOK_AHEAD_DOWN = 0.75
+
+    /**
+     * The boat's position ("kind": "here"), and with [courseDeg] a heading line from it
+     * [lengthM] along that course (a rhumb line, so it is straight on the chart) and a
+     * marker ("kind": "ahead") where the boat will be in [AHEAD_S] at [speedMps].
+     */
+    fun gpsGeoJson(lat: Double, lon: Double, courseDeg: Double? = null, lengthM: Double = 0.0, speedMps: Double = 0.0): String {
+        fun pt(p: LatLon, kind: String) = "{\"type\":\"Feature\",\"properties\":{\"kind\":\"$kind\"}," +
+            "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", p.lon, p.lat)}}}"
+        val point = pt(LatLon(lat, lon), "here")
+        if (courseDeg == null || !courseDeg.isFinite() || !(lengthM > 0)) return "{\"type\":\"FeatureCollection\",\"features\":[$point]}"
+        val end = rhumbEnd(lat, lon, courseDeg, lengthM)
+        val line = "{\"type\":\"Feature\",\"properties\":{\"kind\":\"heading\"},\"geometry\":{\"type\":\"LineString\",\"coordinates\":" +
+            String.format(Locale.US, "[[%.6f,%.6f],[%.6f,%.6f]]", lon, lat, end.lon, end.lat) + "}}"
+        val aheadM = speedMps * AHEAD_S
+        val ahead = if (aheadM.isFinite() && aheadM > 0) "," + pt(rhumbEnd(lat, lon, courseDeg, aheadM), "ahead") else ""
+        return "{\"type\":\"FeatureCollection\",\"features\":[$line,$point$ahead]}"
+    }
+
+    /**
+     * Where to center the camera in Course up so the boat sits [LOOK_AHEAD_DOWN] of the way
+     * down a map [heightDp] tall: ahead of it along the map's [bearingDeg] (screen up).
+     */
+    fun lookAheadTarget(lat: Double, lon: Double, bearingDeg: Double, metersPerDp: Double, heightDp: Double): LatLon {
+        val m = (LOOK_AHEAD_DOWN - 0.5) * heightDp * metersPerDp
+        return if (m.isFinite() && m > 0) rhumbEnd(lat, lon, bearingDeg, m) else LatLon(lat, lon)
+    }
+
+    /** The point [distM] from a start along a constant [courseDeg] (true), on a sphere. */
+    fun rhumbEnd(lat: Double, lon: Double, courseDeg: Double, distM: Double): LatLon {
+        val r = 6371008.8
+        val d = distM / r
+        val th = Math.toRadians(courseDeg)
+        val p1 = Math.toRadians(lat)
+        var p2 = p1 + d * Math.cos(th)
+        p2 = p2.coerceIn(Math.toRadians(-85.0), Math.toRadians(85.0))
+        val dPsi = Math.log(Math.tan(Math.PI / 4 + p2 / 2) / Math.tan(Math.PI / 4 + p1 / 2))
+        val q = if (Math.abs(dPsi) > 1e-12) (p2 - p1) / dPsi else Math.cos(p1)
+        val dl = d * Math.sin(th) / q
+        var lon2 = lon + Math.toDegrees(dl)
+        if (lon2 > 180) lon2 -= 360 else if (lon2 < -180) lon2 += 360
+        return LatLon(Math.toDegrees(p2), lon2)
+    }
+
+    /** The heading line's course: the GPS bearing while moving, else none (a stopped boat's bearing is noise). */
+    fun headingCourse(following: Boolean, gpsBearingDeg: Float?, speedMps: Float): Double? =
+        if (following && gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMps >= COURSE_SPEED_MPS)
+            normalizeBearing(gpsBearingDeg.toDouble()) else null
 
     /**
      * MapLibre style. [mbtilesUrl] is an mbtiles:// URL of the chart file on disk.
@@ -838,9 +914,18 @@ object ChartTiles {
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 13, "text-offset": [0, 1.5],
         "text-anchor": "top", "text-allow-overlap": true},
       "paint": {"text-color": "#6a1b9a", "text-halo-color": "#ffffff", "text-halo-width": 2}},
-    {"id": "gps-halo", "type": "circle", "source": "gps",
+    {"id": "gps-heading", "type": "line", "source": "gps", "filter": ["==", ["geometry-type"], "LineString"],
+      "layout": {"line-cap": "round"},
+      "paint": {"line-color": "#1a73e8", "line-width": 2.5, "line-opacity": 0.85}},
+    {"id": "gps-ahead", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "ahead"],
+      "paint": {"circle-radius": 5, "circle-color": "#ffffff", "circle-stroke-color": "#1a73e8", "circle-stroke-width": 2.5}},
+    {"id": "gps-ahead-label", "type": "symbol", "source": "gps", "filter": ["==", ["get", "kind"], "ahead"],
+      "layout": {"text-field": "1 min", "text-font": ["$FONT"], "text-size": 11, "text-anchor": "left",
+        "text-offset": [0.8, 0], "text-allow-overlap": true, "text-ignore-placement": true},
+      "paint": {"text-color": "#1a73e8", "text-halo-color": "#ffffff", "text-halo-width": 1.5}},
+    {"id": "gps-halo", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
-    {"id": "gps", "type": "circle", "source": "gps",
+    {"id": "gps", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
       "paint": {"circle-radius": 6, "circle-color": "#1a73e8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}}
   ]
 }
