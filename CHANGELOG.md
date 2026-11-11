@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased: heading line (branch heading-line)
+## 2026-11-11: heading line and smoother Follow (app 0.1.269, route packs build 166 unchanged)
 
 View map:
 - **Heading line.** While Follow is on and the boat is moving, a blue line runs from the blue GPS dot along your course over ground to past the edge of the chart. It goes away when the boat stops (under 0.5 m/s the GPS course is noise) or Follow turns off.
