@@ -442,6 +442,16 @@ class ChartTilesTest {
     }
 
     @Test
+    fun cameraGlidesForAboutTheGapBetweenFixes() {
+        assertEquals(1000, ChartTiles.glideMs(1000))
+        assertEquals(1000, ChartTiles.glideMs(0))          // first fix: the usual interval
+        assertEquals(1000, ChartTiles.glideMs(-5))
+        assertEquals(300, ChartTiles.glideMs(100))
+        assertEquals(1500, ChartTiles.glideMs(4000))
+        assertEquals(1000, ChartTiles.glideMs(3_600_000))  // after a long gap
+    }
+
+    @Test
     fun speedInMph() {
         assertEquals("-- mph", ChartTiles.speedText(null))
         assertEquals("-- mph", ChartTiles.speedText(Float.NaN))

@@ -168,6 +168,13 @@ object ChartTiles {
     /** A GPS fix this recent beats network fixes, and the speed shown is this fresh. */
     const val GPS_FRESH_MS = 10000L
 
+    /**
+     * How long the camera glides to a new fix: the gap since the last one ([GPS_INTERVAL_MS]
+     * when unknown), within 300-1500 ms, so it is still moving when the next fix comes.
+     */
+    fun glideMs(sinceLastFixMs: Long): Int =
+        (if (sinceLastFixMs in 1..60_000) sinceLastFixMs else GPS_INTERVAL_MS).coerceIn(300L, 1500L).toInt()
+
     /** While following, the screen stays on until this long after the boat last moved. */
     const val KEEP_AWAKE_MS = 5 * 60 * 1000L
 

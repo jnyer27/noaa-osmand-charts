@@ -156,6 +156,8 @@ class ChartMapActivity : Activity() {
     private var speedLabel: TextView? = null
     /** When a fix last showed the boat moving (elapsedRealtime), for keeping the screen on. */
     private var lastMovingMs = 0L
+    /** The previous accepted fix's time, so the camera glides for about the gap between fixes. */
+    private var prevFixMs = 0L
     private val awakeCheck = Runnable { paintAwake() }
     /** No fix for a while: the speed is no longer known. */
     private val speedStale = Runnable { speedLabel?.text = ChartTiles.speedText(null) }
@@ -1042,7 +1044,8 @@ class ChartMapActivity : Activity() {
         val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
         if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
             heldCourse = bearing
-        if (following) moveToFix(loc, bearing)
+        if (following) moveToFix(loc, bearing, glideMs = ChartTiles.glideMs(fixMs - prevFixMs))
+        prevFixMs = fixMs
         paintFollow()
     }
 
@@ -1109,7 +1112,12 @@ class ChartMapActivity : Activity() {
     }
 
     /** Center on a fix. [snapZoom] (turning Follow on) zooms in to 15 from below 13; fixes keep your zoom. */
-    private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false) {
+    /**
+     * Center on a fix. [snapZoom] (turning Follow on) zooms in to 15 from below 13; fixes keep your zoom.
+     * With [glideMs] the camera moves at a steady pace (no easing) for about the time to the next
+     * fix, so the chart glides instead of hopping; a new fix mid-glide carries on from there.
+     */
+    private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false, glideMs: Int = 0) {
         val loaded = map ?: return
         if (destroyed || scaling) return
         val z = loaded.cameraPosition.zoom
@@ -1128,7 +1136,8 @@ class ChartMapActivity : Activity() {
             .bearing(bearing)
             .tilt(0.0)
             .build()
-        loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
+        if (glideMs > 0) loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), glideMs, false)
+        else loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
     }
 
     private fun resetNorth() {
