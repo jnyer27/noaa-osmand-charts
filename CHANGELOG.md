@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: delete a leg (branch delete-leg)
+
+Routing (a route you edit):
+- **Delete leg** in a tapped leg's box on the chart removes the waypoint at the end of that leg; the legs on either side become one straight leg, checked again like a planned leg (depth, hazards, piers, bridges, cables, restricted areas). If the straight line crosses land, water charted under your safe depth or a structure, which a planned leg never does, it gets a check note: "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check". Every such leg also says "a straight leg you made with Delete leg, not planned". The route is saved as name_edited.gpx (the original stays) and the chart reopens on it. Your via points are not removed this way.
+
 ## 2026-11-11: pressed spot marker (app 0.1.272, route packs build 166 unchanged)
 
 View map:

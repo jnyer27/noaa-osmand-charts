@@ -24,6 +24,7 @@ Before you go, read the [route report](report.html) and look at each flagged leg
 - legs where the charted depth may be under your safe depth, including "crosses N m of a depth area that straddles your depth" from the chart in the app: check the tide and the shallowest sounding (tap the leg on the chart for the day's tide and the times it is high enough, then allow for the wind),
 - **"check"** notes: hazards, channel markers, piers, piles,
 - the **"connects your point to usable water"** leg at either end,
+- any leg you made with **Delete leg** on the chart: a straight line, not planned,
 - **bridges and cables**: clearances and opening schedules,
 - **restricted areas**: their rules.
 
