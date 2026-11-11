@@ -432,6 +432,16 @@ class ChartTilesTest {
     }
 
     @Test
+    fun screenStaysOnWhileFollowingAMovingBoatAndFiveMinutesAfter() {
+        val five = 5 * 60 * 1000L
+        assertFalse(ChartTiles.keepAwake(true, 0L, 1000L))          // never moved
+        assertTrue(ChartTiles.keepAwake(true, 1000L, 1000L))
+        assertTrue(ChartTiles.keepAwake(true, 1000L, 1000L + five - 1))
+        assertFalse(ChartTiles.keepAwake(true, 1000L, 1000L + five)) // 5 minutes still
+        assertFalse(ChartTiles.keepAwake(false, 1000L, 2000L))       // Follow off
+    }
+
+    @Test
     fun speedInMph() {
         assertEquals("-- mph", ChartTiles.speedText(null))
         assertEquals("-- mph", ChartTiles.speedText(Float.NaN))

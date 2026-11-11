@@ -168,6 +168,13 @@ object ChartTiles {
     /** A GPS fix this recent beats network fixes, and the speed shown is this fresh. */
     const val GPS_FRESH_MS = 10000L
 
+    /** While following, the screen stays on until this long after the boat last moved. */
+    const val KEEP_AWAKE_MS = 5 * 60 * 1000L
+
+    /** Keep the screen on: Follow is on and the boat moved (at [COURSE_SPEED_MPS] or more) within [KEEP_AWAKE_MS]. */
+    fun keepAwake(following: Boolean, lastMovingMs: Long, nowMs: Long): Boolean =
+        following && lastMovingMs > 0 && nowMs - lastMovingMs in 0 until KEEP_AWAKE_MS
+
     /** Speed over ground for the chart, in mph to a tenth; "-- mph" when unknown. */
     fun speedText(speedMps: Float?): String =
         if (speedMps == null || !speedMps.isFinite() || speedMps < 0) "-- mph"

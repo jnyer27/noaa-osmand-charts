@@ -19,6 +19,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.text.Editable
@@ -153,6 +154,9 @@ class ChartMapActivity : Activity() {
     /** When the last GPS (not network) fix came, for ignoring coarse network fixes in between. */
     private var lastGpsMs = 0L
     private var speedLabel: TextView? = null
+    /** When a fix last showed the boat moving (elapsedRealtime), for keeping the screen on. */
+    private var lastMovingMs = 0L
+    private val awakeCheck = Runnable { paintAwake() }
     /** No fix for a while: the speed is no longer known. */
     private val speedStale = Runnable { speedLabel?.text = ChartTiles.speedText(null) }
     private var followButton: Button? = null
@@ -832,7 +836,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -1026,6 +1030,8 @@ class ChartMapActivity : Activity() {
         // A network fix between GPS fixes is coarse and has no speed: it made the dot jump
         else if (lastGpsMs > 0 && now - lastGpsMs < ChartTiles.GPS_FRESH_MS) return
         lastFix = loc
+        if (loc.hasSpeed() && loc.speed >= ChartTiles.COURSE_SPEED_MPS && now - fixMs < ChartTiles.GPS_FRESH_MS)
+            lastMovingMs = maxOf(lastMovingMs, fixMs)
         // The last known fix on opening can be old: its speed is not shown
         val left = ChartTiles.GPS_FRESH_MS - (now - fixMs)
         uiHandler.removeCallbacks(speedStale)
@@ -1152,8 +1158,24 @@ class ChartMapActivity : Activity() {
         }
     }
 
+    /**
+     * Keep the screen on while following a moving boat, and for [ChartTiles.KEEP_AWAKE_MS]
+     * after it stops; then the phone's own timeout applies again.
+     */
+    private fun paintAwake() {
+        uiHandler.removeCallbacks(awakeCheck)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!destroyed && ChartTiles.keepAwake(following, lastMovingMs, now)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            uiHandler.postDelayed(awakeCheck, lastMovingMs + ChartTiles.KEEP_AWAKE_MS - now + 50)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun paintFollow() {
         paintGps()
+        paintAwake()
         followButton?.text = when {
             following && lastFix == null -> "Waiting for GPS"
             following -> "Following"
@@ -1219,6 +1241,8 @@ class ChartMapActivity : Activity() {
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume(); if (style != null) listen() }
     override fun onPause() {
+        uiHandler.removeCallbacks(awakeCheck)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         uiHandler.removeCallbacks(speedStale)
         speedLabel?.text = ChartTiles.speedText(null)
         try { getSystemService(LocationManager::class.java).removeUpdates(listener) } catch (_: Exception) {}
