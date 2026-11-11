@@ -34,7 +34,16 @@ jobs:
 
       - name: GPX output is valid GPX 1.1
         run: |
-          command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
+          # The runner's Azure apt mirror sometimes fails to resolve: retry, then use the Ubuntu archive
+          for i in 1 2 3; do
+            command -v xmllint >/dev/null && break
+            if [ $i -eq 3 ]; then
+              sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+              sudo apt-get update -q
+            fi
+            sudo apt-get install -y libxml2-utils || { sudo apt-get update -q; sleep 10; }
+          done
+          command -v xmllint >/dev/null
           xmllint --noout --schema app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
 
       # The command-line planner as released (the zip's jar and launcher) on the released route data
