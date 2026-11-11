@@ -34,17 +34,9 @@ jobs:
 
       - name: GPX output is valid GPX 1.1
         run: |
-          # The runner's Azure apt mirror sometimes fails to resolve: retry, then use the Ubuntu archive
-          for i in 1 2 3; do
-            command -v xmllint >/dev/null && break
-            if [ $i -eq 3 ]; then
-              sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-              sudo apt-get update -q
-            fi
-            sudo apt-get install -y libxml2-utils || { sudo apt-get update -q; sleep 10; }
-          done
-          command -v xmllint >/dev/null
-          xmllint --noout --schema app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
+          # lxml from PyPI, not apt: the runner's Azure apt mirror has failed to resolve
+          for i in 1 2 3; do python3 -m pip install -q --user --break-system-packages lxml && break; sleep 10; done
+          python3 "$GITHUB_WORKSPACE/tools/gpx_valid.py" app/src/test/resources/gpx.xsd app/build/gpx-sample.gpx
 
       # The command-line planner as released (the zip's jar and launcher) on the released route data
       # and region chart: the "Maryland Marina to Ego Alley" reference route (24-29 nm) with Try to
@@ -66,7 +58,7 @@ jobs:
           "$nr" -f 39.32371,-76.39998 -t 38.97731,-76.48559 -d 3 -a 10 -n cli-ego-alley --offline --tides --json -q > cli.json
           cat cli.json
           python3 -c "import json,sys; j=json.load(open(sys.argv[1])); nm=j['route']['nm']; cd=j['chartDepth']; print('nm', nm, '| chart depth:', cd); sys.exit(0 if 24 <= nm <= 29 and cd == 'Region 04 chart' else 1)" cli.json
-          for f in cli-ego-alley*.gpx; do xmllint --noout --schema "$GITHUB_WORKSPACE/android/app/src/test/resources/gpx.xsd" "$f"; done
+          python3 "$GITHUB_WORKSPACE/tools/gpx_valid.py" "$GITHUB_WORKSPACE/android/app/src/test/resources/gpx.xsd" cli-ego-alley*.gpx
           # A bad option is exit code 2
           rc=0; "$nr" --bogus 2>/dev/null || rc=$?; test $rc -eq 2
 
