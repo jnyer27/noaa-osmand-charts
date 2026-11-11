@@ -198,6 +198,19 @@ class ChartTilesTest {
         val ids = layers.map { it["id"] as String }
         assertEquals("ids unique", ids.size, ids.toSet().size)
         assertEquals("osm1", layers.first { it["id"] == "osm-highway~1" }["source"])
+        // County names on the county lines, one name each side (tools/county_labels.py)
+        val county = layers.first { it["id"] == "osm-county-label~1" }
+        assertEquals("counties", county["source-layer"])
+        assertEquals(true, obj(county["layout"])["text-allow-overlap"])
+        // Closer labels as you zoom in, so a line keeps a name on screen to the map's zoom 18
+        // and drawn even where they overlap the chart's soundings (which stay on top)
+        assertEquals(listOf(11.0, 12.3, 13.3, 14.3, 15.3, 16.3, 17.3), (0..6).map { r ->
+            (layers.first { it["id"] == (if (r == 0) "osm-county-label~0" else "osm-county-label-$r~0") }["minzoom"] as Number).toDouble() })
+        assertEquals(listOf("concat", listOf("get", "a"), "\n", listOf("get", "b")), obj(county["layout"])["text-field"])
+        assertTrue(ids.indexOf("osm-county-label-6~0") > ids.indexOf("osm-county-line~1"))
+        // County and state lines come from the same Census lines as the labels, not OpenStreetMap's
+        assertEquals("counties", layers.first { it["id"] == "osm-county-line~0" }["source-layer"])
+        assertEquals(listOf("==", listOf("get", "kind"), "country"), layers.first { it["id"] == "osm-boundary~0" }["filter"])
         // Above every region's land fill, under contours, soundings, marks and the route
         assertTrue(ids.indexOf("lndare~1") < ids.indexOf("osm-boundary~0"))
         assertTrue(ids.indexOf("osm-place~1") < ids.indexOf("depcnt"))

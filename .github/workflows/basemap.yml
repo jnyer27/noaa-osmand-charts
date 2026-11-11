@@ -17,6 +17,7 @@ on:
     paths:
       - "tools/build_basemap.sh"
       - "tools/basemap_search.py"
+      - "tools/county_labels.py"
       - ".github/workflows/basemap.yml"
   schedule:
     - cron: "0 16 1 * *"
@@ -98,10 +99,19 @@ jobs:
           curl -fsSL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin pmtiles
           sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev zlib1g-dev >/dev/null
           git clone -q --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
-          make -s -C /tmp/tippecanoe -j"$(nproc)" tile-join tippecanoe-decode
-          sudo cp /tmp/tippecanoe/tile-join /tmp/tippecanoe/tippecanoe-decode /usr/local/bin/
+          make -s -C /tmp/tippecanoe -j"$(nproc)" tippecanoe tile-join tippecanoe-decode
+          sudo cp /tmp/tippecanoe/tippecanoe /tmp/tippecanoe/tile-join /tmp/tippecanoe/tippecanoe-decode /usr/local/bin/
+      - name: Census county file (for the county name labels)
+        uses: actions/cache@v4
+        with:
+          path: tiger
+          key: tiger-county-2024
       - name: Region ${{ matrix.ncds }}
-        run: tools/build_basemap.sh Ncds_${{ matrix.ncds }} ${{ matrix.bbox }} 14 out
+        env:
+          TIGER_ZIP: tiger/tl_2024_us_county.zip
+        run: |
+          mkdir -p tiger
+          tools/build_basemap.sh Ncds_${{ matrix.ncds }} ${{ matrix.bbox }} 14 out
       - name: Catalog entry
         env:
           NCDS: ${{ matrix.ncds }}
