@@ -40,7 +40,7 @@ The project began as a set of Termux scripts, which are kept in this repository 
    - **chart depth areas**: "crosses N m of a depth area that straddles your 5 ft" or "crosses N m charted entirely under your 5 ft", from the downloaded chart (or the bundled Middle River chart) when the leg line itself crosses that water,
    - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
    - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
-   - **legs you made with Delete leg**: a straight line the planner did not choose. It is checked like any leg, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" when the line goes where a planned leg never would,
+   - **legs you made with Delete leg, or imported with Import GPX**: a straight line the planner did not choose. It is checked like any leg, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" when the line goes where a planned leg never would,
    - **bridges and cables**: clearances and opening schedules. If you turned on **Don't check bridges and cables**, those notes are checks too, and the report's first line says so,
    - **restricted areas**: their rules.
 

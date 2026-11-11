@@ -4,6 +4,11 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
+## Unreleased: import a GPX (branch import-gpx)
+
+Routing (a route you bring):
+- **Import GPX** on the planning screen (below Share GPX) checks a route or track from a GPX file against your downloaded charts, with the safe depth and air draft in the form. It takes the file's first route, else every track point, else its waypoints in order. Points within 10 m of the line through their neighbours are dropped. Nothing is replanned: each leg gets the planner's notes (shoal water, hazards, piers, bridges, cables, restricted areas), chart depth and tides, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" where the line goes where a planned leg never would. It is saved as name_checked.gpx (the imported file is unchanged); View on map, Look for a way around the checks and Delete leg then work on it, with only its two ends fixed.
+
 ## 2026-11-11: delete a leg (app 0.1.274, route packs build 166 unchanged)
 
 Routing (a route you edit):
