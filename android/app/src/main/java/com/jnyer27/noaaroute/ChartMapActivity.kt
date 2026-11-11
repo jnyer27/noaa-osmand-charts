@@ -74,6 +74,7 @@ class ChartMapActivity : Activity() {
         const val EXTRA_ROUTE = "route"
         const val EXTRA_ROUTE_JSON = "routeJson"
         private const val BASE_PREF = "baseMap"
+        private const val LAYERS_PREF = "chartLayersOpen"
         const val EXTRA_DEPTH = "depthFt"
         const val EXTRA_AIR = "airFt"
         const val EXTRA_NAME = "name"
@@ -250,17 +251,45 @@ class ChartMapActivity : Activity() {
                 if (on) uiHandler.post(predictedTick) else refreshPredicted()
             }
         }
-        val panel = LinearLayout(this).apply {
+        // The layer checkboxes fold away behind a small Layers tab (remembered), to free the chart
+        val layers = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(baseToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(predictedToggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(routeLegend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        frame.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.TOP
+        val layersTab = TextView(this).apply {
+            textSize = 14f
+            minimumHeight = dp(40)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            paintControl(this, chrome)
+            isClickable = true
+            contentDescription = "Show or hide the chart layers"
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(layersTab, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(layers, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val panelParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP or Gravity.START
             setMargins(dp(8), dp(8), dp(8), 0)
-        })
+        }
+        frame.addView(panel, panelParams)
+        fun paintLayers(open: Boolean) {
+            layers.visibility = if (open) View.VISIBLE else View.GONE
+            layersTab.text = if (open) "Layers ▲" else "Layers ▼"
+            panelParams.width = if (open) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT
+            panel.layoutParams = panelParams
+        }
+        paintLayers(prefs.getBoolean(LAYERS_PREF, true))
+        layersTab.setOnClickListener {
+            val open = layers.visibility != View.VISIBLE
+            prefs.edit().putBoolean(LAYERS_PREF, open).apply()
+            paintLayers(open)
+        }
         courseUp = prefs.getBoolean(ChartTiles.COURSE_PREF, false)
         followButton = Button(this).apply {
             text = "Follow"
