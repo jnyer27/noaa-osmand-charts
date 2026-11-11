@@ -16,7 +16,8 @@ county on each side is exact. A label point lies on the line every STEP_M; the a
 draws `a` above and `b` below, rotated by `rot` (MapLibre text-rotate, degrees
 clockwise, reading along the line), so the line runs through the gap between them. Across
 a state line each name gets its state (Kent County, MD). The rank sets how close in
-the label shows (RANKS; the chart shows 0 from zoom 11, 1 from 13, 2 from 15, 3 from 17),
+the label shows (RANKS; ChartTiles shows rank r from about zoom 11.3 + r, spacing labels
+about 250 px apart, and lets them overlap the chart's soundings, which are drawn on top),
 so a line has a label on screen at any zoom. Pure Python (no GDAL), so it also runs on the phone. Output is
 newline-delimited GeoJSON features for tippecanoe.
 
@@ -25,7 +26,7 @@ newline-delimited GeoJSON features for tippecanoe.
 import json, math, struct, sys, zipfile
 
 STEP_M = 187.5          # between label points along a line; each rank shows from a zoom:
-RANKS = (32, 8, 2)      # rank 0 every 32 steps (6 km), 1 every 8 (1.5 km), 2 every 2 (375 m), 3 the rest
+RANKS = (64, 32, 16, 8, 4, 2)  # rank 0 every 64 steps (12 km), 1 every 32 (6 km), ... 5 every 2, 6 the rest
 MIN_LINE_M = 300.0      # shorter lines get no label
 TANGENT_M = 200.0       # the line's direction is taken over +-this along it
 PAD_DEG = 0.05          # lines are kept this far outside the box (labels only inside)
