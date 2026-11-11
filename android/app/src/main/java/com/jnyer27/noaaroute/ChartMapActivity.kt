@@ -369,6 +369,7 @@ class ChartMapActivity : Activity() {
             }
             loaded.addOnCameraIdleListener {
                 paintScale()
+                if (following) paintGps()
                 if (overlayOn && !destroyed) refreshOverlay()
                 if (predictedOn && !destroyed) refreshPredicted()
             }
@@ -774,7 +775,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -966,11 +967,27 @@ class ChartMapActivity : Activity() {
         val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
         if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
             heldCourse = bearing
-        val st = style
-        if (st != null && !destroyed)
-            (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude))
         if (following) moveToFix(loc, bearing)
         paintFollow()
+    }
+
+    /**
+     * The blue dot, and while following and moving a heading line along the GPS course,
+     * twice the screen's diagonal long so it runs off the chart at any zoom.
+     */
+    private fun paintGps() {
+        val loc = lastFix ?: return
+        val st = style ?: return
+        if (destroyed) return
+        val course = ChartTiles.headingCourse(following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed)
+        var lengthM = 0.0
+        if (course != null) {
+            val b = try { map?.projection?.visibleRegion?.latLngBounds } catch (_: Exception) { null }
+            lengthM = if (b != null) 2 * LatLng(b.latitudeNorth, b.longitudeWest).distanceTo(LatLng(b.latitudeSouth, b.longitudeEast))
+                else 20000.0
+            lengthM = lengthM.coerceIn(500.0, 200000.0)
+        }
+        (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(ChartTiles.gpsGeoJson(loc.latitude, loc.longitude, course, lengthM))
     }
 
     private fun onFollowTapped() {
@@ -1061,6 +1078,7 @@ class ChartMapActivity : Activity() {
     }
 
     private fun paintFollow() {
+        paintGps()
         followButton?.text = when {
             following && lastFix == null -> "Waiting for GPS"
             following -> "Following"

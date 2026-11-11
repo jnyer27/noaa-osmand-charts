@@ -399,6 +399,29 @@ class ChartTilesTest {
     }
 
     @Test
+    fun headingLineRunsAlongTheCourseOnlyWhileFollowingAndMoving() {
+        assertNull(ChartTiles.headingCourse(false, 90f, 3f))
+        assertNull(ChartTiles.headingCourse(true, 90f, 0.2f))
+        assertNull(ChartTiles.headingCourse(true, null, 3f))
+        assertEquals(350.0, ChartTiles.headingCourse(true, -10f, 3f)!!, 1e-9)
+        // 1 nm due east of Maryland Marina: same latitude, 1852 m of longitude
+        val e = ChartTiles.rhumbEnd(39.32371, -76.39998, 90.0, 1852.0)
+        assertEquals(39.32371, e.lat, 1e-9)
+        assertEquals(1852.0, (e.lon + 76.39998) * 111194.93 * Math.cos(Math.toRadians(39.32371)), 1.0)
+        val n = ChartTiles.rhumbEnd(39.0, -76.0, 0.0, 1852.0)
+        assertEquals(-76.0, n.lon, 1e-9)
+        assertEquals(1.0 / 60, n.lat - 39.0, 1e-4)
+        // NE: the line keeps 45 degrees on the chart (Mercator), so equal stretched offsets
+        val ne = ChartTiles.rhumbEnd(39.0, -76.0, 45.0, 20000.0)
+        fun y(lat: Double) = Math.log(Math.tan(Math.PI / 4 + Math.toRadians(lat) / 2))
+        assertEquals(Math.toRadians(ne.lon + 76.0), y(ne.lat) - y(39.0), 1e-9)
+        val json = obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0, 45.0, 20000.0)))
+        val kinds = arr(json["features"]).map { obj(obj(it)["geometry"])["type"] }
+        assertEquals(listOf("LineString", "Point"), kinds)
+        assertEquals(listOf("Point"), arr(obj(MiniJson.parse(ChartTiles.gpsGeoJson(39.0, -76.0)))["features"]).map { obj(obj(it)["geometry"])["type"] })
+    }
+
+    @Test
     fun followAndCompass() {
         assertEquals(0.0, ChartTiles.mapBearing(false, 90f, 3f, 40.0), 0.001)
         assertEquals(90.0, ChartTiles.mapBearing(true, 90f, 3f, 0.0), 0.001)

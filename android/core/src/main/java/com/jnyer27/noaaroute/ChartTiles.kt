@@ -460,11 +460,40 @@ object ChartTiles {
         else -> "0"
     }
 
-    fun gpsGeoJson(lat: Double, lon: Double): String =
-        "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{}," +
-            "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", lon, lat)}}}]} "
+    /**
+     * The boat's position, and with [courseDeg] a heading line from it [lengthM] along that
+     * course (a rhumb line, so it is straight on the chart).
+     */
+    fun gpsGeoJson(lat: Double, lon: Double, courseDeg: Double? = null, lengthM: Double = 0.0): String {
+        val here = String.format(Locale.US, "[%.6f,%.6f]", lon, lat)
+        val point = "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"Point\",\"coordinates\":$here}}"
+        if (courseDeg == null || !courseDeg.isFinite() || !(lengthM > 0)) return "{\"type\":\"FeatureCollection\",\"features\":[$point]}"
+        val end = rhumbEnd(lat, lon, courseDeg, lengthM)
+        val there = String.format(Locale.US, "[%.6f,%.6f]", end.lon, end.lat)
+        val line = "{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[$here,$there]}}"
+        return "{\"type\":\"FeatureCollection\",\"features\":[$line,$point]}"
+    }
 
-            .trim()
+    /** The point [distM] from a start along a constant [courseDeg] (true), on a sphere. */
+    fun rhumbEnd(lat: Double, lon: Double, courseDeg: Double, distM: Double): LatLon {
+        val r = 6371008.8
+        val d = distM / r
+        val th = Math.toRadians(courseDeg)
+        val p1 = Math.toRadians(lat)
+        var p2 = p1 + d * Math.cos(th)
+        p2 = p2.coerceIn(Math.toRadians(-85.0), Math.toRadians(85.0))
+        val dPsi = Math.log(Math.tan(Math.PI / 4 + p2 / 2) / Math.tan(Math.PI / 4 + p1 / 2))
+        val q = if (Math.abs(dPsi) > 1e-12) (p2 - p1) / dPsi else Math.cos(p1)
+        val dl = d * Math.sin(th) / q
+        var lon2 = lon + Math.toDegrees(dl)
+        if (lon2 > 180) lon2 -= 360 else if (lon2 < -180) lon2 += 360
+        return LatLon(Math.toDegrees(p2), lon2)
+    }
+
+    /** The heading line's course: the GPS bearing while moving, else none (a stopped boat's bearing is noise). */
+    fun headingCourse(following: Boolean, gpsBearingDeg: Float?, speedMps: Float): Double? =
+        if (following && gpsBearingDeg != null && gpsBearingDeg.isFinite() && speedMps >= COURSE_SPEED_MPS)
+            normalizeBearing(gpsBearingDeg.toDouble()) else null
 
     /**
      * MapLibre style. [mbtilesUrl] is an mbtiles:// URL of the chart file on disk.
@@ -838,9 +867,12 @@ object ChartTiles {
       "layout": {"text-field": ["get", "label"], "text-font": ["$FONT"], "text-size": 13, "text-offset": [0, 1.5],
         "text-anchor": "top", "text-allow-overlap": true},
       "paint": {"text-color": "#6a1b9a", "text-halo-color": "#ffffff", "text-halo-width": 2}},
-    {"id": "gps-halo", "type": "circle", "source": "gps",
+    {"id": "gps-heading", "type": "line", "source": "gps", "filter": ["==", ["geometry-type"], "LineString"],
+      "layout": {"line-cap": "round"},
+      "paint": {"line-color": "#1a73e8", "line-width": 2.5, "line-opacity": 0.85}},
+    {"id": "gps-halo", "type": "circle", "source": "gps", "filter": ["==", ["geometry-type"], "Point"],
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
-    {"id": "gps", "type": "circle", "source": "gps",
+    {"id": "gps", "type": "circle", "source": "gps", "filter": ["==", ["geometry-type"], "Point"],
       "paint": {"circle-radius": 6, "circle-color": "#1a73e8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}}
   ]
 }
