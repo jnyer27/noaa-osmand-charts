@@ -36,6 +36,8 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.gestures.MoveGestureDetector
+import org.maplibre.android.gestures.StandardScaleGestureDetector
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapView
@@ -160,12 +162,12 @@ class ChartMapActivity : Activity() {
     private var compassLabel: TextView? = null
     private var courseButton: Button? = null
     private var following = false
+    /** A pinch is in progress: GPS fixes do not move the camera until it ends. */
+    private var scaling = false
     private var courseUp = false
     private var heldCourse = 0.0
     private var lastFix: Location? = null
     private var wantFollow = false
-    /** Our own camera moves must not turn Follow off. */
-    private var movingCamera = false
     private val poll = object : Runnable {
         override fun run() {
             if (destroyed) return
@@ -369,13 +371,24 @@ class ChartMapActivity : Activity() {
             loaded.uiSettings.isRotateGesturesEnabled = false
             loaded.uiSettings.isTiltGesturesEnabled = false
             loaded.uiSettings.isCompassEnabled = false
-            loaded.addOnCameraMoveStartedListener { reason ->
-                val gesture = reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE
-                if (gesture && !movingCamera) {
-                    following = ChartTiles.stillFollowing(following, true)
-                    paintFollow()
+            // A one-finger pan ends Follow. A pinch or double-tap zoom keeps it, at your zoom.
+            // (Camera-move reasons could not tell: with a fix every second the app's own
+            // animation was running half the time, and gestures then went unnoticed.)
+            loaded.addOnMoveListener(object : MapLibreMap.OnMoveListener {
+                override fun onMoveBegin(detector: MoveGestureDetector) {
+                    if (detector.pointersCount == 1 && !scaling) {
+                        following = ChartTiles.stillFollowing(following, true)
+                        paintFollow()
+                    }
                 }
-            }
+                override fun onMove(detector: MoveGestureDetector) {}
+                override fun onMoveEnd(detector: MoveGestureDetector) {}
+            })
+            loaded.addOnScaleListener(object : MapLibreMap.OnScaleListener {
+                override fun onScaleBegin(detector: StandardScaleGestureDetector) { scaling = true }
+                override fun onScale(detector: StandardScaleGestureDetector) {}
+                override fun onScaleEnd(detector: StandardScaleGestureDetector) { scaling = false }
+            })
             loaded.addOnCameraMoveListener { paintCompass(); paintScale() }
             mapView.addOnDidFailLoadingMapListener { message ->
                 if (destroyed) return@addOnDidFailLoadingMapListener
@@ -1045,7 +1058,7 @@ class ChartMapActivity : Activity() {
         following = true
         paintFollow()
         val fix = lastFix
-        if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse))
+        if (fix != null) moveToFix(fix, ChartTiles.mapBearing(courseUp, fix.bearing.takeIf { fix.hasBearing() }, fix.speed, heldCourse), snapZoom = true)
         else followButton?.text = "Waiting for GPS"
     }
 
@@ -1060,11 +1073,12 @@ class ChartMapActivity : Activity() {
         } catch (_: Exception) { false }
     }
 
-    private fun moveToFix(loc: Location, bearing: Double) {
+    /** Center on a fix. [snapZoom] (turning Follow on) zooms in to 15 from below 13; fixes keep your zoom. */
+    private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false) {
         val loaded = map ?: return
-        if (destroyed) return
+        if (destroyed || scaling) return
         val z = loaded.cameraPosition.zoom
-        val zoom = if (z < 13.0) 15.0 else z
+        val zoom = if (snapZoom && z < 13.0) 15.0 else z
         // Course up: the boat 3/4 of the way down, so most of the screen is ahead
         var target = LatLng(loc.latitude, loc.longitude)
         if (courseUp) {
@@ -1079,9 +1093,7 @@ class ChartMapActivity : Activity() {
             .bearing(bearing)
             .tilt(0.0)
             .build()
-        movingCamera = true
         loaded.easeCamera(CameraUpdateFactory.newCameraPosition(pos), 400)
-        mapView.postDelayed({ movingCamera = false }, 500)
     }
 
     private fun resetNorth() {
@@ -1091,9 +1103,7 @@ class ChartMapActivity : Activity() {
         courseButton?.text = "North up"
         val loaded = map ?: return
         val cam = loaded.cameraPosition
-        movingCamera = true
         loaded.easeCamera(CameraUpdateFactory.newCameraPosition(CameraPosition.Builder(cam).bearing(0.0).tilt(0.0).build()), 300)
-        mapView.postDelayed({ movingCamera = false }, 400)
         paintCompass()
         refreshKeySentence()
     }
