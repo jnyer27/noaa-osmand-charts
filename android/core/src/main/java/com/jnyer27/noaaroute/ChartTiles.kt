@@ -488,6 +488,15 @@ object ChartTiles {
         else -> "0"
     }
 
+    /** A pressed spot is moved this far down the chart, with its boxes below it. */
+    const val PRESS_SPOT_Y = 0.22
+
+    /** The temporary marker at a pressed spot (orange ring), or none for null. */
+    fun pressGeoJson(p: LatLon?): String =
+        if (p == null) "{\"type\":\"FeatureCollection\",\"features\":[]}"
+        else "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{}," +
+            "\"geometry\":{\"type\":\"Point\",\"coordinates\":${String.format(Locale.US, "[%.6f,%.6f]", p.lon, p.lat)}}}]}"
+
     /** Seconds ahead for the marker on the heading line. */
     const val AHEAD_S = 60.0
 
@@ -780,7 +789,8 @@ object ChartTiles {
     "cables": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "search": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
     "tides": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
-    "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
+    "gps": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}},
+    "press": {"type": "geojson", "data": {"type": "FeatureCollection", "features": []}}
   },
   "layers": [
     {"id": "background", "type": "background", "paint": {"background-color": "#d5e6f2"}},
@@ -926,7 +936,11 @@ object ChartTiles {
     {"id": "gps-halo", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
       "paint": {"circle-radius": 12, "circle-color": "#1a73e8", "circle-opacity": 0.25}},
     {"id": "gps", "type": "circle", "source": "gps", "filter": ["==", ["get", "kind"], "here"],
-      "paint": {"circle-radius": 6, "circle-color": "#1a73e8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}}
+      "paint": {"circle-radius": 6, "circle-color": "#1a73e8", "circle-stroke-color": "#ffffff", "circle-stroke-width": 2}},
+    {"id": "press-ring", "type": "circle", "source": "press",
+      "paint": {"circle-radius": 12, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#e65100", "circle-stroke-width": 3}},
+    {"id": "press-dot", "type": "circle", "source": "press",
+      "paint": {"circle-radius": 3, "circle-color": "#e65100", "circle-stroke-color": "#ffffff", "circle-stroke-width": 1}}
   ]
 }
 """

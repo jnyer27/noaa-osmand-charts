@@ -175,6 +175,8 @@ class ChartMapActivity : Activity() {
     private var compassLabel: TextView? = null
     private var courseButton: Button? = null
     private var following = false
+    /** A box about a pressed spot is open: Follow does not move the map, so the spot stays clear of it. */
+    private var pressOpen = false
     /** A pinch is in progress: GPS fixes do not move the camera until it ends. */
     private var scaling = false
     private var courseUp = false
@@ -745,16 +747,67 @@ class ChartMapActivity : Activity() {
     }
 
     /** Press and hold: use that spot as the start, a via point or the destination on the planning screen. */
+    /** The temporary orange ring at a pressed spot, or none. */
+    private fun markPress(p: LatLon?) {
+        if (destroyed) return
+        (style?.getSource("press") as? GeoJsonSource)?.setGeoJson(ChartTiles.pressGeoJson(p))
+    }
+
+    /**
+     * Show a box about a pressed spot without covering it: the map moves so the spot sits
+     * [ChartTiles.PRESS_SPOT_Y] down the chart, and the box opens at the bottom, no taller than
+     * the room under the spot (its content scrolls). While a box is open Follow does not move
+     * the map ([pressOpen]). [onDismiss] says whether another box for the spot follows.
+     */
+    private fun showLow(b: AlertDialog.Builder, p: LatLon, onDismiss: () -> Boolean) {
+        pressOpen = true
+        val spotY = bringUp(p)
+        val d = b.create()
+        d.window?.setGravity(Gravity.BOTTOM)
+        d.setOnDismissListener { if (!onDismiss()) pressOpen = false }
+        d.show()
+        val win = d.window ?: return
+        val decor = win.decorView
+        decor.post {
+            if (spotY == null || destroyed) return@post
+            val frame = android.graphics.Rect()
+            window.decorView.getWindowVisibleDisplayFrame(frame)
+            val room = (frame.bottom - spotY - dp(28)).toInt()
+            if (room > dp(120) && decor.height > room)
+                win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, room)
+        }
+    }
+
+    /** Move the map so [p] sits near the top of the chart; returns its y on the screen in px. */
+    private fun bringUp(p: LatLon): Float? {
+        val m = map ?: return null
+        val h = mapView.height.toFloat()
+        val w = mapView.width.toFloat()
+        if (h <= 0f || w <= 0f) return null
+        val proj = m.projection
+        val pt = proj.toScreenLocation(LatLng(p.lat, p.lon))
+        val want = (h * ChartTiles.PRESS_SPOT_Y).toFloat()
+        if (pt.y > h * (ChartTiles.PRESS_SPOT_Y + 0.08) || pt.y < h * 0.12) {
+            val c = proj.fromScreenLocation(android.graphics.PointF(w / 2 + (pt.x - w / 2), h / 2 + (pt.y - want)))
+            m.cancelTransitions()
+            m.moveCamera(CameraUpdateFactory.newLatLng(c))
+        }
+        val loc = IntArray(2)
+        mapView.getLocationOnScreen(loc)
+        return loc[1] + m.projection.toScreenLocation(LatLng(p.lat, p.lon)).y
+    }
+
     private fun showPoint(lat: Double, lon: Double) {
         val p = LatLon(lat, lon)
-        AlertDialog.Builder(this)
+        markPress(p)
+        var keep = false
+        showLow(AlertDialog.Builder(this)
             .setTitle(Coords.format(p))
             .setItems(arrayOf("Depth and tide here", "Set as start", "Add as via point", "Set as destination")) { _, which ->
-                if (which == 0) showSpot(lat, lon)
+                if (which == 0) { keep = true; showSpot(lat, lon) }
                 else returnPick(when (which) { 1 -> PICK_START; 2 -> PICK_VIA; else -> PICK_DEST }, lat, lon)
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            .setNegativeButton("Cancel", null), p) { if (!keep) markPress(null); keep }
     }
 
     /**
@@ -781,13 +834,13 @@ class ChartMapActivity : Activity() {
                         spotNeed(a?.lowFt, a?.basis), a?.estimateFt))
                 } else content.addView(TextView(this).apply { textSize = 13f; setPadding(dp(20), dp(8), dp(20), 0)
                     this.text = "No NOAA tide station within 30 km, or the station list is not downloaded yet." })
-                AlertDialog.Builder(this)
+                markPress(p)
+                showLow(AlertDialog.Builder(this)
                     .setTitle("Depth and tide: ${Coords.format(p)}")
                     .setView(android.widget.ScrollView(this).apply { addView(content) })
                     .setPositiveButton("Close", null)
                     .setNeutralButton("Add via here") { _, _ -> returnPick(PICK_VIA, lat, lon) }
-                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }
-                    .show()
+                    .setNegativeButton("Destination here") { _, _ -> returnPick(PICK_DEST, lat, lon) }, p) { markPress(null); false }
             }
         }.start()
     }
@@ -844,7 +897,7 @@ class ChartMapActivity : Activity() {
         sb.append("Teal dots (from zoom 9) are NOAA tide stations, filled when a year of predictions is saved on the phone: tap one for today's tides. ")
         sb.append("Search finds named buoys, lights, bridges, channels, towns, marinas and roads in your downloaded regions. ")
         if (baseDrawn.isNotEmpty()) sb.append("Roads, towns, county lines and marinas are from OpenStreetMap (\u00a9 OpenStreetMap contributors); it has no depths, and its shore may differ from NOAA's. ")
-        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart for the depth and tide there, or to set the start or destination there or add a via point.")
+        sb.append("The blue dot is your GPS position; while Follow is on and the boat is moving, the blue line from it is your course over ground, with a ring where you will be in a minute at this speed. In Course up the boat sits low on the screen so most of the chart is ahead. The box above Search is your GPS speed over ground in mph. While Follow is on and the boat is moving, the screen stays on, until 5 minutes after it stops. Press and hold the chart (an orange ring marks the spot) for the depth and tide there, or to set the start or destination there or add a via point.")
         if (outside) sb.append(if (region) " Charts cover the downloaded regions; past them, the route is the line alone."
             else " Charts cover Middle River only; past that, the route is the line alone.")
         if (chartNote.isNotEmpty()) sb.append(chartNote)
@@ -1159,7 +1212,7 @@ class ChartMapActivity : Activity() {
      */
     private fun moveToFix(loc: Location, bearing: Double, snapZoom: Boolean = false, glideMs: Int = 0) {
         val loaded = map ?: return
-        if (destroyed || scaling) return
+        if (destroyed || scaling || pressOpen) return
         val z = loaded.cameraPosition.zoom
         val zoom = if (snapZoom && z < 13.0) 15.0 else z
         // Course up: the boat 3/4 of the way down, so most of the screen is ahead

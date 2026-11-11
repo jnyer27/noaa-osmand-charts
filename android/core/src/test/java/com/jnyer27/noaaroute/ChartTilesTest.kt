@@ -452,6 +452,15 @@ class ChartTilesTest {
     }
 
     @Test
+    fun pressedSpotMarker() {
+        val one = arr(obj(MiniJson.parse(ChartTiles.pressGeoJson(LatLon(39.25816, -76.27044))))["features"])
+        assertEquals(listOf(-76.27044, 39.25816), arr(obj(obj(one[0])["geometry"])["coordinates"]).map { (it as Number).toDouble() })
+        assertEquals(0, arr(obj(MiniJson.parse(ChartTiles.pressGeoJson(null)))["features"]).size)
+        val ids = arr(obj(MiniJson.parse(ChartTiles.style(3.0, "mbtiles:///x.mbtiles", "file:///g/{fontstack}/{range}.pbf")))["layers"]).map { obj(it)["id"] }
+        assertEquals(listOf("press-ring", "press-dot"), ids.takeLast(2))  // above everything, the GPS dot too
+    }
+
+    @Test
     fun speedInMph() {
         assertEquals("-- mph", ChartTiles.speedText(null))
         assertEquals("-- mph", ChartTiles.speedText(Float.NaN))
