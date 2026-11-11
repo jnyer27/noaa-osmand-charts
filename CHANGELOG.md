@@ -4,7 +4,7 @@ Changes to NOAA Route (the app and its route packs), newest first. App versions 
 
 NOAA Route is a planning aid, not a certified navigation system. Check every leg against a current chart.
 
-## Unreleased: pressed spot marker (branch press-pin)
+## 2026-11-11: pressed spot marker (app 0.1.272, route packs build 166 unchanged)
 
 View map:
 - **Press and hold marks the spot.** An orange ring shows where you pressed while the choices (Depth and tide here, Set as start, Add as via point, Set as destination) and the depth and tide box are open; it clears when you close them. The map moves the spot near the top and the boxes open below it, never covering it (long ones scroll); Follow holds the map still until you close them.
