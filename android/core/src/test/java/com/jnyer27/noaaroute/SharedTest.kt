@@ -84,4 +84,32 @@ class SharedTest {
         assertEquals(LatLon(39.28, -76.42), g.trackEnds[1].pos)
         assertNull(Shared.parseGpx("just text"))
     }
+
+    @Test
+    fun gpxLineTakesTheRouteElseEveryTrackPointElseWaypoints() {
+        val rte = """<gpx><wpt lat="1" lon="1"/><rte><name>Run &amp; back</name><rtept lat="39.1" lon="-76.1"><name>A</name></rtept>
+            <rtept lat="39.2" lon="-76.2"/><rtept lat="39.3" lon="-76.3"/></rte></gpx>"""
+        val (n, line) = Shared.gpxLine(rte)!!
+        assertEquals("Run & back", n)
+        assertEquals(listOf(LatLon(39.1, -76.1), LatLon(39.2, -76.2), LatLon(39.3, -76.3)), line)
+        val trk = """<gpx><trk><name>Log</name><trkseg><trkpt lat="39.1" lon="-76.1"/><trkpt lat="39.15" lon="-76.1"/></trkseg>
+            <trkseg><trkpt lat="39.2" lon="-76.1"/></trkseg></trk></gpx>"""
+        val (tn, tl) = Shared.gpxLine(trk)!!
+        assertEquals("Log", tn)
+        assertEquals(3, tl.size)
+        val wpts = """<gpx><wpt lat="39.1" lon="-76.1"/><wpt lat="39.2" lon="-76.2"/></gpx>"""
+        assertEquals(2, Shared.gpxLine(wpts)!!.second.size)
+        assertNull(Shared.gpxLine("""<gpx><wpt lat="39.1" lon="-76.1"/></gpx>"""))
+        assertNull(Shared.gpxLine("not gpx"))
+    }
+
+    @Test
+    fun readTextUnzipsAGpxgz() {
+        val gpx = """<gpx><rte><name><![CDATA[testiboat]]></name><rtept lat="39.324859" lon="-76.401748"/><rtept lat="39.319515" lon="-76.402549"/></rte></gpx>"""
+        val z = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(z).use { it.write(gpx.toByteArray()) }
+        assertEquals(gpx, Shared.readText(java.io.ByteArrayInputStream(z.toByteArray())))
+        assertEquals(gpx, Shared.readText(java.io.ByteArrayInputStream(gpx.toByteArray())))
+        assertEquals("testiboat", Shared.gpxLine(gpx)!!.first)
+    }
 }

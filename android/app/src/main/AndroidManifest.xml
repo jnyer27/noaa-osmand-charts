@@ -45,6 +45,9 @@
                 <data android:mimeType="application/xml" />
                 <data android:mimeType="text/xml" />
                 <data android:mimeType="application/octet-stream" />
+                <!-- i-Boating's .gpxgz: gzipped GPX -->
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
             </intent-filter>
             <!-- "Open with" for GPX files and geo: links -->
             <intent-filter android:label="Set start/destination">
@@ -54,6 +57,8 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/gpx+xml" />
                 <data android:mimeType="application/gpx" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
             </intent-filter>
             <intent-filter android:label="Set start/destination">
                 <action android:name="android.intent.action.VIEW" />

@@ -172,6 +172,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         private const val SOFT_NOTE = "passes near charted shoal soundings or obstructions: check"
         /** On a leg made by Delete leg: a straight line the planner did not choose. */
         const val JOINED_NOTE = "a straight leg you made with Delete leg, not planned"
+        /** Import GPX drops track points within this of the line through their neighbours. */
+        const val IMPORT_TOL_M = 10.0
+        /** Import GPX checks legs in windows of up to this span (one grid each). */
+        private const val IMPORT_SPAN_DEG = 0.1
         // Rounding of the distance range in a hazard note (meters)
         private const val NOTE_STEP_M = 5.0
         internal const val HZ_SOUNDING = 0
@@ -2935,18 +2939,10 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
         for ((k, l) in r.legs.withIndex()) if (k != j - 1 && k != j) seen.addAll(l.notes)
         val made = legs(a, g, listOf(p, q), intArrayOf(i0, i1), seen, r.airFt).single()
         // Cells a planned leg never crosses; a point you put on land keeps its own way to the water
-        val lc = lineCells(a, i0, i1)
-        var s0 = 0
-        while (s0 < lc.size && !g.ok[lc[s0]]) s0++
-        var e0 = lc.size - 1
-        while (e0 >= s0 && !g.ok[lc[e0]]) e0--
-        val walls = (s0..e0).count { !g.ok[lc[it]] }
+        val wall = wallNote(a, g, i0, i1, made.distM, r.depthFt)
+        val walls = if (wall != null) 1 else 0
         val notes = ArrayList<String>()
-        if (walls > 0) {
-            val m = max(a.res, walls * made.distM / max(lc.size, 1))
-            val ft = if (r.depthFt % 1.0 == 0.0) "%.0f".format(Locale.US, r.depthFt) else "%.1f".format(Locale.US, r.depthFt)
-            notes.add("crosses about ${(m / 10).roundToInt() * 10} m of land, water charted under your $ft ft, or a structure the planner keeps off: check")
-        }
+        if (wall != null) notes.add(wall)
         val old = r.legs[j - 1].notes + r.legs[j].notes
         if (OFF_WATER in old) notes.add(OFF_WATER)
         notes.addAll(made.notes)
@@ -2962,6 +2958,102 @@ class Planner(private val pack: ChartSet, private val maxCells: Int = MAX_CELLS)
             leg, j, j + 1, joined.distM / NM, (r.legs[j - 1].distM + r.legs[j].distM) / NM,
             if (walls > 0) ", which crosses water or land the planner keeps off: check it" else "")
         return Route(name, pts, legs, r.depthFt, r.airFt, r.resM, r.messages + msg, r.guideM)
+    }
+
+    /**
+     * The check note for a straight line the planner did not draw: the cells it crosses that a
+     * planned leg never would (land, water charted under the safe depth, a structure). Cells at
+     * either end are skipped while they are not usable: a point you put on land keeps its own
+     * way to the water. Null when the line stays on usable water.
+     */
+    private fun wallNote(a: Area, g: Grid, i0: Int, i1: Int, distM: Double, depthFt: Double): String? {
+        val lc = lineCells(a, i0, i1)
+        var s0 = 0
+        while (s0 < lc.size && !g.ok[lc[s0]]) s0++
+        var e0 = lc.size - 1
+        while (e0 >= s0 && !g.ok[lc[e0]]) e0--
+        val walls = (s0..e0).count { !g.ok[lc[it]] }
+        if (walls == 0) return null
+        val m = max(a.res, walls * distM / max(lc.size, 1))
+        val ft = if (depthFt % 1.0 == 0.0) "%.0f".format(Locale.US, depthFt) else "%.1f".format(Locale.US, depthFt)
+        return "crosses about ${(m / 10).roundToInt() * 10} m of land, water charted under your $ft ft, or a structure the planner keeps off: check"
+    }
+
+    /**
+     * Import GPX: check a line from a file leg by leg, as Delete leg checks its straight leg.
+     * Nothing is replanned. Track points closer than [IMPORT_TOL_M] to the line through their
+     * neighbours are dropped first; the legs are checked in windows of up to [IMPORT_SPAN_DEG]
+     * so one grid serves many legs. Each leg gets the planner's notes (bridges, cables,
+     * restricted areas, shoal water, hazards) and a wall note where it crosses what a planned
+     * route keeps off.
+     */
+    fun checkRoute(name: String, line: List<LatLon>, depthFt: Double, airFt: Double?, bufM: Double = 60.0,
+                   from: String = "a GPX file", progress: (String) -> Unit = {}): Route {
+        val pts = simplify(line.filterIndexed { k, p -> k == 0 || distanceM(line[k - 1], p) > 1.0 }, IMPORT_TOL_M)
+        if (pts.size < 2) throw PlanException("The GPX file has no line to check: it needs a route or track with 2 or more points.")
+        for (p in pts) if (!pack.covers(p.lat, p.lon))
+            throw PlanException("%.5f, %.5f in the file is outside your downloaded chart areas (%s). Download the area that covers it.".format(p.lat, p.lon, pack.names))
+        inside = false
+        val seen = HashSet<String>()
+        val legs = ArrayList<Leg>()
+        var res = 0.0
+        var walled = 0
+        var s0 = 0
+        while (s0 < pts.size - 1) {
+            var e = s0 + 1
+            var la0 = min(pts[s0].lat, pts[e].lat); var la1 = max(pts[s0].lat, pts[e].lat)
+            var lo0 = min(pts[s0].lon, pts[e].lon); var lo1 = max(pts[s0].lon, pts[e].lon)
+            while (e + 1 < pts.size) {
+                val q = pts[e + 1]
+                if (max(max(la1, q.lat) - min(la0, q.lat), max(lo1, q.lon) - min(lo0, q.lon)) > IMPORT_SPAN_DEG) break
+                la0 = min(la0, q.lat); la1 = max(la1, q.lat); lo0 = min(lo0, q.lon); lo1 = max(lo1, q.lon)
+                e++
+            }
+            progress("Checking legs ${s0 + 1}-$e of ${pts.size - 1}")
+            val wps = pts.subList(s0, e + 1)
+            val a = area(wps, 1.0)
+            val g = buildGrid(a, depthFt * Pack.FT, airFt?.let { it * Pack.FT }, bufM)
+            val idx = IntArray(wps.size) { a.cell(wps[it]) }
+            val made = legs(a, g, wps, idx, seen, airFt)
+            for ((k, l) in made.withIndex()) {
+                val wall = wallNote(a, g, idx[k], idx[k + 1], l.distM, depthFt)
+                if (wall != null) walled++
+                legs.add(Leg(l.distM, l.bearing, l.shoalM, l.lowM, (listOfNotNull(wall) + l.notes).distinct()))
+            }
+            res = max(res, a.res)
+            s0 = e
+        }
+        val base = name.removeSuffix(".gpx").ifEmpty { "imported" }
+        val msg = String.format(Locale.US, "Imported from %s and checked, not planned: %d legs, %.1f nm (%d points in the file)%s.",
+            from, legs.size, legs.sumOf { it.distM } / NM, line.size,
+            if (walled > 0) ", $walled ${if (walled == 1) "leg crosses" else "legs cross"} water or land the planner keeps off: check" else "")
+        return Route(if (base.endsWith("_checked")) base else base + "_checked", pts, legs, depthFt, airFt, res, listOf(msg))
+    }
+
+    /** Douglas-Peucker in local meters: keeps the ends and every point more than [tolM] off the line. */
+    private fun simplify(p: List<LatLon>, tolM: Double): List<LatLon> {
+        if (p.size < 3) return p
+        val keep = BooleanArray(p.size)
+        keep[0] = true; keep[p.size - 1] = true
+        val stack = ArrayDeque<Pair<Int, Int>>()
+        stack.add(0 to p.size - 1)
+        while (stack.isNotEmpty()) {
+            val (i, j) = stack.removeLast()
+            if (j - i < 2) continue
+            val kx = 111_320.0 * cos(Math.toRadians(p[i].lat))
+            val bx = (p[j].lon - p[i].lon) * kx; val by = (p[j].lat - p[i].lat) * 111_320.0
+            val len2 = bx * bx + by * by
+            var far = -1.0; var at = -1
+            for (k in i + 1 until j) {
+                val x = (p[k].lon - p[i].lon) * kx; val y = (p[k].lat - p[i].lat) * 111_320.0
+                val t = if (len2 == 0.0) 0.0 else (x * bx + y * by) / len2
+                val tc = t.coerceIn(0.0, 1.0)
+                val d = hypot(x - tc * bx, y - tc * by)
+                if (d > far) { far = d; at = k }
+            }
+            if (far > tolM) { keep[at] = true; stack.add(i to at); stack.add(at to j) }
+        }
+        return p.filterIndexed { k, _ -> keep[k] }
     }
 
     /** The grid with what causes checks as walls (shallow water too unless [shallowOk]); the stretch's ends stay open. */

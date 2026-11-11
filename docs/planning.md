@@ -90,7 +90,7 @@ After planning, read the [route report](report.html) leg by leg. Each leg with a
 - **chart depth areas**: "crosses N m of a depth area that straddles your 5 ft" or "crosses N m charted entirely under your 5 ft", when the leg line crosses that area on a chart downloaded in the app (or the bundled Middle River chart),
 - **"check" notes**: a hazard the leg passes close to (named, with its depth and distance), a channel marker passed on the wrong side, piers or seawalls, piles or snags,
 - **"connects your point to usable water"**: the legs at either end, which are not checked at all,
-- **legs you made with Delete leg**: a straight line the planner did not choose. It is checked like any leg, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" when the line goes where a planned leg never would,
+- **legs you made with Delete leg, or imported with Import GPX**: a straight line the planner did not choose. It is checked like any leg, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" when the line goes where a planned leg never would,
 - **bridges and cables**: clearances and opening schedules. With **Don't check bridges and cables** on, these notes are checks too, and the report's first line says the clearances were not checked,
 - **restricted areas**: their rules.
 
@@ -171,6 +171,10 @@ The chart shows NOAA's predicted tides, from the same saved predictions as the r
 
 {: .warning }
 > Tides are predictions. A northwest wind on the Chesapeake can hold the water a foot or two below them, sometimes for days. Use the depth sounder, and treat a flagged leg as flagged whatever the tide says.
+
+## Import GPX
+
+**Import GPX** (below Share GPX; there before you plan too) checks a route or track you already have, from another app, a friend or an old trip, against your downloaded charts. Pick the file (a .gpx, or a gzipped .gpxgz from i-Boating or .gpx.gz). The app takes its first route, else every track point (all segments, in order), else its waypoints in order, and drops points within 10 m of the line through their neighbours. Your Safe operating depth, Air draft and Check markers settings are used; Start, Destination and Via points are not. Nothing is replanned: each leg is the file's straight line, checked like a planned leg, with the same notes, chart depth and tides, and "crosses about N m of land, water charted under your 5 ft, or a structure the planner keeps off: check" where the line goes where a planned leg never would. The report says how many legs were checked and how many cross what the planner keeps off. It is saved as name_checked.gpx (the imported file is unchanged), and View on map, Open in OsmAnd and Share GPX use it. **Look for a way around the checks** and **Delete leg** work on it too; only its first and last points are kept fixed. Every point must be inside your downloaded chart areas.
 
 ## When there is no route
 

@@ -108,6 +108,53 @@ object Shared {
     private fun unescape(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
         .replace("&apos;", "'").replace("&amp;", "&").trim()
 
+    /**
+     * Up to [limit] bytes of a stream as UTF-8 text. A gzipped stream (i-Boating's .gpxgz,
+     * or .gpx.gz) is unzipped first, by its magic bytes, whatever the file is called.
+     */
+    fun readText(input: java.io.InputStream, limit: Int = 20_000_000): String {
+        val b = java.io.BufferedInputStream(input)
+        b.mark(2)
+        val gz = b.read() == 0x1f && b.read() == 0x8b
+        b.reset()
+        val s = if (gz) java.util.zip.GZIPInputStream(b) else b
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(1 shl 16)
+        while (out.size() < limit) {
+            val n = s.read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+        }
+        return out.toString("UTF-8")
+    }
+
+    /**
+     * The line a GPX file draws, for Import GPX: the first route with 2 or more points, else
+     * every track point in file order (all segments), else the waypoints in order. The name
+     * is the route's or track's own when it has one. Null when there is no line.
+     */
+    fun gpxLine(xml: String): Pair<String?, List<LatLon>>? {
+        if (!xml.contains("<gpx", ignoreCase = true)) return null
+        fun pts(body: String, kind: String) = tag.findAll(body).filter { it.groupValues[1].equals(kind, true) }.mapNotNull { m ->
+            val lat = attLat.find(m.groupValues[2])?.groupValues?.get(1)?.toDouble()
+            val lon = attLon.find(m.groupValues[2])?.groupValues?.get(1)?.toDouble()
+            if (lat != null && lon != null && valid(lat, lon)) LatLon(lat, lon) else null
+        }.toList()
+        fun nameOf(block: String, child: String) = nameTag.find(block.substringBefore("<$child"))?.groupValues?.get(1)?.let(::unescape)?.takeIf { it.isNotEmpty() }
+        val noTracks = trkseg.replace(xml, "")
+        for (r in rteBlock.findAll(noTracks)) {
+            val line = pts(r.value, "rtept")
+            if (line.size >= 2) return nameOf(r.value, "rtept") to line
+        }
+        val tracks = trkseg.findAll(xml).toList()
+        val line = tracks.flatMap { pts(it.value, "trkpt") }
+        if (line.size >= 2) return tracks.firstOrNull()?.let { nameOf(it.value, "trkseg") } to line
+        val w = pts(noTracks.replace(rteBlock, ""), "wpt")
+        return if (w.size >= 2) null to w else null
+    }
+
+    private val rteBlock = Regex("""<rte\b.*?</rte>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
     /** Points in a GPX document, or null if it is not GPX. */
     fun parseGpx(xml: String): SharedGpx? {
         if (!xml.contains("<gpx", ignoreCase = true)) return null

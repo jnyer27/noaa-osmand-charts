@@ -48,6 +48,7 @@ import kotlin.math.ceil
 class MainActivity : Activity() {
     companion object {
         private const val REQ_CHART = 7
+        private const val REQ_IMPORT = 8
         const val ROUTES_DIR = "noaa-charts/routes"
         /** From a chart map notice: open this region's card ("" = the Regions screen). */
         const val EXTRA_REGION = "region"
@@ -234,6 +235,8 @@ class MainActivity : Activity() {
         actions.addView(button("Show routes folder in Files") { showFolder() })
         actions.addView(button("Share GPX") { shareGpx() })
         col.addView(actions)
+        // Below Share GPX when a route is shown, and there without one: no planning needed first
+        col.addView(button("Import GPX") { pickGpx() })
         col.addView(button("Manage places") { managePlaces() })
 
         setContentView(ScrollView(this).apply { addView(col); insetPadding(this) })
@@ -318,16 +321,7 @@ class MainActivity : Activity() {
                 when {
                     uri != null && uri.scheme == "geo" -> Shared.parseText(uri.toString()) to null
                     uri != null -> {
-                        val body = contentResolver.openInputStream(uri)?.use { s ->
-                            val out = java.io.ByteArrayOutputStream()
-                            val buf = ByteArray(1 shl 16)
-                            while (out.size() < 20_000_000) {
-                                val n = s.read(buf)
-                                if (n < 0) break
-                                out.write(buf, 0, n)
-                            }
-                            out.toString("UTF-8")
-                        }.orEmpty()
+                        val body = readText(uri)
                         val gpx = Shared.parseGpx(body)
                         if (gpx != null) emptyList<SharedPoint>() to gpx else Shared.parseText(body) to null
                     }
@@ -1431,6 +1425,10 @@ class MainActivity : Activity() {
     @Deprecated("Activity result API; this app has no AndroidX")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_IMPORT) {
+            if (resultCode == RESULT_OK) data?.data?.let { importGpx(it) }
+            return
+        }
         if (requestCode != REQ_CHART || resultCode != RESULT_OK || data == null) return
         if (data.getStringExtra(ChartMapActivity.EXTRA_PICK_ACTION) == ChartMapActivity.PICK_DELETE) {
             deleteLeg(data.getIntExtra(ChartMapActivity.EXTRA_PICK_LEG, 0))
@@ -1629,6 +1627,88 @@ class MainActivity : Activity() {
                 ui.post { status.text = e.message; planButton.isEnabled = true; packButton.isEnabled = true }
             } catch (e: Exception) {
                 ui.post { status.text = "Error: ${e.message}"; planButton.isEnabled = true; packButton.isEnabled = true }
+            }
+        }
+    }
+
+    /** Up to 20 MB of a file as text; a gzipped file (.gpxgz, .gpx.gz) is unzipped. */
+    private fun readText(uri: Uri): String = contentResolver.openInputStream(uri)?.use { Shared.readText(it) }.orEmpty()
+
+    /** Import GPX: pick a file (any type: GPX files often come without a GPX mime type). */
+    private fun pickGpx() {
+        if (charts == null) { toast("Download route data for planning first (Regions)."); return }
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "application/xml", "text/xml", "application/octet-stream", "text/plain",
+                "application/gzip", "application/x-gzip"))
+        try {
+            @Suppress("DEPRECATION") startActivityForResult(i, REQ_IMPORT)
+        } catch (_: Exception) {
+            toast("No file picker on this device.")
+        }
+    }
+
+    /**
+     * Check an imported GPX's line against the charts with the form's safe depth and air
+     * draft (Planner.checkRoute): each leg gets the planner's notes and checks, nothing is
+     * replanned. Chart depth and tides are added and it is saved as <name>_checked.gpx. Look
+     * for a way around the checks and Delete leg then work on it; only its ends are fixed.
+     */
+    private fun importGpx(uri: Uri) {
+        val p = charts ?: run { toast("Download route data for planning first (Regions)."); return }
+        val d = formDepth() ?: run { toast("Depth must be feet, 0-40"); return }
+        val airFt = try {
+            Planner.airDraftFt(air.text.toString(), skipBridges.isChecked)
+        } catch (e: PlanException) {
+            toast(e.message ?: "Air draft must be feet"); return
+        }
+        val markChecks = checks.isChecked
+        val file = try {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        } catch (_: Exception) { null } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "imported.gpx"
+        planButton.isEnabled = false
+        packButton.isEnabled = false
+        actions.visibility = View.GONE
+        result.text = ""
+        route = null
+        gpxUri = null
+        status.text = "Reading $file..."
+        fun done(msg: String?) = ui.post { status.text = msg; planButton.isEnabled = true; packButton.isEnabled = true }
+        worker.execute {
+            val t0 = System.currentTimeMillis()
+            try {
+                val (title, line) = Shared.gpxLine(readText(uri))
+                    ?: throw PlanException("No route or track with 2 or more points in $file.")
+                val base = (title?.takeIf { it.isNotBlank() } ?: file.substringBeforeLast('.')).replace(Regex("[^\\w.-]+"), "_")
+                val checked = withChartDepth(Planner(p).checkRoute(base, line, d, airFt, BUF_M, file) { msg -> ui.post { status.text = msg } })
+                val used = usedPacks(p, checked)
+                val datum = Pack.datumName(used.flatMap { it.datums })
+                ui.post { status.text = "Tide predictions..." }
+                val tides = withTides(checked)
+                val r = tides.route
+                val ends = listOf(r.points.first(), r.points.last())
+                val (u, savedAs) = saveGpx(r, datum, markChecks, ends, tides.lines)
+                val sec = (System.currentTimeMillis() - t0) / 1000.0
+                val trip = listOf("imported: $file (${line.size} points, ${r.points.size} kept)") +
+                    tripLines(ends[0], emptyList(), ends[1])
+                val saved = "Saved to Download/$ROUTES_DIR/$savedAs (the imported file is unchanged)"
+                ui.post {
+                    route = r
+                    gpxUri = u
+                    planned = Planned(ends, false, markChecks, datum, trip, used)
+                    resolveButton.visibility = if (Gpx.checkRuns(r).isNotEmpty()) View.VISIBLE else View.GONE
+                    showReport(r, trip, tides.lines + afterLines(used, sec), datum, saved)
+                    status.text = r.messages.first()
+                    actions.visibility = View.VISIBLE
+                    planButton.isEnabled = true; packButton.isEnabled = true
+                }
+            } catch (e: PlanException) {
+                done(e.message)
+            } catch (e: OutOfMemoryError) {
+                done("Out of memory while checking the imported route.")
+            } catch (e: Exception) {
+                done("Error: ${e.message}")
             }
         }
     }

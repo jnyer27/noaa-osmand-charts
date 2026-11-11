@@ -224,6 +224,34 @@ class PlannerTest {
     }
 
     @Test
+    fun checkRouteChecksAnImportedLineWithoutReplanningIt() {
+        Pack(headlandPack()).use { pack ->
+            val planner = Planner(ChartSet(listOf(pack)))
+            val pts = listOf(cellCenter(400, 260), cellCenter(251, 100))
+            val r = planner.plan("t", pts, 3.0, null)
+            // The planned line as a track, with a point halfway along each leg: those are
+            // dropped (on the line), the turns are kept, and nothing is flagged
+            val track = r.points.zipWithNext().flatMap { (p, q) -> listOf(p, LatLon((p.lat + q.lat) / 2, (p.lon + q.lon) / 2)) } + r.points.last()
+            val c = planner.checkRoute("trip.gpx", track, 3.0, null, from = "trip.gpx")
+            assertEquals("trip_checked", c.name)
+            assertTrue(c.points.size <= r.points.size)
+            assertEquals(c.points.size - 1, c.legs.size)
+            assertEquals(r.points.first(), c.points.first())
+            assertEquals(r.points.last(), c.points.last())
+            for (l in c.legs) assertTrue(l.notes.toString(), l.notes.none { it.startsWith("crosses about") })
+            assertTrue(c.messages.single(), c.messages.single().startsWith("Imported from trip.gpx and checked, not planned: ${c.legs.size} leg"))
+            // Straight across the headland: one leg, flagged
+            val x = planner.checkRoute("x", pts, 3.0, null)
+            val l = x.legs.single()
+            assertTrue(l.notes.toString(), l.notes.any { it.startsWith("crosses about") && it.endsWith(": check") })
+            assertTrue(Gpx.flagged(l))
+            assertEquals(Planner.distanceM(pts[0], pts[1]), l.distM, 1.0)
+            assertTrue(x.messages.single().contains("1 leg crosses"))
+            try { planner.checkRoute("y", listOf(pts[0], pts[0]), 3.0, null); fail("no line") } catch (e: PlanException) { }
+        }
+    }
+
+    @Test
     fun deleteLegInOpenWaterIsNotFlaggedAndKeepsViaPoints() {
         Pack(headlandPack()).use { pack ->
             val planner = Planner(ChartSet(listOf(pack)))
