@@ -175,6 +175,9 @@ object ChartTiles {
     fun glideMs(sinceLastFixMs: Long): Int =
         (if (sinceLastFixMs in 1..60_000) sinceLastFixMs else GPS_INTERVAL_MS).coerceIn(300L, 1500L).toInt()
 
+    /** A new fix farther than this from the drawn dot (a jump in position) is not glided to. */
+    const val GLIDE_MAX_M = 500.0
+
     /** While following, the screen stays on until this long after the boat last moved. */
     const val KEEP_AWAKE_MS = 5 * 60 * 1000L
 

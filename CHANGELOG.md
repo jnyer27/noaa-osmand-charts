@@ -13,7 +13,7 @@ View map:
 - **Zoom while following.** Pinch or double-tap zoom keeps Follow on and the chart stays at your zoom (each fix zoomed it back in to 15, and with a fix every second a zoom was often missed). A one-finger pan still turns Follow off.
 - **Layers fold away.** The Base map, Route data and Predicted depth checkboxes hide behind a small Layers tab at the top left; tap it to show or hide them. The chart remembers which.
 - **Screen stays on underway.** While Follow is on and the boat is moving, the screen stays on; 5 minutes after the boat stops, or when Follow is off, the phone's own timeout applies again.
-- **The chart glides.** While following, the map moves at a steady pace between GPS fixes (about a second each) instead of hopping every second.
+- **The chart glides.** While following, the map moves at a steady pace between GPS fixes (about a second each) instead of hopping every second, and the blue dot, heading line and 1 minute ring glide with it.
 - **Speed in mph.** A box above Search shows GPS speed over ground in mph, "-- mph" until a fix comes or after 10 seconds without one.
 - **GPS every second** on the chart (was every 2 seconds or 2 m), so the dot, heading line and Course up keep up. A coarse network fix no longer moves the dot while GPS fixes are coming.
 

@@ -11,6 +11,7 @@ import android.content.res.Configuration
 import android.database.sqlite.SQLiteDatabase
 import android.location.Location
 import android.location.LocationListener
+import android.animation.ValueAnimator
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +20,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.view.WindowManager
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -158,6 +160,10 @@ class ChartMapActivity : Activity() {
     private var lastMovingMs = 0L
     /** The previous accepted fix's time, so the camera glides for about the gap between fixes. */
     private var prevFixMs = 0L
+    /** Where the dot is drawn now: it glides from here to each new fix, in step with the camera. */
+    private var shownLat = Double.NaN
+    private var shownLon = Double.NaN
+    private var dotGlide: ValueAnimator? = null
     private val awakeCheck = Runnable { paintAwake() }
     /** No fix for a while: the speed is no longer known. */
     private val speedStale = Runnable { speedLabel?.text = ChartTiles.speedText(null) }
@@ -1044,9 +1050,41 @@ class ChartMapActivity : Activity() {
         val bearing = ChartTiles.mapBearing(courseUp && following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed, heldCourse)
         if (courseUp && following && loc.hasBearing() && loc.speed >= ChartTiles.COURSE_SPEED_MPS)
             heldCourse = bearing
-        if (following) moveToFix(loc, bearing, glideMs = ChartTiles.glideMs(fixMs - prevFixMs))
+        val glide = ChartTiles.glideMs(fixMs - prevFixMs)
+        if (following) moveToFix(loc, bearing, glideMs = glide)
         prevFixMs = fixMs
+        glideDot(loc.latitude, loc.longitude, glide)
         paintFollow()
+    }
+
+    /**
+     * Slide the dot (with its heading line and 1 minute ring) from where it is drawn to the
+     * new fix at a steady pace over [ms], like the camera, so it does not hop each second.
+     * The first fix, or one more than [ChartTiles.GLIDE_MAX_M] away, jumps.
+     */
+    private fun glideDot(lat: Double, lon: Double, ms: Int) {
+        dotGlide?.cancel()
+        dotGlide = null
+        val fromLat = shownLat
+        val fromLon = shownLon
+        val far = !fromLat.isFinite() || !fromLon.isFinite() ||
+            LatLng(fromLat, fromLon).distanceTo(LatLng(lat, lon)) > ChartTiles.GLIDE_MAX_M
+        if (far || destroyed) {
+            shownLat = lat
+            shownLon = lon
+            return
+        }
+        dotGlide = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ms.toLong()
+            interpolator = LinearInterpolator()
+            addUpdateListener { a ->
+                val f = a.animatedFraction.toDouble()
+                shownLat = fromLat + (lat - fromLat) * f
+                shownLon = fromLon + (lon - fromLon) * f
+                paintGps()
+            }
+            start()
+        }
     }
 
     /**
@@ -1057,6 +1095,8 @@ class ChartMapActivity : Activity() {
         val loc = lastFix ?: return
         val st = style ?: return
         if (destroyed) return
+        val lat = if (shownLat.isFinite()) shownLat else loc.latitude
+        val lon = if (shownLon.isFinite()) shownLon else loc.longitude
         val course = ChartTiles.headingCourse(following, loc.bearing.takeIf { loc.hasBearing() }, loc.speed)
         var lengthM = 0.0
         if (course != null) {
@@ -1066,7 +1106,7 @@ class ChartMapActivity : Activity() {
             lengthM = lengthM.coerceIn(500.0, 200000.0)
         }
         (st.getSource("gps") as? GeoJsonSource)?.setGeoJson(
-            ChartTiles.gpsGeoJson(loc.latitude, loc.longitude, course, lengthM, if (loc.hasSpeed()) loc.speed.toDouble() else 0.0))
+            ChartTiles.gpsGeoJson(lat, lon, course, lengthM, if (loc.hasSpeed()) loc.speed.toDouble() else 0.0))
     }
 
     private fun onFollowTapped() {
@@ -1250,6 +1290,9 @@ class ChartMapActivity : Activity() {
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume(); if (style != null) listen() }
     override fun onPause() {
+        dotGlide?.cancel()
+        dotGlide = null
+        lastFix?.let { shownLat = it.latitude; shownLon = it.longitude }
         uiHandler.removeCallbacks(awakeCheck)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         uiHandler.removeCallbacks(speedStale)
